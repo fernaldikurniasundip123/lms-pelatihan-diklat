@@ -44,7 +44,8 @@ export default function Login() {
         .single();
 
       if (userError && userError.code !== 'PGRST116') { // PGRST116 is "not found"
-        throw new Error("Gagal memeriksa data pengguna");
+        console.error("Supabase error checking user:", userError);
+        throw new Error(`Gagal memeriksa data pengguna: ${userError.message}`);
       }
 
       if (user) {

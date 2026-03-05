@@ -79,7 +79,7 @@ export default function AdminDashboard() {
         course_name: vp.courses?.name,
         course_id: vp.course_id,
         video_title: vp.videos?.title,
-        percentage: vp.completed ? 100 : 0,
+        percentage: vp.progress_percentage || (vp.completed ? 100 : 0),
         is_completed: vp.completed
       })));
     }
@@ -111,12 +111,24 @@ export default function AdminDashboard() {
       .from('enrollments')
       .select(`*, users(id, full_name, identity_number, global_verifications(live_photo_url, ktp_photo_url)), courses(id, name)`);
       
+    // Fetch total videos per course to calculate accurate percentage
+    const { data: allVideos } = await supabase.from('videos').select('course_id');
+    const videoCountByCourse: Record<string, number> = {};
+    if (allVideos) {
+      allVideos.forEach(v => {
+        videoCountByCourse[v.course_id] = (videoCountByCourse[v.course_id] || 0) + 1;
+      });
+    }
+
     if (enrollData && vpData && arData) {
       const finalReps = enrollData.map((en: any) => {
         const userVp = vpData.filter((vp: any) => vp.user_id === en.user_id && vp.course_id === en.course_id);
         const userAr = arData.filter((ar: any) => ar.user_id === en.user_id && ar.course_id === en.course_id);
         
-        const avgVideo = userVp.length > 0 ? (userVp.filter((v: any) => v.completed).length / userVp.length) * 100 : 0;
+        const totalVideosForCourse = videoCountByCourse[en.course_id] || 0;
+        const totalProgressSum = userVp.reduce((acc: number, vp: any) => acc + (vp.progress_percentage || (vp.completed ? 100 : 0)), 0);
+        
+        const avgVideo = totalVideosForCourse > 0 ? totalProgressSum / totalVideosForCourse : 0;
         const bestScore = userAr.length > 0 ? Math.max(...userAr.map((a: any) => a.score)) : null;
         const passed = userAr.some((a: any) => a.passed);
         

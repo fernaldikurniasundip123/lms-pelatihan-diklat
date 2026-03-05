@@ -15,13 +15,51 @@ export default function AssessmentPreCheck() {
   const [ktpPhoto, setKtpPhoto] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [attemptsInfo, setAttemptsInfo] = useState<{ count: number, passed: boolean } | null>(null);
 
-  // If user is already verified globally, they can just proceed
   useEffect(() => {
-    if (user?.is_verified) {
-      navigate(`/course/${courseId}/assessment`);
+    if (user && courseId) {
+      checkPreviousAttempts();
     }
-  }, [user, courseId, navigate]);
+  }, [user, courseId]);
+
+  const checkPreviousAttempts = async () => {
+    if (!user || !courseId) return;
+    try {
+      // First get the assessment ID for this course
+      const { data: assessment } = await supabase
+        .from('assessments')
+        .select('id')
+        .eq('course_id', courseId)
+        .single();
+
+      if (assessment) {
+        const { data: results } = await supabase
+          .from('assessment_results')
+          .select('passed')
+          .eq('user_id', user.id)
+          .eq('assessment_id', assessment.id);
+
+        if (results) {
+          const passed = results.some(r => r.passed);
+          setAttemptsInfo({ count: results.length, passed });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to check attempts:", err);
+    }
+  };
+
+  // If user is already verified globally, they can just proceed (unless blocked by attempts)
+  useEffect(() => {
+    if (user?.is_verified && attemptsInfo) {
+      if (attemptsInfo.passed || attemptsInfo.count >= 3) {
+        // Stay here to show the message
+      } else {
+        navigate(`/course/${courseId}/assessment`);
+      }
+    }
+  }, [user, courseId, navigate, attemptsInfo]);
 
   const capture = useCallback(() => {
     const imageSrc = webcamRef.current?.getScreenshot();

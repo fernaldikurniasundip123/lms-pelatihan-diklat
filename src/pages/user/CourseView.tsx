@@ -142,39 +142,52 @@ export default function CourseView() {
     }
   };
 
-  const handleProgress = async (percentage: number, currentTime: number) => {
-    // We can optionally save partial progress to Supabase here if needed.
-    // For now, we only care about completion.
-  };
+  const lastSavedProgress = useRef<number>(0);
 
-  const handleComplete = async () => {
+  const handleProgress = async (percentage: number, currentTime: number) => {
     if (!activeVideo || !user || !courseId) return;
     
-    try {
-      // Check if already completed to avoid unnecessary writes
-      const { data: existing } = await supabase
-        .from('video_progress')
-        .select('completed')
-        .eq('user_id', user.id)
-        .eq('video_id', activeVideo.id)
-        .single();
-
-      if (!existing?.completed) {
-        await supabase
+    // Only save to database if progress increased by at least 5% or reached 99%
+    if (percentage - lastSavedProgress.current >= 5 || percentage >= 99) {
+      lastSavedProgress.current = percentage;
+      
+      try {
+        const { data: existing } = await supabase
           .from('video_progress')
-          .upsert({
+          .select('completed, progress_percentage')
+          .eq('user_id', user.id)
+          .eq('video_id', activeVideo.id)
+          .single();
+
+        const isCompleted = percentage >= 99 || existing?.completed;
+        const maxPercentage = Math.max(percentage, existing?.progress_percentage || 0);
+
+        if (existing) {
+          await supabase.from('video_progress').update({
+            progress_percentage: maxPercentage,
+            completed: isCompleted,
+            ...(isCompleted && !existing.completed ? { completed_at: new Date().toISOString() } : {})
+          }).eq('user_id', user.id).eq('video_id', activeVideo.id);
+        } else {
+          await supabase.from('video_progress').insert({
             user_id: user.id,
             video_id: activeVideo.id,
             course_id: courseId,
-            completed: true,
-            completed_at: new Date().toISOString()
-          }, { onConflict: 'user_id, video_id' });
-          
-        fetchCourse(); // Refresh to update UI
+            progress_percentage: maxPercentage,
+            completed: isCompleted,
+            ...(isCompleted ? { completed_at: new Date().toISOString() } : {})
+          });
+        }
+      } catch (err) {
+        console.error("Failed to save partial progress:", err);
       }
-    } catch (err) {
-      console.error("Failed to save progress:", err);
     }
+  };
+
+  const handleComplete = async () => {
+    // We can just call handleProgress with 100% to ensure it saves
+    await handleProgress(100, 0);
+    fetchCourse(); // Refresh to update UI
   };
 
   if (!course) return <div className="p-8 text-center">Loading...</div>;

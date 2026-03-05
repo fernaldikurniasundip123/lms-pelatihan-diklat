@@ -170,9 +170,9 @@ export default function UserDashboard() {
 
       await checkAuth(); // refresh user data to get is_verified = true
       setIsVerified(true);
-    } catch (err) {
-      console.error(err);
-      alert("Error submitting verification.");
+    } catch (err: any) {
+      console.error("Verification error:", err);
+      alert(`Error submitting verification: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
