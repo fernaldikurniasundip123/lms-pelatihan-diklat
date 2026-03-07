@@ -78,7 +78,10 @@ export default function Login() {
           .select()
           .single();
           
-        if (createError) throw new Error("Gagal membuat akun baru");
+        if (createError) {
+          console.error("Error creating user:", createError);
+          throw new Error(`Gagal membuat akun baru: ${createError.message}`);
+        }
         user = newUser;
       }
 
