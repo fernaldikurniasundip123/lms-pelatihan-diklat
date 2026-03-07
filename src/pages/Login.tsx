@@ -41,7 +41,6 @@ export default function Login() {
         .from('users')
         .select('*')
         .eq('full_name', fullName)
-        .eq('class_name', className)
         .single();
 
       if (userError && userError.code !== 'PGRST116') { // PGRST116 is "not found"
@@ -49,8 +48,29 @@ export default function Login() {
         throw new Error(`Gagal memeriksa data pengguna: ${userError.message}`);
       }
 
-      if (!user) {
-        // Create new user, generate a dummy identity_number since it might be required in DB
+      if (user) {
+        if (user.role === 'admin') {
+          // Khusus admin, isian "Kelas" berfungsi sebagai password (admin123)
+          if (className !== 'admin123' && className !== user.identity_number) {
+            throw new Error("Password/Kelas admin salah");
+          }
+        } else {
+          // Update kelas user biasa jika berbeda
+          if (className && user.class_name !== className) {
+            const { data: updatedUser } = await supabase
+              .from('users')
+              .update({ class_name: className })
+              .eq('id', user.id)
+              .select()
+              .single();
+            if (updatedUser) user = updatedUser;
+          }
+        }
+      } else {
+        // Create new user
+        if (className === 'admin123' || fullName.toLowerCase().includes('admin')) {
+          throw new Error("Tidak dapat membuat akun admin baru");
+        }
         const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
         const { data: newUser, error: createError } = await supabase
           .from('users')
@@ -165,7 +185,7 @@ export default function Login() {
 
             <div>
               <label htmlFor="className" className="block text-sm font-medium text-gray-700">
-                Kelas
+                Kelas (atau Password Admin)
               </label>
               <div className="mt-1">
                 <input
@@ -173,16 +193,10 @@ export default function Login() {
                   name="className"
                   type="text"
                   required
-                  maxLength={2}
-                  pattern="[A-Za-z]{1,2}"
-                  title="Maksimal 2 huruf abjad (misal: AB)"
-                  placeholder="Contoh: AB"
+                  placeholder="Contoh: A, B, atau admin123"
                   value={className}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase();
-                    setClassName(val);
-                  }}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm uppercase"
+                  onChange={(e) => setClassName(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 />
               </div>
             </div>
