@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [filterCourseId, setFilterCourseId] = useState("");
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd] = useState("");
+  const [filterClassName, setFilterClassName] = useState("");
 
   // Photo Modal State
   const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null} | null>(null);
@@ -126,7 +127,7 @@ export default function AdminDashboard() {
     // Final Reports
     const { data: enrollData } = await supabase
       .from('enrollments')
-      .select(`*, users(id, full_name, identity_number, global_verifications(live_photo_url, ktp_photo_url)), courses(id, name)`);
+      .select(`*, users(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url)), courses(id, name)`);
       
     // Fetch total videos per course to calculate accurate percentage
     const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true });
@@ -161,6 +162,7 @@ export default function AdminDashboard() {
         return {
           full_name: en.users?.full_name,
           identity_number: en.users?.identity_number,
+          class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
           course_id: en.course_id,
           avg_video_progress: avgVideo,
@@ -322,6 +324,7 @@ export default function AdminDashboard() {
   const filterReports = (reports: any[]) => {
     return reports.filter(r => {
       if (filterCourseId && r.course_id !== filterCourseId) return false;
+      if (filterClassName && r.class_name && !r.class_name.toLowerCase().includes(filterClassName.toLowerCase())) return false;
       if (filterPeriodStart && r.period_start && r.period_start < filterPeriodStart) return false;
       if (filterPeriodEnd && r.period_end && r.period_end > filterPeriodEnd) return false;
       return true;
@@ -383,6 +386,7 @@ export default function AdminDashboard() {
           
           bodyData.push([
             r.full_name + '\n' + r.identity_number,
+            r.class_name || '-',
             r.course_name,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.final_score != null ? Math.round(r.final_score).toString() : '-',
@@ -394,20 +398,20 @@ export default function AdminDashboard() {
 
         autoTable(doc, {
           startY: 40,
-          head: [['User', 'Course', 'Video Progress', 'Score', 'Status', 'Live Photo', 'KTP']],
+          head: [['User', 'Kelas', 'Course', 'Video Progress', 'Score', 'Status', 'Live Photo', 'KTP']],
           body: bodyData,
           styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 20 },
           columnStyles: {
-            5: { cellWidth: 25 }, // Live Photo
-            6: { cellWidth: 35 }  // KTP
+            6: { cellWidth: 25 }, // Live Photo
+            7: { cellWidth: 35 }  // KTP
           },
           didDrawCell: (data) => {
             if (data.section === 'body') {
               const imgs = imagesMap.get(data.row.index);
-              if (data.column.index === 5 && imgs?.live) {
+              if (data.column.index === 6 && imgs?.live) {
                 doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
               }
-              if (data.column.index === 6 && imgs?.ktp) {
+              if (data.column.index === 7 && imgs?.ktp) {
                 doc.addImage(imgs.ktp, 'JPEG', data.cell.x + 2, data.cell.y + 2, 30, 16);
               }
             }
@@ -425,6 +429,102 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error("Failed to generate PDF:", err);
       alert("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
+  const downloadExcel = async (type: 'final') => {
+    setIsGeneratingPDF(true); // Reuse loading state
+    try {
+      // Dynamic import to keep bundle small if not used
+      const ExcelJS = (await import('exceljs')).default;
+      const { saveAs } = (await import('file-saver')).default;
+      
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Final Report');
+      
+      const filtered = filterReports(finalReports);
+
+      // Add Headers
+      worksheet.columns = [
+        { header: 'No', key: 'no', width: 5 },
+        { header: 'Nama Lengkap', key: 'name', width: 25 },
+        { header: 'NIK/NRP', key: 'nik', width: 20 },
+        { header: 'Kelas', key: 'kelas', width: 15 },
+        { header: 'Pelatihan', key: 'course', width: 25 },
+        { header: 'Video Progress', key: 'video', width: 30 },
+        { header: 'Nilai Assessment', key: 'score', width: 15 },
+        { header: 'Status', key: 'status', width: 15 },
+        { header: 'Foto Live', key: 'live', width: 20 },
+        { header: 'Foto KTP', key: 'ktp', width: 30 }
+      ];
+
+      // Style Headers
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+      for (let i = 0; i < filtered.length; i++) {
+        const r = filtered[i];
+        const row = worksheet.addRow({
+          no: i + 1,
+          name: r.full_name,
+          nik: r.identity_number,
+          kelas: r.class_name,
+          course: r.course_name,
+          video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
+          score: r.final_score != null ? Math.round(r.final_score) : '-',
+          status: r.assessment_status || '-'
+        });
+
+        // Make row tall enough for images
+        row.height = 80;
+        row.alignment = { vertical: 'middle', wrapText: true };
+
+        // Add Images if exist
+        if (r.live_photo_data) {
+          try {
+            const liveB64 = await getBase64ImageFromUrl(r.live_photo_data);
+            if (liveB64) {
+              const imageId = workbook.addImage({
+                base64: liveB64,
+                extension: 'jpeg',
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: 8, row: i + 1 },
+                ext: { width: 100, height: 80 }
+              });
+            }
+          } catch (e) {
+            console.error("Failed to add live photo to excel", e);
+          }
+        }
+
+        if (r.ktp_photo_data) {
+          try {
+            const ktpB64 = await getBase64ImageFromUrl(r.ktp_photo_data);
+            if (ktpB64) {
+              const imageId = workbook.addImage({
+                base64: ktpB64,
+                extension: 'jpeg',
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: 9, row: i + 1 },
+                ext: { width: 150, height: 80 }
+              });
+            }
+          } catch (e) {
+            console.error("Failed to add ktp photo to excel", e);
+          }
+        }
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `Final_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    } catch (err) {
+      console.error("Failed to generate Excel:", err);
+      alert("Failed to generate Excel. Please try again.");
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -549,11 +649,11 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Mulai</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
                 <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Selesai</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
             </div>
@@ -620,11 +720,11 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Mulai</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
                 <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Selesai</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
             </div>
@@ -677,17 +777,26 @@ export default function AdminDashboard() {
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Final Reports</h2>
-              <button 
-                onClick={() => downloadPDF('final')} 
-                disabled={isGeneratingPDF}
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
-              >
-                <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => downloadExcel('final')} 
+                  disabled={isGeneratingPDF}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                >
+                  <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating...' : 'Download Excel'}
+                </button>
+                <button 
+                  onClick={() => downloadPDF('final')} 
+                  disabled={isGeneratingPDF}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                >
+                  <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
+                </button>
+              </div>
             </div>
 
             {/* Filters */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex gap-4 items-end">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
@@ -696,11 +805,15 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Mulai</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
+                <input type="text" placeholder="Cari kelas..." value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
                 <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Selesai</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
             </div>
@@ -710,6 +823,7 @@ export default function AdminDashboard() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kelas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video Progress</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Score</th>
@@ -724,6 +838,7 @@ export default function AdminDashboard() {
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.class_name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-600">
                         {report.video_breakdown}

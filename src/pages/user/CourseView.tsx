@@ -30,6 +30,7 @@ function YouTubePlayer({ videoId, onProgress, onComplete }: { videoId: string, o
         events: {
           onStateChange: (event: any) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
+              if (intervalRef.current) clearInterval(intervalRef.current);
               intervalRef.current = setInterval(() => {
                 const currentTime = playerRef.current.getCurrentTime();
                 const duration = playerRef.current.getDuration();
@@ -144,23 +145,36 @@ export default function CourseView() {
 
   const lastSavedProgress = useRef<number>(0);
 
+  // Reset progress tracker when video changes
+  useEffect(() => {
+    lastSavedProgress.current = activeVideo?.progress || 0;
+  }, [activeVideo?.id]);
+
   const handleProgress = async (percentage: number, currentTime: number) => {
     if (!activeVideo || !user || !courseId) return;
     
-    // Only save to database if progress increased by at least 5% or reached 99%
-    if (percentage - lastSavedProgress.current >= 5 || percentage >= 99) {
-      lastSavedProgress.current = percentage;
+    // Calculate progress in exact steps of 5% (0, 5, 10, 15... 100)
+    const steppedPct = percentage >= 99 ? 100 : Math.floor(percentage / 5) * 5;
+
+    // Only save if we reached a new 5% milestone that is higher than previously saved
+    if (steppedPct > lastSavedProgress.current || steppedPct === 100) {
+      // Prevent redundant saves if already at 100
+      if (lastSavedProgress.current === 100 && steppedPct === 100) return;
+      
+      lastSavedProgress.current = steppedPct;
       
       try {
-        const { data: existing } = await supabase
+        const { data: existing, error: fetchError } = await supabase
           .from('video_progress')
           .select('completed, progress_percentage')
           .eq('user_id', user.id)
           .eq('video_id', activeVideo.id)
-          .single();
+          .maybeSingle();
 
-        const isCompleted = percentage >= 99 || existing?.completed;
-        const maxPercentage = Math.max(percentage, existing?.progress_percentage || 0);
+        if (fetchError) throw fetchError;
+
+        const isCompleted = steppedPct === 100 || existing?.completed;
+        const maxPercentage = Math.max(steppedPct, existing?.progress_percentage || 0);
 
         if (existing) {
           await supabase.from('video_progress').update({
@@ -178,6 +192,20 @@ export default function CourseView() {
             ...(isCompleted ? { completed_at: new Date().toISOString() } : {})
           });
         }
+
+        // Update local state so UI progress bar updates immediately
+        setCourse((prev: any) => {
+          if (!prev) return prev;
+          const updatedVideos = prev.videos.map((v: any) => {
+            if (v.id === activeVideo.id) {
+              return { ...v, progress: maxPercentage, completed: isCompleted };
+            }
+            return v;
+          });
+          const totalProgress = updatedVideos.reduce((acc: number, v: any) => acc + (v.progress || 0), 0) / updatedVideos.length;
+          return { ...prev, videos: updatedVideos, progress: totalProgress };
+        });
+
       } catch (err) {
         console.error("Failed to save partial progress:", err);
       }

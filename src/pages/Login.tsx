@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase";
 
 export default function Login() {
   const [fullName, setFullName] = useState("");
-  const [identityNumber, setIdentityNumber] = useState("");
+  const [className, setClassName] = useState("");
   const [courseId, setCourseId] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -40,7 +40,8 @@ export default function Login() {
       let { data: user, error: userError } = await supabase
         .from('users')
         .select('*')
-        .eq('identity_number', identityNumber)
+        .eq('full_name', fullName)
+        .eq('class_name', className)
         .single();
 
       if (userError && userError.code !== 'PGRST116') { // PGRST116 is "not found"
@@ -48,15 +49,12 @@ export default function Login() {
         throw new Error(`Gagal memeriksa data pengguna: ${userError.message}`);
       }
 
-      if (user) {
-        if (user.full_name !== fullName) {
-          throw new Error("Nama tidak cocok dengan Nomor Identitas yang terdaftar");
-        }
-      } else {
-        // Create new user
+      if (!user) {
+        // Create new user, generate a dummy identity_number since it might be required in DB
+        const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
         const { data: newUser, error: createError } = await supabase
           .from('users')
-          .insert([{ full_name: fullName, identity_number: identityNumber, role: 'user' }])
+          .insert([{ full_name: fullName, identity_number: dummyIdentity, class_name: className, role: 'user' }])
           .select()
           .single();
           
@@ -67,7 +65,7 @@ export default function Login() {
       // 2. Handle enrollment if course selected
       if (courseId && user.role !== 'admin') {
         if (!periodStart || !periodEnd) {
-          throw new Error("Tanggal mulai dan selesai harus diisi untuk pendaftaran pelatihan");
+          throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
         }
 
         // Check existing enrollment
@@ -136,7 +134,7 @@ export default function Login() {
           Sign in to LMS
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Enter your Full Name and Identity Number
+          Masukkan Nama Lengkap dan Kelas Anda
         </p>
       </div>
 
@@ -150,7 +148,7 @@ export default function Login() {
             )}
             <div>
               <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
-                Full Name
+                Nama Lengkap Sesuai KTP
               </label>
               <div className="mt-1">
                 <input
@@ -166,18 +164,25 @@ export default function Login() {
             </div>
 
             <div>
-              <label htmlFor="identityNumber" className="block text-sm font-medium text-gray-700">
-                Identity Number (NIK / NRP / ID Taruna)
+              <label htmlFor="className" className="block text-sm font-medium text-gray-700">
+                Kelas
               </label>
               <div className="mt-1">
                 <input
-                  id="identityNumber"
-                  name="identityNumber"
+                  id="className"
+                  name="className"
                   type="text"
                   required
-                  value={identityNumber}
-                  onChange={(e) => setIdentityNumber(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  maxLength={2}
+                  pattern="[A-Za-z]{1,2}"
+                  title="Maksimal 2 huruf abjad (misal: AB)"
+                  placeholder="Contoh: AB"
+                  value={className}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase();
+                    setClassName(val);
+                  }}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm uppercase"
                 />
               </div>
             </div>
@@ -205,7 +210,7 @@ export default function Login() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
-                  Tanggal Mulai
+                  Periode Diklat Mulai
                 </label>
                 <div className="mt-1">
                   <input
@@ -220,7 +225,7 @@ export default function Login() {
               </div>
               <div>
                 <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
-                  Tanggal Selesai
+                  Periode Diklat Selesai
                 </label>
                 <div className="mt-1">
                   <input
