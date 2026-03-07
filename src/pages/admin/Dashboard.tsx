@@ -41,6 +41,23 @@ export default function AdminDashboard() {
 
   // Photo Modal State
   const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null} | null>(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  const getBase64ImageFromUrl = async (imageUrl: string) => {
+    try {
+      const res = await fetch(imageUrl);
+      const blob = await res.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.error("Failed to load image", e);
+      return null;
+    }
+  };
 
   useEffect(() => {
     fetchCourses();
@@ -112,7 +129,7 @@ export default function AdminDashboard() {
       .select(`*, users(id, full_name, identity_number, global_verifications(live_photo_url, ktp_photo_url)), courses(id, name)`);
       
     // Fetch total videos per course to calculate accurate percentage
-    const { data: allVideos } = await supabase.from('videos').select('course_id');
+    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true });
     const videoCountByCourse: Record<string, number> = {};
     if (allVideos) {
       allVideos.forEach(v => {
@@ -125,6 +142,13 @@ export default function AdminDashboard() {
         const userVp = vpData.filter((vp: any) => vp.user_id === en.user_id && vp.course_id === en.course_id);
         const userAr = arData.filter((ar: any) => ar.user_id === en.user_id && ar.course_id === en.course_id);
         
+        const courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
+        const videoBreakdown = courseVideos.map(v => {
+          const vp = userVp.find((uvp: any) => uvp.video_id === v.id);
+          const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
+          return `${v.title}: ${Math.round(pct)}%`;
+        }).join('\n');
+
         const totalVideosForCourse = videoCountByCourse[en.course_id] || 0;
         const totalProgressSum = userVp.reduce((acc: number, vp: any) => acc + (vp.progress_percentage || (vp.completed ? 100 : 0)), 0);
         
@@ -140,6 +164,7 @@ export default function AdminDashboard() {
           course_name: en.courses?.name,
           course_id: en.course_id,
           avg_video_progress: avgVideo,
+          video_breakdown: videoBreakdown || 'No videos',
           final_score: bestScore,
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
           live_photo_data: gv?.live_photo_url,
@@ -303,69 +328,106 @@ export default function AdminDashboard() {
     });
   };
 
-  const downloadPDF = (type: 'video' | 'assessment' | 'final') => {
-    const doc = new jsPDF();
-    let title = 'Report';
-    if (type === 'video') title = 'Video Progress Report';
-    if (type === 'assessment') title = 'Assessment Report';
-    if (type === 'final') title = 'Final Report';
-    
-    doc.setFontSize(18);
-    doc.text(title, 14, 22);
-    
-    doc.setFontSize(11);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
+  const downloadPDF = async (type: 'video' | 'assessment' | 'final') => {
+    setIsGeneratingPDF(true);
+    try {
+      const doc = new jsPDF();
+      let title = 'Report';
+      if (type === 'video') title = 'Video Progress Report';
+      if (type === 'assessment') title = 'Assessment Report';
+      if (type === 'final') title = 'Final Report';
+      
+      doc.setFontSize(18);
+      doc.text(title, 14, 22);
+      
+      doc.setFontSize(11);
+      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
 
-    const filtered = filterReports(type === 'video' ? videoReports : type === 'assessment' ? assessmentReports : finalReports);
+      const filtered = filterReports(type === 'video' ? videoReports : type === 'assessment' ? assessmentReports : finalReports);
 
-    if (type === 'video') {
-      autoTable(doc, {
-        startY: 40,
-        head: [['Name', 'NIK', 'Course', 'Video', 'Progress', 'Status']],
-        body: filtered.map(r => [
-          r.full_name,
-          r.identity_number,
-          r.course_name,
-          r.video_title,
-          `${Math.round(r.percentage)}%`,
-          r.is_completed ? 'Completed' : 'In Progress'
-        ]),
-      });
-    } else if (type === 'assessment') {
-      autoTable(doc, {
-        startY: 40,
-        head: [['Name', 'NIK', 'Course', 'Score', 'Status', 'Attempt']],
-        body: filtered.map(r => [
-          r.full_name,
-          r.identity_number,
-          r.course_name,
-          Math.round(r.score).toString(),
-          r.status,
-          `#${r.attempt_number}`
-        ]),
-      });
-    } else {
-      autoTable(doc, {
-        startY: 40,
-        head: [['Name', 'NIK', 'Course', 'Video Avg', 'Score', 'Status']],
-        body: filtered.map(r => [
-          r.full_name,
-          r.identity_number,
-          r.course_name,
-          `${Math.round(r.avg_video_progress || 0)}%`,
-          r.final_score ? Math.round(r.final_score).toString() : '-',
-          r.assessment_status || '-'
-        ]),
-      });
+      if (type === 'video') {
+        autoTable(doc, {
+          startY: 40,
+          head: [['Name', 'NIK', 'Course', 'Video', 'Progress', 'Status']],
+          body: filtered.map(r => [
+            r.full_name,
+            r.identity_number,
+            r.course_name,
+            r.video_title,
+            `${Math.round(r.percentage)}%`,
+            r.is_completed ? 'Completed' : 'In Progress'
+          ]),
+        });
+      } else if (type === 'assessment') {
+        autoTable(doc, {
+          startY: 40,
+          head: [['Name', 'NIK', 'Course', 'Score', 'Status', 'Attempt']],
+          body: filtered.map(r => [
+            r.full_name,
+            r.identity_number,
+            r.course_name,
+            Math.round(r.score).toString(),
+            r.status,
+            `#${r.attempt_number}`
+          ]),
+        });
+      } else {
+        const imagesMap = new Map();
+        const bodyData = [];
+        
+        for (let i = 0; i < filtered.length; i++) {
+          const r = filtered[i];
+          const liveB64 = r.live_photo_data ? await getBase64ImageFromUrl(r.live_photo_data) : null;
+          const ktpB64 = r.ktp_photo_data ? await getBase64ImageFromUrl(r.ktp_photo_data) : null;
+          imagesMap.set(i, { live: liveB64, ktp: ktpB64 });
+          
+          bodyData.push([
+            r.full_name + '\n' + r.identity_number,
+            r.course_name,
+            r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
+            r.final_score != null ? Math.round(r.final_score).toString() : '-',
+            r.assessment_status || '-',
+            '', // Live Photo placeholder
+            ''  // KTP placeholder
+          ]);
+        }
+
+        autoTable(doc, {
+          startY: 40,
+          head: [['User', 'Course', 'Video Progress', 'Score', 'Status', 'Live Photo', 'KTP']],
+          body: bodyData,
+          styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 20 },
+          columnStyles: {
+            5: { cellWidth: 25 }, // Live Photo
+            6: { cellWidth: 35 }  // KTP
+          },
+          didDrawCell: (data) => {
+            if (data.section === 'body') {
+              const imgs = imagesMap.get(data.row.index);
+              if (data.column.index === 5 && imgs?.live) {
+                doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
+              }
+              if (data.column.index === 6 && imgs?.ktp) {
+                doc.addImage(imgs.ktp, 'JPEG', data.cell.x + 2, data.cell.y + 2, 30, 16);
+              }
+            }
+          }
+        });
+      }
+
+      // Add Signature Area
+      const finalY = (doc as any).lastAutoTable.finalY || 40;
+      doc.text("Mengetahui,", 140, finalY + 30);
+      doc.text("Admin LMS", 140, finalY + 60);
+      doc.line(140, finalY + 62, 190, finalY + 62);
+
+      doc.save(`${title.toLowerCase().replace(/ /g, '_')}.pdf`);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      alert("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsGeneratingPDF(false);
     }
-
-    // Add Signature Area
-    const finalY = (doc as any).lastAutoTable.finalY || 40;
-    doc.text("Mengetahui,", 140, finalY + 30);
-    doc.text("Admin LMS", 140, finalY + 60);
-    doc.line(140, finalY + 62, 190, finalY + 62);
-
-    doc.save(`${title.toLowerCase().replace(/ /g, '_')}.pdf`);
   };
 
   return (
@@ -615,8 +677,12 @@ export default function AdminDashboard() {
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Final Reports</h2>
-              <button onClick={() => downloadPDF('final')} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700">
-                <Download className="w-4 h-4" /> Download PDF
+              <button 
+                onClick={() => downloadPDF('final')} 
+                disabled={isGeneratingPDF}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+              >
+                <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
               </button>
             </div>
 
@@ -645,7 +711,7 @@ export default function AdminDashboard() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video Avg</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video Progress</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Score</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verification</th>
@@ -659,10 +725,8 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <span className="text-sm text-gray-900 mr-2">{Math.round(report.avg_video_progress || 0)}%</span>
-                        </div>
+                      <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-600">
+                        {report.video_breakdown}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{report.final_score != null ? Math.round(report.final_score) : '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">

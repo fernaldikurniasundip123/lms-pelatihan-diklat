@@ -152,6 +152,36 @@ export default function AssessmentPreCheck() {
   };
 
   if (user?.is_verified) {
+    if (attemptsInfo) {
+      if (attemptsInfo.passed) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+              <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Assessment Passed</h2>
+              <p className="text-gray-600 mb-6">You have already successfully passed this assessment.</p>
+              <button onClick={() => navigate(`/course/${courseId}`)} className="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">
+                Back to Course
+              </button>
+            </div>
+          </div>
+        );
+      }
+      if (attemptsInfo.count >= 3) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Maximum Attempts Reached</h2>
+              <p className="text-gray-600 mb-6">You have reached the maximum number of attempts (3) for this assessment.</p>
+              <button onClick={() => navigate(`/course/${courseId}`)} className="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">
+                Back to Course
+              </button>
+            </div>
+          </div>
+        );
+      }
+    }
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Redirecting to assessment...</div>;
   }
 
