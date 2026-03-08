@@ -8,11 +8,13 @@ import CourseView from "./pages/user/CourseView";
 import AssessmentPreCheck from "./pages/user/AssessmentPreCheck";
 import AssessmentView from "./pages/user/AssessmentView";
 
-function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: "admin" | "user" }) {
+function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: "admin" | "user" | "admin2" }) {
   const { user, token } = useAuthStore();
   
   if (!token) return <Navigate to="/login" replace />;
-  if (role && user?.role !== role) return <Navigate to="/" replace />;
+  
+  if (role === "admin" && user?.role !== "admin" && user?.role !== "admin2") return <Navigate to="/" replace />;
+  if (role === "user" && user?.role !== "user") return <Navigate to="/" replace />;
   
   return <>{children}</>;
 }
@@ -63,7 +65,7 @@ export default function App() {
 
         {/* Redirect based on role */}
         <Route path="/" element={
-          user?.role === "admin" ? <Navigate to="/admin" replace /> : 
+          (user?.role === "admin" || user?.role === "admin2") ? <Navigate to="/admin" replace /> : 
           user?.role === "user" ? <Navigate to="/user" replace /> : 
           <Navigate to="/login" replace />
         } />

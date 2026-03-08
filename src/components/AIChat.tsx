@@ -12,7 +12,7 @@ export default function AIChat({ courseName }: { courseName: string }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: `Halo! Saya asisten AI untuk materi ${courseName}. Ada yang bisa saya bantu terkait materi ini?`,
+      text: `Halo! Saya Aspri (Asisten Pak Pria) untuk materi ${courseName}. Ada yang bisa saya bantu terkait materi ini?`,
       sender: 'ai'
     }
   ]);
@@ -37,9 +37,10 @@ export default function AIChat({ courseName }: { courseName: string }) {
     setIsLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      const ai = new GoogleGenAI({ apiKey });
       
-      const prompt = `Anda adalah asisten AI yang ahli dan ramah untuk membantu peserta diklat memahami materi kursus: "${courseName}". 
+      const prompt = `Anda adalah Aspri (Asisten Pak Pria), asisten AI yang ahli dan ramah untuk membantu peserta diklat memahami materi kursus: "${courseName}". 
       Jawablah pertanyaan berikut dengan jelas, ringkas, dan menggunakan bahasa Indonesia yang baik.
       
       Pertanyaan peserta: ${input}`;
@@ -73,7 +74,7 @@ export default function AIChat({ courseName }: { courseName: string }) {
     <div className="flex flex-col h-[500px] bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
       <div className="p-4 bg-indigo-600 text-white flex items-center gap-2">
         <Bot className="w-5 h-5" />
-        <h3 className="font-medium">Tanya AI Assistant</h3>
+        <h3 className="font-medium">Tanya Aspri (Asisten Pak Pria)</h3>
       </div>
       
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">

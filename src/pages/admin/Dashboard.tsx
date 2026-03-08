@@ -10,7 +10,7 @@ import { supabase } from "../../lib/supabase";
 export default function AdminDashboard() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("courses");
+  const [activeTab, setActiveTab] = useState(user?.role === "admin2" ? "reports-final" : "courses");
   const [courses, setCourses] = useState<any[]>([]);
   const [videoReports, setVideoReports] = useState<any[]>([]);
   const [assessmentReports, setAssessmentReports] = useState<any[]>([]);
@@ -543,12 +543,14 @@ export default function AdminDashboard() {
           </h1>
         </div>
         <nav className="flex-1 p-4 space-y-2">
-          <button
-            onClick={() => setActiveTab("courses")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "courses" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-          >
-            <Book className="w-5 h-5" /> Courses
-          </button>
+          {user?.role !== "admin2" && (
+            <button
+              onClick={() => setActiveTab("courses")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "courses" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+            >
+              <Book className="w-5 h-5" /> Courses
+            </button>
+          )}
           <button
             onClick={() => setActiveTab("reports-video")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-video" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
