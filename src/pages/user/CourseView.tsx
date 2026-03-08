@@ -1,15 +1,23 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
-import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText } from "lucide-react";
+import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import AIChat from "../../components/AIChat";
 
 // Simple YouTube Iframe wrapper
-function YouTubePlayer({ videoId, onProgress, onComplete }: { videoId: string, onProgress: (p: number, t: number) => void, onComplete: () => void }) {
+function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: { videoId: string, initialProgressPct: number, onProgress: (p: number, t: number) => void, onComplete: () => void }) {
   const playerRef = useRef<any>(null);
   const intervalRef = useRef<any>(null);
+  const maxTimeWatched = useRef<number>(0);
+  const isSeeking = useRef<boolean>(false);
+  const durationRef = useRef<number>(0);
 
   useEffect(() => {
+    // Reset maxTimeWatched when video changes
+    maxTimeWatched.current = 0;
+    durationRef.current = 0;
+    
     // Load YouTube API
     if (!window.YT) {
       const tag = document.createElement('script');
@@ -32,15 +40,40 @@ function YouTubePlayer({ videoId, onProgress, onComplete }: { videoId: string, o
             if (event.data === window.YT.PlayerState.PLAYING) {
               if (intervalRef.current) clearInterval(intervalRef.current);
               intervalRef.current = setInterval(() => {
+                if (!playerRef.current || !playerRef.current.getCurrentTime) return;
+                
                 const currentTime = playerRef.current.getCurrentTime();
                 const duration = playerRef.current.getDuration();
-                const percentage = (currentTime / duration) * 100;
-                onProgress(percentage, currentTime);
+                
+                // Initialize maxTimeWatched based on previous progress if not set
+                if (duration > 0 && durationRef.current === 0) {
+                  durationRef.current = duration;
+                  if (initialProgressPct > 0) {
+                    maxTimeWatched.current = (initialProgressPct / 100) * duration;
+                  }
+                }
+                
+                // Prevent skipping ahead
+                if (!isSeeking.current && currentTime > maxTimeWatched.current + 5) {
+                  // User skipped ahead, seek back to maxTimeWatched
+                  isSeeking.current = true;
+                  playerRef.current.seekTo(maxTimeWatched.current);
+                  setTimeout(() => { isSeeking.current = false; }, 1000);
+                  return;
+                }
+                
+                // Update max time watched
+                if (currentTime > maxTimeWatched.current) {
+                  maxTimeWatched.current = currentTime;
+                }
+
+                const percentage = (maxTimeWatched.current / duration) * 100;
+                onProgress(percentage, maxTimeWatched.current);
                 
                 if (percentage >= 99) {
                   onComplete();
                 }
-              }, 5000); // Update every 5s
+              }, 1000); // Check every 1s for better anti-skip
             } else {
               if (intervalRef.current) clearInterval(intervalRef.current);
             }
@@ -70,6 +103,9 @@ export default function CourseView() {
   const navigate = useNavigate();
   const [course, setCourse] = useState<any>(null);
   const [activeVideo, setActiveVideo] = useState<any>(null);
+  const [assignmentLink, setAssignmentLink] = useState('');
+  const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false);
+  const [assignmentSaved, setAssignmentSaved] = useState(false);
 
   useEffect(() => {
     if (user && courseId) {
@@ -104,6 +140,19 @@ export default function CourseView() {
         .eq('user_id', user.id)
         .eq('course_id', courseId);
 
+      // Fetch enrollment to get assignment link
+      const { data: enrollmentData } = await supabase
+        .from('enrollments')
+        .select('assignment_link')
+        .eq('user_id', user.id)
+        .eq('course_id', courseId)
+        .maybeSingle();
+
+      if (enrollmentData?.assignment_link) {
+        setAssignmentLink(enrollmentData.assignment_link);
+        setAssignmentSaved(true);
+      }
+
       // Fetch assessment result
       const { data: assessmentResult } = await supabase
         .from('assessment_results')
@@ -116,7 +165,8 @@ export default function CourseView() {
         const prog = progressData?.find(p => p.video_id === v.id);
         return {
           ...v,
-          completed: prog?.completed || false
+          completed: prog?.completed || false,
+          progress_percentage: prog?.progress_percentage || 0
         };
       });
 
@@ -218,6 +268,28 @@ export default function CourseView() {
     fetchCourse(); // Refresh to update UI
   };
 
+  const handleSaveAssignment = async () => {
+    if (!assignmentLink.trim() || !user || !courseId) return;
+    
+    setIsSubmittingAssignment(true);
+    try {
+      const { error } = await supabase
+        .from('enrollments')
+        .update({ assignment_link: assignmentLink })
+        .eq('user_id', user.id)
+        .eq('course_id', courseId);
+        
+      if (error) throw error;
+      setAssignmentSaved(true);
+      alert("Link tugas berhasil disimpan!");
+    } catch (err: any) {
+      console.error("Error saving assignment:", err);
+      alert(`Gagal menyimpan tugas: ${err.message}\n\nPastikan Anda sudah menambahkan kolom 'assignment_link' di tabel 'enrollments' melalui SQL Editor.`);
+    } finally {
+      setIsSubmittingAssignment(false);
+    }
+  };
+
   if (!course) return <div className="p-8 text-center">Loading...</div>;
 
   const allVideosCompleted = course.videos?.every((v: any) => v.completed);
@@ -240,6 +312,7 @@ export default function CourseView() {
             <div className="bg-black rounded-2xl aspect-video shadow-xl overflow-hidden relative">
               <YouTubePlayer 
                 videoId={activeVideo.youtube_id} 
+                initialProgressPct={activeVideo.progress_percentage || 0}
                 onProgress={handleProgress}
                 onComplete={handleComplete}
               />
@@ -251,9 +324,14 @@ export default function CourseView() {
           )}
 
           {activeVideo && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">{activeVideo.title}</h2>
-              <p className="text-gray-600 leading-relaxed">{activeVideo.description}</p>
+            <div className="flex flex-col gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">{activeVideo.title}</h2>
+                <p className="text-gray-600 leading-relaxed">{activeVideo.description}</p>
+              </div>
+              
+              {/* AI Chat Section */}
+              <AIChat courseName={course.name} />
             </div>
           )}
         </div>
@@ -296,6 +374,39 @@ export default function CourseView() {
               })}
 
               <div className="pt-4 mt-4 border-t border-gray-200">
+                <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                  <h4 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                    <LinkIcon className="w-4 h-4" />
+                    Lampirkan Tugas
+                  </h4>
+                  <p className="text-xs text-indigo-700 mb-3">
+                    Masukkan link tugas Anda (Google Drive, Dropbox, dll). Pastikan akses link sudah dibuka (Public).
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="url"
+                      value={assignmentLink}
+                      onChange={(e) => {
+                        setAssignmentLink(e.target.value);
+                        setAssignmentSaved(false);
+                      }}
+                      placeholder="https://drive.google.com/..."
+                      className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      onClick={handleSaveAssignment}
+                      disabled={isSubmittingAssignment || !assignmentLink.trim() || assignmentSaved}
+                      className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${
+                        assignmentSaved 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
+                      }`}
+                    >
+                      {isSubmittingAssignment ? 'Menyimpan...' : assignmentSaved ? 'Tugas Tersimpan ✓' : 'Simpan Link Tugas'}
+                    </button>
+                  </div>
+                </div>
+
                 <button
                   disabled={!allVideosCompleted}
                   onClick={() => navigate(`/course/${course.id}/assessment/precheck`)}

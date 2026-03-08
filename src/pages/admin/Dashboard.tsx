@@ -169,6 +169,7 @@ export default function AdminDashboard() {
           video_breakdown: videoBreakdown || 'No videos',
           final_score: bestScore,
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
+          assignment_link: en.assignment_link,
           live_photo_data: gv?.live_photo_url,
           ktp_photo_data: gv?.ktp_photo_url
         };
@@ -454,6 +455,7 @@ export default function AdminDashboard() {
         { header: 'Kelas', key: 'kelas', width: 15 },
         { header: 'Pelatihan', key: 'course', width: 25 },
         { header: 'Video Progress', key: 'video', width: 30 },
+        { header: 'Link Tugas', key: 'assignment_link', width: 30 },
         { header: 'Nilai Assessment', key: 'score', width: 15 },
         { header: 'Status', key: 'status', width: 15 },
         { header: 'Foto Live', key: 'live', width: 20 },
@@ -473,6 +475,7 @@ export default function AdminDashboard() {
           kelas: r.class_name,
           course: r.course_name,
           video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
+          assignment_link: r.assignment_link || '-',
           score: r.final_score != null ? Math.round(r.final_score) : '-',
           status: r.assessment_status || '-'
         });
@@ -826,6 +829,7 @@ export default function AdminDashboard() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kelas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video Progress</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Link Tugas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Score</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verification</th>
@@ -842,6 +846,15 @@ export default function AdminDashboard() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-600">
                         {report.video_breakdown}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {report.assignment_link ? (
+                          <a href={report.assignment_link} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+                            Lihat
+                          </a>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{report.final_score != null ? Math.round(report.final_score) : '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
