@@ -57,11 +57,12 @@ export default function AIChat({ courseName }: { courseName: string }) {
       };
 
       setMessages(prev => [...prev, aiMsg]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Chat error:", error);
+      const errorMessage = error?.message || "Terjadi kesalahan tidak diketahui";
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
-        text: "Maaf, terjadi kesalahan saat menghubungi AI. Pastikan API Key sudah diatur dengan benar.",
+        text: `Maaf, terjadi kesalahan saat menghubungi AI. Detail error: ${errorMessage}. Pastikan API Key sudah diatur dengan benar di Vercel.`,
         sender: 'ai'
       };
       setMessages(prev => [...prev, errorMsg]);
