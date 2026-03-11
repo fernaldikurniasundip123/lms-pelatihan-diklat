@@ -110,7 +110,7 @@ export default function UserDashboard() {
     }
   };
 
-  async function uploadToSupabase(base64Data: string, userId: string, type: 'live' | 'ktp'): Promise<string | null> {
+  async function uploadToSupabase(base64Data: string, userId: string, type: 'live' | 'ktp' | 'login_attendance'): Promise<string | null> {
     try {
       const compressedBase64 = await compressImage(base64Data);
       const base64String = compressedBase64.split(',')[1];

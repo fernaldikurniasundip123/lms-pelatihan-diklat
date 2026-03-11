@@ -596,25 +596,27 @@ export default function AdminDashboard() {
         </div>
         <nav className="flex-1 p-4 space-y-2">
           {user?.role !== "admin2" && (
-            <button
-              onClick={() => setActiveTab("courses")}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "courses" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-            >
-              <Book className="w-5 h-5" /> Courses
-            </button>
+            <>
+              <button
+                onClick={() => setActiveTab("courses")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "courses" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Book className="w-5 h-5" /> Courses
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-video")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-video" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Video className="w-5 h-5" /> Video Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-assessment")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-assessment" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Assessment Reports
+              </button>
+            </>
           )}
-          <button
-            onClick={() => setActiveTab("reports-video")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-video" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-          >
-            <Video className="w-5 h-5" /> Video Reports
-          </button>
-          <button
-            onClick={() => setActiveTab("reports-assessment")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-assessment" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-          >
-            <FileText className="w-5 h-5" /> Assessment Reports
-          </button>
           <button
             onClick={() => setActiveTab("reports-final")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-final" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}

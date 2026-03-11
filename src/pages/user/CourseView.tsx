@@ -76,6 +76,18 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
               }, 1000); // Check every 1s for better anti-skip
             } else {
               if (intervalRef.current) clearInterval(intervalRef.current);
+              if (event.data === window.YT.PlayerState.ENDED) {
+                const duration = playerRef.current?.getDuration() || durationRef.current;
+                const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
+                
+                if (percentage >= 95) {
+                  onProgress(100, duration);
+                  onComplete();
+                } else {
+                  // User skipped to the end, seek back to max watched time
+                  playerRef.current?.seekTo(maxTimeWatched.current);
+                }
+              }
             }
           }
         }

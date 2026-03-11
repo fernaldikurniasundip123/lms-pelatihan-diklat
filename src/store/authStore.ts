@@ -5,7 +5,7 @@ interface User {
   id: string;
   name: string;
   identity: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "admin2";
   is_verified?: boolean;
 }
 
@@ -67,7 +67,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         id: data.id,
         name: data.full_name,
         identity: data.identity_number,
-        role: data.role as "admin" | "user",
+        role: data.role as "admin" | "user" | "admin2",
         is_verified: !!verification
       };
 

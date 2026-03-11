@@ -49,9 +49,9 @@ export default function Login() {
       }
 
       if (user) {
-        if (user.role === 'admin') {
-          // Khusus admin, isian "Kelas" berfungsi sebagai password (admin123)
-          if (className !== 'admin123' && className !== user.identity_number) {
+        if (user.role === 'admin' || user.role === 'admin2') {
+          // Khusus admin, isian "Kelas" berfungsi sebagai password
+          if (className !== 'admin123' && className !== 'report123' && className !== user.identity_number) {
             throw new Error("Password/Kelas admin salah");
           }
         } else {
@@ -68,13 +68,17 @@ export default function Login() {
         }
       } else {
         // Create new user
-        if (className === 'admin123' || fullName.toLowerCase().includes('admin')) {
+        let role = 'user';
+        if (fullName === 'Admin Report' && className === 'report123') {
+          role = 'admin2';
+        } else if (className === 'admin123' || fullName.toLowerCase().includes('admin')) {
           throw new Error("Tidak dapat membuat akun admin baru");
         }
+        
         const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
         const { data: newUser, error: createError } = await supabase
           .from('users')
-          .insert([{ full_name: fullName, identity_number: dummyIdentity, class_name: className, role: 'user' }])
+          .insert([{ full_name: fullName, identity_number: dummyIdentity, class_name: className, role: role }])
           .select()
           .single();
           
@@ -86,7 +90,7 @@ export default function Login() {
       }
 
       // 2. Handle enrollment if course selected
-      if (courseId && user.role !== 'admin') {
+      if (courseId && user.role !== 'admin' && user.role !== 'admin2') {
         if (!periodStart || !periodEnd) {
           throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
         }
@@ -137,7 +141,7 @@ export default function Login() {
         is_verified: !!verification
       });
       
-      if (user.role === "admin") {
+      if (user.role === "admin" || user.role === "admin2") {
         navigate("/admin");
       } else {
         navigate("/user");
