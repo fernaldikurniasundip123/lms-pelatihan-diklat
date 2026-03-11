@@ -421,7 +421,7 @@ export default function UserDashboard() {
                 </div>
                 
                 <button
-                  onClick={() => navigate(`/course/${course.id}/attendance`)}
+                  onClick={() => navigate(`/course/${course.id}`)}
                   className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
                 >
                   <PlayCircle className="w-5 h-5" />
