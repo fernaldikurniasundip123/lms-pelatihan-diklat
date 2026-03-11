@@ -5,6 +5,8 @@ import Webcam from "react-webcam";
 import { Camera, Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
+import { compressImage } from "../../utils/imageCompression";
+
 export default function AssessmentPreCheck() {
   const { courseId } = useParams();
   const { user, checkAuth } = useAuthStore();
@@ -79,7 +81,8 @@ export default function AssessmentPreCheck() {
 
   async function uploadToSupabase(base64Data: string, userId: string, type: 'live' | 'ktp'): Promise<string | null> {
     try {
-      const base64String = base64Data.split(',')[1];
+      const compressedBase64 = await compressImage(base64Data);
+      const base64String = compressedBase64.split(',')[1];
       if (!base64String) return null;
 
       const byteCharacters = atob(base64String);

@@ -72,7 +72,7 @@ export default function AIChat({ courseName }: { courseName: string }) {
   };
 
   return (
-    <div className="flex flex-col h-[500px] bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
       <div className="p-4 bg-indigo-600 text-white flex items-center gap-2">
         <Bot className="w-5 h-5" />
         <h3 className="font-medium">Tanya Aspri (Asisten Pak Pria)</h3>

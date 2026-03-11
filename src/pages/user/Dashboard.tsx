@@ -5,6 +5,8 @@ import { useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
 import { supabase } from "../../lib/supabase";
 
+import { compressImage } from "../../utils/imageCompression";
+
 export default function UserDashboard() {
   const { user, logout, checkAuth } = useAuthStore();
   const navigate = useNavigate();
@@ -12,6 +14,7 @@ export default function UserDashboard() {
 
   // Verification State
   const [isVerified, setIsVerified] = useState(user?.is_verified);
+  const [hasSessionSelfie, setHasSessionSelfie] = useState(sessionStorage.getItem('session_selfie') === 'true');
   const [verificationStep, setVerificationStep] = useState(1);
   const [livePhoto, setLivePhoto] = useState<string | null>(null);
   const [ktpPhoto, setKtpPhoto] = useState<string | null>(null);
@@ -23,10 +26,10 @@ export default function UserDashboard() {
   }, [user]);
 
   useEffect(() => {
-    if (isVerified && user) {
+    if (isVerified && hasSessionSelfie && user) {
       fetchCourses();
     }
-  }, [isVerified, user]);
+  }, [isVerified, hasSessionSelfie, user]);
 
   const fetchCourses = async () => {
     if (!user) return;
@@ -109,7 +112,8 @@ export default function UserDashboard() {
 
   async function uploadToSupabase(base64Data: string, userId: string, type: 'live' | 'ktp'): Promise<string | null> {
     try {
-      const base64String = base64Data.split(',')[1];
+      const compressedBase64 = await compressImage(base64Data);
+      const base64String = compressedBase64.split(',')[1];
       if (!base64String) return null;
 
       const byteCharacters = atob(base64String);
@@ -170,9 +174,32 @@ export default function UserDashboard() {
 
       await checkAuth(); // refresh user data to get is_verified = true
       setIsVerified(true);
+      setHasSessionSelfie(true);
+      sessionStorage.setItem('session_selfie', 'true');
     } catch (err: any) {
       console.error("Verification error:", err);
       alert(`Error submitting verification: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitSessionSelfie = async () => {
+    if (!user || !livePhoto) return;
+    
+    setIsSubmitting(true);
+    try {
+      const livePhotoUrl = await uploadToSupabase(livePhoto, user.id, 'login_attendance');
+
+      if (!livePhotoUrl) {
+        throw new Error("Failed to upload photo");
+      }
+
+      setHasSessionSelfie(true);
+      sessionStorage.setItem('session_selfie', 'true');
+    } catch (err: any) {
+      console.error("Selfie error:", err);
+      alert(`Error submitting selfie: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -272,6 +299,56 @@ export default function UserDashboard() {
     );
   }
 
+  if (isVerified && !hasSessionSelfie && user?.role === 'user') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-gray-900">Verifikasi Kehadiran</h2>
+            <p className="text-gray-500 mt-2 text-sm">
+              Silakan ambil foto selfie untuk masuk ke dashboard hari ini.
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {!livePhoto ? (
+              <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  className="w-full h-full object-cover"
+                  videoConstraints={{ facingMode: "user" }}
+                />
+              </div>
+            ) : (
+              <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
+                <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover" />
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              {!livePhoto ? (
+                <button onClick={captureLivePhoto} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
+                  <Camera className="w-5 h-5" /> Ambil Foto
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => setLivePhoto(null)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200">
+                    Ulangi
+                  </button>
+                  <button onClick={submitSessionSelfie} disabled={isSubmitting} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-70">
+                    {isSubmitting ? "Menyimpan..." : <><CheckCircle className="w-5 h-5" /> Masuk</>}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -344,7 +421,7 @@ export default function UserDashboard() {
                 </div>
                 
                 <button
-                  onClick={() => navigate(`/course/${course.id}`)}
+                  onClick={() => navigate(`/course/${course.id}/attendance`)}
                   className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
                 >
                   <PlayCircle className="w-5 h-5" />

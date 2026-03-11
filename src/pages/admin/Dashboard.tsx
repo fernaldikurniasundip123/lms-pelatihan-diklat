@@ -41,7 +41,7 @@ export default function AdminDashboard() {
   const [filterClassName, setFilterClassName] = useState("");
 
   // Photo Modal State
-  const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null} | null>(null);
+  const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null, attendances: string[]} | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const getBase64ImageFromUrl = async (imageUrl: string) => {
@@ -138,6 +138,23 @@ export default function AdminDashboard() {
       });
     }
 
+    // Fetch all attendances
+    const { data: allAttendances } = await supabase.storage.from('verifications').list('', { limit: 10000, search: '_login_attendance_' });
+    const attendanceMap: Record<string, string[]> = {};
+    if (allAttendances) {
+      allAttendances.forEach(file => {
+        const parts = file.name.split('_');
+        if (parts.length >= 2) {
+          const userId = parts[0];
+          const key = userId;
+          if (!attendanceMap[key]) attendanceMap[key] = [];
+          
+          const { data: publicUrlData } = supabase.storage.from('verifications').getPublicUrl(file.name);
+          attendanceMap[key].push(publicUrlData.publicUrl);
+        }
+      });
+    }
+
     if (enrollData && vpData && arData) {
       const finalReps = enrollData.map((en: any) => {
         const userVp = vpData.filter((vp: any) => vp.user_id === en.user_id && vp.course_id === en.course_id);
@@ -158,6 +175,8 @@ export default function AdminDashboard() {
         const passed = userAr.some((a: any) => a.passed);
         
         const gv = en.users?.global_verifications?.[0] || en.users?.global_verifications;
+        const attendanceKey = en.user_id;
+        const attendancePhotos = attendanceMap[attendanceKey] || [];
 
         return {
           full_name: en.users?.full_name,
@@ -171,7 +190,8 @@ export default function AdminDashboard() {
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
           assignment_link: en.assignment_link,
           live_photo_data: gv?.live_photo_url,
-          ktp_photo_data: gv?.ktp_photo_url
+          ktp_photo_data: gv?.ktp_photo_url,
+          attendance_photos: attendancePhotos
         };
       });
       setFinalReports(finalReps);
@@ -446,9 +466,10 @@ export default function AdminDashboard() {
       const worksheet = workbook.addWorksheet('Final Report');
       
       const filtered = filterReports(finalReports);
+      const maxAttendances = Math.max(...filtered.map(r => (r.attendance_photos || []).length), 0);
 
       // Add Headers
-      worksheet.columns = [
+      const columns = [
         { header: 'No', key: 'no', width: 5 },
         { header: 'Nama Lengkap', key: 'name', width: 25 },
         { header: 'NIK/NRP', key: 'nik', width: 20 },
@@ -461,6 +482,12 @@ export default function AdminDashboard() {
         { header: 'Foto Live', key: 'live', width: 20 },
         { header: 'Foto KTP', key: 'ktp', width: 30 }
       ];
+
+      for (let j = 0; j < maxAttendances; j++) {
+        columns.push({ header: `Kehadiran ${j+1}`, key: `att_${j}`, width: 20 });
+      }
+      
+      worksheet.columns = columns;
 
       // Style Headers
       worksheet.getRow(1).font = { bold: true };
@@ -512,12 +539,32 @@ export default function AdminDashboard() {
                 extension: 'jpeg',
               });
               worksheet.addImage(imageId, {
-                tl: { col: 9, row: i + 1 },
+                tl: { col: 10, row: i + 1 },
                 ext: { width: 150, height: 80 }
               });
             }
           } catch (e) {
             console.error("Failed to add ktp photo to excel", e);
+          }
+        }
+
+        if (r.attendance_photos && r.attendance_photos.length > 0) {
+          for (let j = 0; j < r.attendance_photos.length; j++) {
+            try {
+              const attB64 = await getBase64ImageFromUrl(r.attendance_photos[j]);
+              if (attB64) {
+                const imageId = workbook.addImage({
+                  base64: attB64,
+                  extension: 'jpeg',
+                });
+                worksheet.addImage(imageId, {
+                  tl: { col: 11 + j, row: i + 1 },
+                  ext: { width: 100, height: 80 }
+                });
+              }
+            } catch (e) {
+              console.error("Failed to add attendance photo to excel", e);
+            }
           }
         }
       }
@@ -767,7 +814,7 @@ export default function AdminDashboard() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.attempt_number}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data, attendances: [] })}>
                         View Photos
                       </td>
                     </tr>
@@ -821,6 +868,10 @@ export default function AdminDashboard() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
+                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -872,7 +923,7 @@ export default function AdminDashboard() {
                           <span className="text-sm text-gray-500">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
                         View Photos
                       </td>
                     </tr>
@@ -886,31 +937,47 @@ export default function AdminDashboard() {
 
       {/* Photo Modal */}
       {photoModalData && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl my-8">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
               <h3 className="text-lg font-bold text-gray-900">Verification Photos</h3>
               <button onClick={() => setPhotoModalData(null)} className="text-gray-400 hover:text-gray-500">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Live Photo</h4>
-                {photoModalData.live ? (
-                  <img src={photoModalData.live} alt="Live" className="w-full rounded-lg border border-gray-200" />
-                ) : (
-                  <div className="w-full aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">No photo</div>
-                )}
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Live Photo (Awal)</h4>
+                  {photoModalData.live ? (
+                    <img src={photoModalData.live} alt="Live" className="w-full rounded-lg border border-gray-200" />
+                  ) : (
+                    <div className="w-full aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">No photo</div>
+                  )}
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">KTP Photo</h4>
+                  {photoModalData.ktp ? (
+                    <img src={photoModalData.ktp} alt="KTP" className="w-full rounded-lg border border-gray-200" />
+                  ) : (
+                    <div className="w-full aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">No photo</div>
+                  )}
+                </div>
               </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">KTP Photo</h4>
-                {photoModalData.ktp ? (
-                  <img src={photoModalData.ktp} alt="KTP" className="w-full rounded-lg border border-gray-200" />
-                ) : (
-                  <div className="w-full aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">No photo</div>
-                )}
-              </div>
+              
+              {photoModalData.attendances && photoModalData.attendances.length > 0 && (
+                <div>
+                  <h4 className="text-md font-bold text-gray-900 mb-4 border-t pt-6">Foto Kehadiran Harian ({photoModalData.attendances.length})</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {photoModalData.attendances.map((url, idx) => (
+                      <div key={idx}>
+                        <img src={url} alt={`Attendance ${idx+1}`} className="w-full rounded-lg border border-gray-200" />
+                        <p className="text-xs text-center text-gray-500 mt-1">Kehadiran {idx+1}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

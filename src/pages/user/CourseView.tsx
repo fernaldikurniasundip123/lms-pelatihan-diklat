@@ -329,16 +329,13 @@ export default function CourseView() {
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">{activeVideo.title}</h2>
                 <p className="text-gray-600 leading-relaxed">{activeVideo.description}</p>
               </div>
-              
-              {/* AI Chat Section */}
-              <AIChat courseName={course.name} />
             </div>
           )}
         </div>
 
-        {/* Right Column - Course Content */}
-        <div className="w-full lg:w-96 flex flex-col gap-6">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-12rem)] sticky top-24">
+        {/* Right Column - Course Content & AI Chat */}
+        <div className="w-full lg:w-96 flex flex-col gap-6 h-[calc(100vh-6rem)] lg:sticky lg:top-24">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-[300px]">
             <div className="p-6 border-b border-gray-200 bg-gray-50">
               <h3 className="text-lg font-bold text-gray-900 mb-2">Course Content</h3>
               <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -425,6 +422,13 @@ export default function CourseView() {
               </div>
             </div>
           </div>
+
+          {/* AI Chat Section in Right Column */}
+          {activeVideo && (
+            <div className="flex flex-col flex-1 min-h-[300px]">
+              <AIChat courseName={course.name} />
+            </div>
+          )}
         </div>
       </main>
     </div>
