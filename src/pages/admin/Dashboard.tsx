@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd] = useState("");
   const [filterClassName, setFilterClassName] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   // Photo Modal State
   const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null, attendances: string[]} | null>(null);
@@ -184,6 +185,9 @@ export default function AdminDashboard() {
           class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
           course_id: en.course_id,
+          period_start: en.period_start,
+          period_end: en.period_end,
+          created_at: en.created_at,
           avg_video_progress: avgVideo,
           video_breakdown: videoBreakdown || 'No videos',
           final_score: bestScore,
@@ -348,6 +352,7 @@ export default function AdminDashboard() {
       if (filterClassName && r.class_name && !r.class_name.toLowerCase().includes(filterClassName.toLowerCase())) return false;
       if (filterPeriodStart && r.period_start && r.period_start < filterPeriodStart) return false;
       if (filterPeriodEnd && r.period_end && r.period_end > filterPeriodEnd) return false;
+      if (filterDate && r.created_at && !r.created_at.startsWith(filterDate)) return false;
       return true;
     });
   };
