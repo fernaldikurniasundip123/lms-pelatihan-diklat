@@ -12,6 +12,8 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
   const maxTimeWatched = useRef<number>(0);
   const isSeeking = useRef<boolean>(false);
   const durationRef = useRef<number>(0);
+  const lastIntervalTime = useRef<number>(0);
+  const lastCurrentTime = useRef<number>(0);
 
   useEffect(() => {
     // Reset maxTimeWatched when video changes
@@ -39,11 +41,16 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
           onStateChange: (event: any) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
               if (intervalRef.current) clearInterval(intervalRef.current);
+              
+              lastIntervalTime.current = Date.now();
+              lastCurrentTime.current = playerRef.current.getCurrentTime();
+              
               intervalRef.current = setInterval(() => {
                 if (!playerRef.current || !playerRef.current.getCurrentTime) return;
                 
                 const currentTime = playerRef.current.getCurrentTime();
                 const duration = playerRef.current.getDuration();
+                const now = Date.now();
                 
                 // Initialize maxTimeWatched based on previous progress if not set
                 if (duration > 0 && durationRef.current === 0) {
@@ -53,27 +60,36 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                   }
                 }
                 
-                // Prevent skipping ahead
-                if (!isSeeking.current && currentTime > maxTimeWatched.current + 5) {
-                  // User skipped ahead, seek back to maxTimeWatched
-                  isSeeking.current = true;
-                  playerRef.current.seekTo(maxTimeWatched.current);
-                  setTimeout(() => { isSeeking.current = false; }, 1000);
-                  return;
-                }
-                
-                // Update max time watched
-                if (currentTime > maxTimeWatched.current) {
-                  maxTimeWatched.current = currentTime;
+                const elapsedReal = (now - lastIntervalTime.current) / 1000;
+                const elapsedVideo = currentTime - lastCurrentTime.current;
+
+                if (!isSeeking.current) {
+                  if (elapsedVideo > 0 && elapsedVideo > elapsedReal * 2.5 + 2) {
+                    // It's a forward seek
+                    if (currentTime > maxTimeWatched.current + 2) {
+                      // Seeked beyond max watched, revert!
+                      isSeeking.current = true;
+                      playerRef.current.seekTo(maxTimeWatched.current);
+                      setTimeout(() => { isSeeking.current = false; }, 1000);
+                    }
+                  } else {
+                    // Normal playback or backward seek
+                    if (currentTime > maxTimeWatched.current) {
+                      maxTimeWatched.current = currentTime;
+                    }
+                  }
                 }
 
-                const percentage = (maxTimeWatched.current / duration) * 100;
+                lastIntervalTime.current = now;
+                lastCurrentTime.current = currentTime;
+
+                const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 onProgress(percentage, maxTimeWatched.current);
                 
                 if (percentage >= 80) {
                   onComplete();
                 }
-              }, 1000); // Check every 1s for better anti-skip
+              }, 1000);
             } else {
               if (intervalRef.current) clearInterval(intervalRef.current);
               if (event.data === window.YT.PlayerState.ENDED) {
@@ -215,10 +231,10 @@ export default function CourseView() {
   const handleProgress = async (percentage: number, currentTime: number) => {
     if (!activeVideo || !user || !courseId) return;
     
-    // Calculate progress in exact steps of 5% (0, 5, 10, 15... 100)
-    const steppedPct = percentage >= 95 ? 100 : Math.floor(percentage / 5) * 5;
+    // Calculate progress in exact steps of 2% (0, 2, 4, 6... 100)
+    const steppedPct = percentage >= 98 ? 100 : Math.floor(percentage / 2) * 2;
 
-    // Only save if we reached a new 5% milestone that is higher than previously saved
+    // Only save if we reached a new 2% milestone that is higher than previously saved
     if (steppedPct > lastSavedProgress.current || percentage >= 99) {
       // Prevent redundant saves if already at 100
       if (lastSavedProgress.current === 100 && percentage >= 99) return;
@@ -412,17 +428,47 @@ export default function CourseView() {
                       placeholder="https://drive.google.com/..."
                       className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
-                    <button
-                      onClick={handleSaveAssignment}
-                      disabled={isSubmittingAssignment || !assignmentLink.trim() || assignmentSaved}
-                      className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${
-                        assignmentSaved 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
-                      }`}
-                    >
-                      {isSubmittingAssignment ? 'Menyimpan...' : assignmentSaved ? 'Tugas Tersimpan ✓' : 'Simpan Link Tugas'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSaveAssignment}
+                        disabled={isSubmittingAssignment || !assignmentLink.trim() || assignmentSaved}
+                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          assignmentSaved 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
+                        }`}
+                      >
+                        {isSubmittingAssignment ? 'Menyimpan...' : assignmentSaved ? 'Tugas Tersimpan ✓' : 'Simpan Link Tugas'}
+                      </button>
+                      {assignmentSaved && (
+                        <button
+                          onClick={async () => {
+                            if (confirm('Apakah Anda yakin ingin menghapus link tugas ini?')) {
+                              setIsSubmittingAssignment(true);
+                              try {
+                                const { error } = await supabase
+                                  .from('enrollments')
+                                  .update({ assignment_link: null })
+                                  .eq('user_id', user.id)
+                                  .eq('course_id', courseId);
+                                if (error) throw error;
+                                setAssignmentLink('');
+                                setAssignmentSaved(false);
+                              } catch (err) {
+                                console.error(err);
+                                alert('Gagal menghapus link tugas');
+                              } finally {
+                                setIsSubmittingAssignment(false);
+                              }
+                            }
+                          }}
+                          disabled={isSubmittingAssignment}
+                          className="px-4 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Hapus
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
