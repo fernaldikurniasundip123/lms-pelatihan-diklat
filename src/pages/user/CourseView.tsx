@@ -78,7 +78,8 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 onProgress(percentage, maxTimeWatched.current);
                 
-                if (percentage >= 80) {
+                // Consider video completed if it reaches 90%
+                if (percentage >= 90) {
                   onComplete();
                 }
               }, 1000);
@@ -88,7 +89,8 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                 const duration = playerRef.current?.getDuration() || durationRef.current;
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 
-                if (percentage >= 80) {
+                // Consider video completed if it reaches 90% or ends naturally
+                if (percentage >= 90 || event.data === window.YT.PlayerState.ENDED) {
                   onProgress(100, duration);
                   onComplete();
                 } else {
@@ -191,7 +193,7 @@ export default function CourseView() {
       });
 
       const totalItems = videosWithProgress.length + 1;
-      let completedItems = videosWithProgress.filter(v => v.completed || (v.progress_percentage || 0) >= 80).length;
+      let completedItems = videosWithProgress.filter(v => v.completed || (v.progress_percentage || 0) >= 90).length;
       if (assessmentResult?.passed) completedItems += 1;
 
       const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -205,7 +207,7 @@ export default function CourseView() {
 
       if (videosWithProgress.length > 0 && !activeVideo) {
         // Find first uncompleted video
-        const firstUncompleted = videosWithProgress.find(v => !v.completed && (v.progress_percentage || 0) < 80) || videosWithProgress[0];
+        const firstUncompleted = videosWithProgress.find(v => !v.completed && (v.progress_percentage || 0) < 90) || videosWithProgress[0];
         setActiveVideo(firstUncompleted);
       }
     } catch (err) {
@@ -244,7 +246,7 @@ export default function CourseView() {
 
         if (fetchError) throw fetchError;
 
-        const isCompleted = pctToSave >= 80 || existing?.completed;
+        const isCompleted = pctToSave >= 90 || existing?.completed;
         const maxPercentage = Math.max(pctToSave, existing?.progress_percentage || 0);
 
         if (existing) {
@@ -275,10 +277,10 @@ export default function CourseView() {
           });
           
           const totalItems = updatedVideos.length + 1;
-          let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 80).length;
+          let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
           
           // Check if assessment was already passed based on previous progress
-          const prevCompletedVideos = prev.videos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 80).length;
+          const prevCompletedVideos = prev.videos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
           const wasAssessmentPassed = prev.progress > ((prevCompletedVideos + 0.5) / totalItems) * 100;
           if (wasAssessmentPassed) completedItems += 1;
           
@@ -322,7 +324,7 @@ export default function CourseView() {
 
   if (!course) return <div className="p-8 text-center">Loading...</div>;
 
-  const allVideosCompleted = course.videos?.every((v: any) => v.completed || (v.progress_percentage || 0) >= 80);
+  const allVideosCompleted = course.videos?.every((v: any) => v.completed || (v.progress_percentage || 0) >= 90);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -379,7 +381,7 @@ export default function CourseView() {
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {course.videos?.map((video: any, idx: number) => {
                 const isActive = activeVideo?.id === video.id;
-                const isCompleted = video.completed || (video.progress_percentage || 0) >= 80;
+                const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
                 
                 return (
                   <button
