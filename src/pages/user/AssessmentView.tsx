@@ -98,8 +98,7 @@ export default function AssessmentView() {
           assessment_id: assessment.id,
           course_id: courseId,
           score: score,
-          passed: passed,
-          answers: answers
+          passed: passed
         });
 
       if (insertError) throw insertError;

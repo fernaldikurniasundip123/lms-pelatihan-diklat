@@ -24,6 +24,8 @@ export default function AdminDashboard() {
   // Manage Content Modal State
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [assessmentQuestions, setAssessmentQuestions] = useState<any[]>([]);
+  const [isViewingQuestions, setIsViewingQuestions] = useState(false);
   const [newVideoTitle, setNewVideoTitle] = useState("");
   const [newVideoDesc, setNewVideoDesc] = useState("");
   const [newVideoYoutubeId, setNewVideoYoutubeId] = useState("");
@@ -227,9 +229,21 @@ export default function AdminDashboard() {
     }
   };
 
-  const openManageModal = (course: any) => {
+  const openManageModal = async (course: any) => {
     setSelectedCourse(course);
     setIsManageModalOpen(true);
+    setIsViewingQuestions(false);
+    
+    if (course.assessment) {
+      const { data } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('assessment_id', course.assessment.id)
+        .order('order_num', { ascending: true });
+      setAssessmentQuestions(data || []);
+    } else {
+      setAssessmentQuestions([]);
+    }
   };
 
   const handleAddVideo = async (e: React.FormEvent) => {
@@ -331,12 +345,36 @@ export default function AdminDashboard() {
         if (!error) {
           alert("Questions imported successfully!");
           if (fileInputRef.current) fileInputRef.current.value = "";
+          
+          // Fetch updated questions
+          const { data } = await supabase
+            .from('questions')
+            .select('*')
+            .eq('assessment_id', selectedCourse.assessment.id)
+            .order('order_num', { ascending: true });
+          setAssessmentQuestions(data || []);
         } else {
           alert("Failed to import questions.");
           console.error(error);
         }
       }
     });
+  };
+
+  const handleDeleteQuestion = async (questionId: string) => {
+    if (!confirm("Are you sure you want to delete this question?")) return;
+    
+    const { error } = await supabase
+      .from('questions')
+      .delete()
+      .eq('id', questionId);
+      
+    if (!error) {
+      setAssessmentQuestions(prev => prev.filter(q => q.id !== questionId));
+    } else {
+      alert("Failed to delete question");
+      console.error(error);
+    }
   };
 
   const downloadTemplate = () => {
@@ -1093,22 +1131,56 @@ export default function AdminDashboard() {
                     <FileText className="w-5 h-5 text-indigo-600" /> Assessment
                   </h4>
                   {selectedCourse.assessment ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-800 flex flex-col gap-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Assessment Configured</p>
-                          <p className="text-sm mt-1">Passing Grade: {selectedCourse.assessment.passing_score} | Duration: {selectedCourse.assessment.duration_minutes}m</p>
+                    <div className="flex flex-col gap-4">
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-800 flex flex-col gap-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Assessment Configured</p>
+                            <p className="text-sm mt-1">Passing Grade: {selectedCourse.assessment.passing_score} | Duration: {selectedCourse.assessment.duration_minutes}m</p>
+                            <p className="text-sm mt-1 font-semibold">{assessmentQuestions.length} Questions imported</p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <button onClick={downloadTemplate} className="flex-1 px-3 py-2 bg-white border border-green-300 rounded text-sm font-medium hover:bg-green-100 flex items-center justify-center gap-2">
-                          <Download className="w-4 h-4" /> Template
+                        <div className="flex gap-2 mt-2">
+                          <button onClick={downloadTemplate} className="flex-1 px-3 py-2 bg-white border border-green-300 rounded text-sm font-medium hover:bg-green-100 flex items-center justify-center gap-2">
+                            <Download className="w-4 h-4" /> Template
+                          </button>
+                          <button onClick={() => fileInputRef.current?.click()} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
+                            <Upload className="w-4 h-4" /> Import CSV
+                          </button>
+                          <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                        </div>
+                        <button 
+                          onClick={() => setIsViewingQuestions(!isViewingQuestions)} 
+                          className="w-full mt-2 px-3 py-2 bg-white border border-green-300 rounded text-sm font-medium hover:bg-green-100 transition-colors"
+                        >
+                          {isViewingQuestions ? 'Hide Questions' : 'View Questions'}
                         </button>
-                        <button onClick={() => fileInputRef.current?.click()} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                          <Upload className="w-4 h-4" /> Import CSV
-                        </button>
-                        <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                       </div>
+
+                      {isViewingQuestions && assessmentQuestions.length > 0 && (
+                        <div className="space-y-3 mt-2 max-h-96 overflow-y-auto pr-2">
+                          {assessmentQuestions.map((q, idx) => (
+                            <div key={q.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm relative">
+                              <button 
+                                onClick={() => handleDeleteQuestion(q.id)}
+                                className="absolute top-3 right-3 text-red-500 hover:text-red-700 p-1 bg-red-50 rounded-md"
+                                title="Delete question"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                              <p className="font-medium text-gray-900 text-sm pr-8 mb-3">{idx + 1}. {q.question_text}</p>
+                              <div className="space-y-2">
+                                {q.options.map((opt: string, oIdx: number) => (
+                                  <div key={oIdx} className={`text-xs p-2 rounded border ${oIdx === q.correct_option_index ? 'bg-green-50 border-green-200 text-green-800 font-medium' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                                    {String.fromCharCode(65 + oIdx)}. {opt}
+                                    {oIdx === q.correct_option_index && ' (Correct)'}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : isCreatingAssessment ? (
                     <form onSubmit={handleCreateAssessment} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
