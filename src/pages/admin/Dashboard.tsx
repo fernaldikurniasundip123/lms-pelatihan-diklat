@@ -99,7 +99,7 @@ export default function AdminDashboard() {
         course_id: vp.course_id,
         video_title: vp.videos?.title,
         percentage: vp.progress_percentage || (vp.completed ? 100 : 0),
-        is_completed: vp.completed
+        is_completed: vp.completed || (vp.progress_percentage || 0) >= 80
       })));
     }
 
@@ -165,11 +165,15 @@ export default function AdminDashboard() {
         const videoBreakdown = courseVideos.map(v => {
           const vp = userVp.find((uvp: any) => uvp.video_id === v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
-          return `${v.title}: ${Math.round(pct)}%`;
+          const isCompleted = vp ? (vp.completed || (vp.progress_percentage || 0) >= 80) : false;
+          return `${v.title}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
         }).join('\n');
 
         const totalVideosForCourse = videoCountByCourse[en.course_id] || 0;
-        const totalProgressSum = userVp.reduce((acc: number, vp: any) => acc + (vp.progress_percentage || (vp.completed ? 100 : 0)), 0);
+        const totalProgressSum = userVp.reduce((acc: number, vp: any) => {
+          const isCompleted = vp.completed || (vp.progress_percentage || 0) >= 80;
+          return acc + (isCompleted ? 100 : (vp.progress_percentage || 0));
+        }, 0);
         
         const avgVideo = totalVideosForCourse > 0 ? totalProgressSum / totalVideosForCourse : 0;
         const bestScore = userAr.length > 0 ? Math.max(...userAr.map((a: any) => a.score)) : null;

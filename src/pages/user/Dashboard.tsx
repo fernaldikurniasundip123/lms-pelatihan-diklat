@@ -55,13 +55,14 @@ export default function UserDashboard() {
           .select('*', { count: 'exact', head: true })
           .eq('course_id', course.id);
 
-        // Fetch completed videos count
-        const { count: completedCount } = await supabase
+        // Fetch video progress
+        const { data: progressData } = await supabase
           .from('video_progress')
-          .select('*', { count: 'exact', head: true })
+          .select('completed, progress_percentage')
           .eq('course_id', course.id)
-          .eq('user_id', user.id)
-          .eq('completed', true);
+          .eq('user_id', user.id);
+          
+        const completedCount = progressData?.filter(p => p.completed || (p.progress_percentage || 0) >= 80).length || 0;
 
         // Fetch assessment result
         const { data: assessmentResult } = await supabase
