@@ -13,7 +13,6 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
   const isSeeking = useRef<boolean>(false);
   const durationRef = useRef<number>(0);
   const lastIntervalTime = useRef<number>(0);
-  const lastCurrentTime = useRef<number>(0);
 
   useEffect(() => {
     // Reset maxTimeWatched when video changes
@@ -43,7 +42,6 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
               if (intervalRef.current) clearInterval(intervalRef.current);
               
               lastIntervalTime.current = Date.now();
-              lastCurrentTime.current = playerRef.current.getCurrentTime();
               
               intervalRef.current = setInterval(() => {
                 if (!playerRef.current || !playerRef.current.getCurrentTime) return;
@@ -60,28 +58,22 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                   }
                 }
                 
-                const elapsedReal = (now - lastIntervalTime.current) / 1000;
-                const elapsedVideo = currentTime - lastCurrentTime.current;
+                const elapsedRealSeconds = (now - lastIntervalTime.current) / 1000;
+                lastIntervalTime.current = now;
 
-                if (!isSeeking.current) {
-                  if (elapsedVideo > 0 && elapsedVideo > elapsedReal * 2.5 + 2) {
-                    // It's a forward seek
-                    if (currentTime > maxTimeWatched.current + 2) {
-                      // Seeked beyond max watched, revert!
-                      isSeeking.current = true;
-                      playerRef.current.seekTo(maxTimeWatched.current);
-                      setTimeout(() => { isSeeking.current = false; }, 1000);
-                    }
-                  } else {
-                    // Normal playback or backward seek
-                    if (currentTime > maxTimeWatched.current) {
-                      maxTimeWatched.current = currentTime;
-                    }
+                const allowedMaxTime = maxTimeWatched.current + elapsedRealSeconds + 2;
+
+                if (!isSeeking.current && currentTime > allowedMaxTime) {
+                  // User skipped ahead, seek back to maxTimeWatched
+                  isSeeking.current = true;
+                  playerRef.current.seekTo(maxTimeWatched.current);
+                  setTimeout(() => { isSeeking.current = false; }, 1000);
+                } else {
+                  // Normal playback or backward seek
+                  if (currentTime > maxTimeWatched.current) {
+                    maxTimeWatched.current = currentTime;
                   }
                 }
-
-                lastIntervalTime.current = now;
-                lastCurrentTime.current = currentTime;
 
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 onProgress(percentage, maxTimeWatched.current);
@@ -231,10 +223,10 @@ export default function CourseView() {
   const handleProgress = async (percentage: number, currentTime: number) => {
     if (!activeVideo || !user || !courseId) return;
     
-    // Calculate progress in exact steps of 2% (0, 2, 4, 6... 100)
-    const steppedPct = percentage >= 98 ? 100 : Math.floor(percentage / 2) * 2;
+    // Calculate progress in exact steps of 1% (0, 1, 2, 3... 100)
+    const steppedPct = percentage >= 99 ? 100 : Math.floor(percentage);
 
-    // Only save if we reached a new 2% milestone that is higher than previously saved
+    // Only save if we reached a new 1% milestone that is higher than previously saved
     if (steppedPct > lastSavedProgress.current || percentage >= 99) {
       // Prevent redundant saves if already at 100
       if (lastSavedProgress.current === 100 && percentage >= 99) return;
@@ -402,7 +394,9 @@ export default function CourseView() {
                       <p className={`text-sm font-medium line-clamp-2 ${isActive ? 'text-indigo-900' : 'text-gray-900'}`}>
                         {idx + 1}. {video.title}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Video</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Video {video.progress_percentage > 0 && `- ${Math.round(video.progress_percentage)}%`}
+                      </p>
                     </div>
                   </button>
                 );
