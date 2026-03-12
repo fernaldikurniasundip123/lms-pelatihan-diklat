@@ -62,7 +62,7 @@ export default function UserDashboard() {
           .eq('course_id', course.id)
           .eq('user_id', user.id);
           
-        const completedCount = progressData?.filter(p => p.completed || (p.progress_percentage || 0) >= 80).length || 0;
+        const completedCount = progressData?.filter(p => p.completed || (p.progress_percentage || 0) >= 90).length || 0;
 
         // Fetch assessment result
         const { data: assessmentResult } = await supabase

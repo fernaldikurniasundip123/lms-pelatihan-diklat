@@ -319,8 +319,6 @@ export default function CourseView() {
 
   if (!course) return <div className="p-8 text-center">Loading...</div>;
 
-  const allVideosCompleted = course.videos?.every((v: any) => v.completed || (v.progress_percentage || 0) >= 90);
-
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
@@ -464,17 +462,16 @@ export default function CourseView() {
                 </div>
 
                 <button
-                  disabled={!allVideosCompleted}
                   onClick={() => navigate(`/course/${course.id}/assessment/precheck`)}
-                  className={`w-full flex items-center gap-4 p-4 rounded-xl text-left transition-all ${allVideosCompleted ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  className="w-full flex items-center gap-4 p-4 rounded-xl text-left transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-md"
                 >
                   <div className="mt-0.5">
-                    {allVideosCompleted ? <FileText className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                    <FileText className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold">Final Assessment</p>
-                    <p className={`text-xs mt-1 ${allVideosCompleted ? 'text-indigo-100' : 'text-gray-500'}`}>
-                      {allVideosCompleted ? 'Ready to start' : 'Complete all videos first'}
+                    <p className="text-xs mt-1 text-indigo-100">
+                      Ready to start
                     </p>
                   </div>
                 </button>

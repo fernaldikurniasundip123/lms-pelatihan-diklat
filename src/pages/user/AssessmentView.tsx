@@ -89,13 +89,12 @@ export default function AssessmentView() {
         .from('assessment_results')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
-        .eq('assessment_id', assessment.id);
+        .eq('course_id', courseId);
 
       const { error: insertError } = await supabase
         .from('assessment_results')
         .insert({
           user_id: user.id,
-          assessment_id: assessment.id,
           course_id: courseId,
           score: score,
           passed: passed

@@ -28,26 +28,15 @@ export default function AssessmentPreCheck() {
   const checkPreviousAttempts = async () => {
     if (!user || !courseId) return;
     try {
-      // First get the assessment ID for this course
-      const { data: assessment } = await supabase
-        .from('assessments')
-        .select('id')
-        .eq('course_id', courseId)
-        .single();
+      const { data: results } = await supabase
+        .from('assessment_results')
+        .select('passed')
+        .eq('user_id', user.id)
+        .eq('course_id', courseId);
 
-      if (assessment) {
-        const { data: results } = await supabase
-          .from('assessment_results')
-          .select('passed')
-          .eq('user_id', user.id)
-          .eq('assessment_id', assessment.id);
-
-        if (results) {
-          const passed = results.some(r => r.passed);
-          setAttemptsInfo({ count: results.length, passed });
-        } else {
-          setAttemptsInfo({ count: 0, passed: false });
-        }
+      if (results) {
+        const passed = results.some(r => r.passed);
+        setAttemptsInfo({ count: results.length, passed });
       } else {
         setAttemptsInfo({ count: 0, passed: false });
       }
