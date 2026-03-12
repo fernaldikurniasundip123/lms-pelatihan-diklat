@@ -109,8 +109,9 @@ export default function AssessmentView() {
         score: score,
         attemptNumber: (attemptsCount || 0) + 1
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to submit assessment:", err);
+      alert(`Failed to submit assessment: ${err.message || 'Unknown error'}`);
     } finally {
       setSubmitting(false);
     }

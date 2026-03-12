@@ -581,9 +581,9 @@ export default function AdminDashboard() {
       const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), `Final_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to generate Excel:", err);
-      alert("Failed to generate Excel. Please try again.");
+      alert(`Failed to generate Excel: ${err.message || 'Unknown error'}`);
     } finally {
       setIsGeneratingPDF(false);
     }
