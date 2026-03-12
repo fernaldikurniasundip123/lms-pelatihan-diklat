@@ -216,14 +216,15 @@ export default function CourseView() {
     if (!activeVideo || !user || !courseId) return;
     
     // Calculate progress in exact steps of 5% (0, 5, 10, 15... 100)
-    const steppedPct = percentage >= 99 ? 100 : Math.floor(percentage / 5) * 5;
+    const steppedPct = percentage >= 95 ? 100 : Math.floor(percentage / 5) * 5;
 
     // Only save if we reached a new 5% milestone that is higher than previously saved
-    if (steppedPct > lastSavedProgress.current || steppedPct === 100) {
+    if (steppedPct > lastSavedProgress.current || percentage >= 99) {
       // Prevent redundant saves if already at 100
-      if (lastSavedProgress.current === 100 && steppedPct === 100) return;
+      if (lastSavedProgress.current === 100 && percentage >= 99) return;
       
-      lastSavedProgress.current = steppedPct;
+      const pctToSave = percentage >= 99 ? 100 : steppedPct;
+      lastSavedProgress.current = pctToSave;
       
       try {
         const { data: existing, error: fetchError } = await supabase
@@ -235,8 +236,8 @@ export default function CourseView() {
 
         if (fetchError) throw fetchError;
 
-        const isCompleted = steppedPct >= 80 || existing?.completed;
-        const maxPercentage = Math.max(steppedPct, existing?.progress_percentage || 0);
+        const isCompleted = pctToSave >= 80 || existing?.completed;
+        const maxPercentage = Math.max(pctToSave, existing?.progress_percentage || 0);
 
         if (existing) {
           await supabase.from('video_progress').update({

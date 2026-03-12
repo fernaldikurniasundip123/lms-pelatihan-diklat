@@ -45,16 +45,21 @@ export default function AssessmentPreCheck() {
         if (results) {
           const passed = results.some(r => r.passed);
           setAttemptsInfo({ count: results.length, passed });
+        } else {
+          setAttemptsInfo({ count: 0, passed: false });
         }
+      } else {
+        setAttemptsInfo({ count: 0, passed: false });
       }
     } catch (err) {
       console.error("Failed to check attempts:", err);
+      setAttemptsInfo({ count: 0, passed: false });
     }
   };
 
   // If user is already verified globally, they can just proceed (unless blocked by attempts)
   useEffect(() => {
-    if (user?.is_verified && attemptsInfo) {
+    if (user?.is_verified && attemptsInfo !== null) {
       if (attemptsInfo.passed || attemptsInfo.count >= 3) {
         // Stay here to show the message
       } else {
@@ -155,7 +160,7 @@ export default function AssessmentPreCheck() {
   };
 
   if (user?.is_verified) {
-    if (attemptsInfo) {
+    if (attemptsInfo !== null) {
       if (attemptsInfo.passed) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
