@@ -8,12 +8,20 @@ export default function Login() {
   const [fullName, setFullName] = useState("");
   const [className, setClassName] = useState("");
   const [courseId, setCourseId] = useState("");
+  const [seafarerCode, setSeafarerCode] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
   const [courses, setCourses] = useState<any[]>([]);
   const [error, setError] = useState("");
   const { login } = useAuthStore();
   const navigate = useNavigate();
+
+  const selectedCourse = courses.find(c => c.id === courseId);
+  const isBstOrKonvensi = selectedCourse && (
+    selectedCourse.name.toLowerCase().includes('bst') || 
+    selectedCourse.name.toLowerCase().includes('konvensi international')
+  );
+  const requiresSeafarerCode = courseId && !isBstOrKonvensi;
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -93,6 +101,26 @@ export default function Login() {
       if (courseId && user.role !== 'admin' && user.role !== 'admin2') {
         if (!periodStart || !periodEnd) {
           throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
+        }
+        
+        if (requiresSeafarerCode) {
+          if (!seafarerCode) {
+            throw new Error("Kode Pelaut wajib diisi untuk jenis pelatihan ini");
+          }
+          if (!/^\d{10}$/.test(seafarerCode)) {
+            throw new Error("Kode Pelaut harus berupa 10 digit angka");
+          }
+          
+          // Update user's identity_number with seafarer code if it's different
+          if (user.identity_number !== seafarerCode) {
+            const { data: updatedUser } = await supabase
+              .from('users')
+              .update({ identity_number: seafarerCode })
+              .eq('id', user.id)
+              .select()
+              .single();
+            if (updatedUser) user = updatedUser;
+          }
         }
 
         // Check existing enrollment
@@ -227,6 +255,27 @@ export default function Login() {
                 </select>
               </div>
             </div>
+
+            {requiresSeafarerCode && (
+              <div>
+                <label htmlFor="seafarerCode" className="block text-sm font-medium text-gray-700">
+                  Kode Pelaut (10 digit angka)
+                </label>
+                <div className="mt-1">
+                  <input
+                    id="seafarerCode"
+                    name="seafarerCode"
+                    type="text"
+                    required
+                    maxLength={10}
+                    value={seafarerCode}
+                    onChange={(e) => setSeafarerCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Masukkan 10 digit angka"
+                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>

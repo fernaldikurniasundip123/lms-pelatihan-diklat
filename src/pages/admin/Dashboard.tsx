@@ -101,7 +101,7 @@ export default function AdminDashboard() {
         course_id: vp.course_id,
         video_title: vp.videos?.title,
         percentage: vp.progress_percentage || (vp.completed ? 100 : 0),
-        is_completed: vp.completed || (vp.progress_percentage || 0) >= 80
+        is_completed: vp.completed || (vp.progress_percentage || 0) >= 90
       })));
     }
 
@@ -167,13 +167,13 @@ export default function AdminDashboard() {
         const videoBreakdown = courseVideos.map(v => {
           const vp = userVp.find((uvp: any) => uvp.video_id === v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
-          const isCompleted = vp ? (vp.completed || (vp.progress_percentage || 0) >= 80) : false;
+          const isCompleted = vp ? (vp.completed || (vp.progress_percentage || 0) >= 90) : false;
           return `${v.title}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
         }).join('\n');
 
         const totalVideosForCourse = videoCountByCourse[en.course_id] || 0;
         const totalProgressSum = userVp.reduce((acc: number, vp: any) => {
-          const isCompleted = vp.completed || (vp.progress_percentage || 0) >= 80;
+          const isCompleted = vp.completed || (vp.progress_percentage || 0) >= 90;
           return acc + (isCompleted ? 100 : (vp.progress_percentage || 0));
         }, 0);
         
@@ -396,7 +396,7 @@ export default function AdminDashboard() {
       if (filterPeriodEnd && r.period_end && r.period_end > filterPeriodEnd) return false;
       if (filterDate && r.created_at && !r.created_at.startsWith(filterDate)) return false;
       return true;
-    });
+    }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
   };
 
   const downloadPDF = async (type: 'video' | 'assessment' | 'final') => {

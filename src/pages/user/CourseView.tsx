@@ -77,11 +77,6 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
 
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 onProgress(percentage, maxTimeWatched.current);
-                
-                // Consider video completed if it reaches 90%
-                if (percentage >= 90) {
-                  onComplete();
-                }
               }, 1000);
             } else {
               if (intervalRef.current) clearInterval(intervalRef.current);
@@ -89,8 +84,8 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                 const duration = playerRef.current?.getDuration() || durationRef.current;
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 
-                // Consider video completed if it reaches 90% or ends naturally
-                if (percentage >= 90 || event.data === window.YT.PlayerState.ENDED) {
+                // Consider video completed if it reaches 90%
+                if (percentage >= 90) {
                   onProgress(100, duration);
                   onComplete();
                 } else {
