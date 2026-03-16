@@ -141,35 +141,6 @@ export default function AdminDashboard() {
     const arData = arRes.data;
     const enrollData = enrollRes.data;
     
-    if (vpData) {
-      setVideoReports(vpData.map((vp: any) => ({
-        full_name: vp.users?.full_name,
-        identity_number: vp.users?.identity_number,
-        course_name: vp.courses?.name,
-        course_id: vp.course_id,
-        video_title: vp.videos?.title,
-        percentage: vp.progress_percentage || (vp.completed ? 100 : 0),
-        is_completed: vp.completed || (vp.progress_percentage || 0) >= 90
-      })));
-    }
-
-    if (arData) {
-      setAssessmentReports(arData.map((ar: any) => {
-        const gv = ar.users?.global_verifications?.[0] || ar.users?.global_verifications;
-        return {
-          full_name: ar.users?.full_name,
-          identity_number: ar.users?.identity_number,
-          course_name: ar.courses?.name,
-          course_id: ar.course_id,
-          score: ar.score,
-          status: ar.passed ? 'LULUS' : 'TIDAK LULUS',
-          attempt_number: 1,
-          live_photo_data: gv?.live_photo_url,
-          ktp_photo_data: gv?.ktp_photo_url
-        };
-      }));
-    }
-
     // Fetch total videos per course to calculate accurate percentage
     const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true }).limit(10000);
     const videoCountByCourse: Record<string, number> = {};
@@ -245,6 +216,8 @@ export default function AdminDashboard() {
         };
       });
       setFinalReports(finalReps);
+      setVideoReports(finalReps);
+      setAssessmentReports(finalReps);
     }
   };
 
@@ -464,9 +437,9 @@ export default function AdminDashboard() {
             r.full_name,
             r.identity_number,
             r.course_name,
-            r.video_title,
-            `${Math.round(r.percentage)}%`,
-            r.is_completed ? 'Completed' : 'In Progress'
+            r.video_breakdown,
+            `${Math.round(r.avg_video_progress)}%`,
+            r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
           ]),
         });
       } else if (type === 'assessment') {
@@ -477,9 +450,9 @@ export default function AdminDashboard() {
             r.full_name,
             r.identity_number,
             r.course_name,
-            Math.round(r.score).toString(),
-            r.status,
-            `#${r.attempt_number}`
+            r.final_score !== null ? Math.round(r.final_score).toString() : '-',
+            r.assessment_status || 'BELUM MENGERJAKAN',
+            r.final_score !== null ? '#1' : '#0'
           ]),
         });
       } else {
@@ -542,7 +515,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const downloadExcel = async (type: 'final') => {
+  const downloadExcel = async (type: 'video' | 'assessment' | 'final') => {
     setIsGeneratingPDF(true); // Reuse loading state
     try {
       // Dynamic import to keep bundle small if not used
@@ -550,28 +523,60 @@ export default function AdminDashboard() {
       const { saveAs } = (await import('file-saver')).default;
       
       const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Final Report');
+      let sheetName = 'Final Report';
+      if (type === 'video') sheetName = 'Video Reports';
+      if (type === 'assessment') sheetName = 'Assessment Reports';
       
-      const filtered = filterReports(finalReports);
+      const worksheet = workbook.addWorksheet(sheetName);
+      
+      const filtered = filterReports(type === 'video' ? videoReports : type === 'assessment' ? assessmentReports : finalReports);
       const maxAttendances = Math.max(...filtered.map(r => (r.attendance_photos || []).length), 0);
 
       // Add Headers
-      const columns = [
-        { header: 'No', key: 'no', width: 5 },
-        { header: 'Nama Lengkap', key: 'name', width: 25 },
-        { header: 'NIK/NRP', key: 'nik', width: 20 },
-        { header: 'Kelas', key: 'kelas', width: 15 },
-        { header: 'Pelatihan', key: 'course', width: 25 },
-        { header: 'Video Progress', key: 'video', width: 30 },
-        { header: 'Link Tugas', key: 'assignment_link', width: 30 },
-        { header: 'Nilai Assessment', key: 'score', width: 15 },
-        { header: 'Status', key: 'status', width: 15 },
-        { header: 'Foto Live', key: 'live', width: 20 },
-        { header: 'Foto KTP', key: 'ktp', width: 30 }
-      ];
-
-      for (let j = 0; j < maxAttendances; j++) {
-        columns.push({ header: `Kehadiran ${j+1}`, key: `att_${j}`, width: 20 });
+      let columns: any[] = [];
+      
+      if (type === 'video') {
+        columns = [
+          { header: 'No', key: 'no', width: 5 },
+          { header: 'Nama Lengkap', key: 'name', width: 25 },
+          { header: 'NIK/NRP', key: 'nik', width: 20 },
+          { header: 'Pelatihan', key: 'course', width: 25 },
+          { header: 'Video Progress', key: 'video', width: 40 },
+          { header: 'Progress (%)', key: 'progress', width: 15 },
+          { header: 'Status', key: 'status', width: 15 }
+        ];
+      } else if (type === 'assessment') {
+        columns = [
+          { header: 'No', key: 'no', width: 5 },
+          { header: 'Nama Lengkap', key: 'name', width: 25 },
+          { header: 'NIK/NRP', key: 'nik', width: 20 },
+          { header: 'Pelatihan', key: 'course', width: 25 },
+          { header: 'Nilai Assessment', key: 'score', width: 15 },
+          { header: 'Status', key: 'status', width: 15 },
+          { header: 'Attempt', key: 'attempt', width: 10 },
+          { header: 'Foto Live', key: 'live', width: 20 },
+          { header: 'Foto KTP', key: 'ktp', width: 30 }
+        ];
+        for (let j = 0; j < maxAttendances; j++) {
+          columns.push({ header: `Kehadiran ${j+1}`, key: `att_${j}`, width: 20 });
+        }
+      } else {
+        columns = [
+          { header: 'No', key: 'no', width: 5 },
+          { header: 'Nama Lengkap', key: 'name', width: 25 },
+          { header: 'NIK/NRP', key: 'nik', width: 20 },
+          { header: 'Kelas', key: 'kelas', width: 15 },
+          { header: 'Pelatihan', key: 'course', width: 25 },
+          { header: 'Video Progress', key: 'video', width: 40 },
+          { header: 'Link Tugas', key: 'assignment_link', width: 30 },
+          { header: 'Nilai Assessment', key: 'score', width: 15 },
+          { header: 'Status', key: 'status', width: 15 },
+          { header: 'Foto Live', key: 'live', width: 20 },
+          { header: 'Foto KTP', key: 'ktp', width: 30 }
+        ];
+        for (let j = 0; j < maxAttendances; j++) {
+          columns.push({ header: `Kehadiran ${j+1}`, key: `att_${j}`, width: 20 });
+        }
       }
       
       worksheet.columns = columns;
@@ -582,82 +587,115 @@ export default function AdminDashboard() {
 
       for (let i = 0; i < filtered.length; i++) {
         const r = filtered[i];
-        const row = worksheet.addRow({
-          no: i + 1,
-          name: r.full_name,
-          nik: r.identity_number,
-          kelas: r.class_name,
-          course: r.course_name,
-          video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
-          assignment_link: r.assignment_link || '-',
-          score: r.final_score != null ? Math.round(r.final_score) : '-',
-          status: r.assessment_status || '-'
-        });
-
-        // Make row tall enough for images
-        row.height = 80;
-        row.alignment = { vertical: 'middle', wrapText: true };
-
-        // Add Images if exist
-        if (r.live_photo_data) {
-          try {
-            const liveB64 = await getBase64ImageFromUrl(r.live_photo_data);
-            if (liveB64) {
-              const imageId = workbook.addImage({
-                base64: liveB64,
-                extension: 'jpeg',
-              });
-              worksheet.addImage(imageId, {
-                tl: { col: 8, row: i + 1 },
-                ext: { width: 100, height: 80 }
-              });
-            }
-          } catch (e) {
-            console.error("Failed to add live photo to excel", e);
-          }
+        let rowData: any = {};
+        
+        if (type === 'video') {
+          rowData = {
+            no: i + 1,
+            name: r.full_name,
+            nik: r.identity_number,
+            course: r.course_name,
+            video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
+            progress: `${Math.round(r.avg_video_progress || 0)}%`,
+            status: r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
+          };
+        } else if (type === 'assessment') {
+          rowData = {
+            no: i + 1,
+            name: r.full_name,
+            nik: r.identity_number,
+            course: r.course_name,
+            score: r.final_score != null ? Math.round(r.final_score) : '-',
+            status: r.assessment_status || 'BELUM MENGERJAKAN',
+            attempt: r.final_score != null ? '#1' : '#0'
+          };
+        } else {
+          rowData = {
+            no: i + 1,
+            name: r.full_name,
+            nik: r.identity_number,
+            kelas: r.class_name,
+            course: r.course_name,
+            video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
+            assignment_link: r.assignment_link || '-',
+            score: r.final_score != null ? Math.round(r.final_score) : '-',
+            status: r.assessment_status || '-'
+          };
         }
+        
+        const row = worksheet.addRow(rowData);
 
-        if (r.ktp_photo_data) {
-          try {
-            const ktpB64 = await getBase64ImageFromUrl(r.ktp_photo_data);
-            if (ktpB64) {
-              const imageId = workbook.addImage({
-                base64: ktpB64,
-                extension: 'jpeg',
-              });
-              worksheet.addImage(imageId, {
-                tl: { col: 10, row: i + 1 },
-                ext: { width: 150, height: 80 }
-              });
-            }
-          } catch (e) {
-            console.error("Failed to add ktp photo to excel", e);
-          }
-        }
+        // Make row tall enough for images if not video report
+        if (type !== 'video') {
+          row.height = 80;
+          row.alignment = { vertical: 'middle', wrapText: true };
 
-        if (r.attendance_photos && r.attendance_photos.length > 0) {
-          for (let j = 0; j < r.attendance_photos.length; j++) {
+          // Add Images if exist
+          if (r.live_photo_data) {
             try {
-              const attB64 = await getBase64ImageFromUrl(r.attendance_photos[j]);
-              if (attB64) {
+              const liveB64 = await getBase64ImageFromUrl(r.live_photo_data);
+              if (liveB64) {
                 const imageId = workbook.addImage({
-                  base64: attB64,
+                  base64: liveB64,
                   extension: 'jpeg',
                 });
+                const colIndex = type === 'assessment' ? 6 : 8;
                 worksheet.addImage(imageId, {
-                  tl: { col: 11 + j, row: i + 1 },
+                  tl: { col: colIndex, row: i + 1 },
                   ext: { width: 100, height: 80 }
                 });
               }
             } catch (e) {
-              console.error("Failed to add attendance photo to excel", e);
+              console.error("Failed to add live photo to excel", e);
             }
           }
+
+          if (r.ktp_photo_data) {
+            try {
+              const ktpB64 = await getBase64ImageFromUrl(r.ktp_photo_data);
+              if (ktpB64) {
+                const imageId = workbook.addImage({
+                  base64: ktpB64,
+                  extension: 'jpeg',
+                });
+                const colIndex = type === 'assessment' ? 7 : 10;
+                worksheet.addImage(imageId, {
+                  tl: { col: colIndex, row: i + 1 },
+                  ext: { width: 150, height: 80 }
+                });
+              }
+            } catch (e) {
+              console.error("Failed to add ktp photo to excel", e);
+            }
+          }
+
+          if (r.attendance_photos && r.attendance_photos.length > 0) {
+            for (let j = 0; j < r.attendance_photos.length; j++) {
+              try {
+                const attB64 = await getBase64ImageFromUrl(r.attendance_photos[j]);
+                if (attB64) {
+                  const imageId = workbook.addImage({
+                    base64: attB64,
+                    extension: 'jpeg',
+                  });
+                  const colIndex = type === 'assessment' ? 8 + j : 11 + j;
+                  worksheet.addImage(imageId, {
+                    tl: { col: colIndex, row: i + 1 },
+                    ext: { width: 100, height: 80 }
+                  });
+                }
+              } catch (e) {
+                console.error("Failed to add attendance photo to excel", e);
+              }
+            }
+          }
+        } else {
+          row.alignment = { vertical: 'middle', wrapText: true };
         }
       }
 
       const buffer = await workbook.xlsx.writeBuffer();
-      saveAs(new Blob([buffer]), `Final_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      saveAs(new Blob([buffer]), `${sheetName.replace(' ', '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     } catch (err: any) {
       console.error("Failed to generate Excel:", err);
@@ -773,13 +811,26 @@ export default function AdminDashboard() {
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Video Progress Reports</h2>
-              <button onClick={() => downloadPDF('video')} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700">
-                <Download className="w-4 h-4" /> Download PDF
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => downloadExcel('video')} 
+                  disabled={isGeneratingPDF}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                >
+                  <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating...' : 'Download Excel'}
+                </button>
+                <button 
+                  onClick={() => downloadPDF('video')} 
+                  disabled={isGeneratingPDF}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                >
+                  <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
+                </button>
+              </div>
             </div>
 
             {/* Filters */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex gap-4 items-end">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
@@ -788,12 +839,20 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
+                <input type="text" placeholder="Cari kelas..." value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
                 <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
+                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <button 
@@ -824,17 +883,17 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.video_title}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate whitespace-pre-wrap">{report.video_breakdown}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <span className="text-sm text-gray-900 mr-2">{Math.round(report.percentage)}%</span>
+                          <span className="text-sm text-gray-900 mr-2">{Math.round(report.avg_video_progress)}%</span>
                           <div className="w-24 bg-gray-200 rounded-full h-2">
-                            <div className="bg-indigo-600 h-2 rounded-full" style={{ width: `${report.percentage}%` }}></div>
+                            <div className="bg-indigo-600 h-2 rounded-full" style={{ width: `${report.avg_video_progress}%` }}></div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {report.is_completed ? (
+                        {report.avg_video_progress >= 90 ? (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Completed</span>
                         ) : (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">In Progress</span>
@@ -852,13 +911,26 @@ export default function AdminDashboard() {
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Assessment Reports</h2>
-              <button onClick={() => downloadPDF('assessment')} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700">
-                <Download className="w-4 h-4" /> Download PDF
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => downloadExcel('assessment')} 
+                  disabled={isGeneratingPDF}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                >
+                  <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating...' : 'Download Excel'}
+                </button>
+                <button 
+                  onClick={() => downloadPDF('assessment')} 
+                  disabled={isGeneratingPDF}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                >
+                  <Download className="w-4 h-4" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
+                </button>
+              </div>
             </div>
 
             {/* Filters */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex gap-4 items-end">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
@@ -867,12 +939,20 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
+                <input type="text" placeholder="Cari kelas..." value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
                 <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
+                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <button 
@@ -904,20 +984,24 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{Math.round(report.score)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{report.final_score !== null ? Math.round(report.final_score) : '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {report.status === 'LULUS' ? (
+                        {report.assessment_status === 'LULUS' ? (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 flex items-center gap-1">
                             <CheckCircle className="w-3 h-3" /> LULUS
                           </span>
-                        ) : (
+                        ) : report.assessment_status === 'TIDAK LULUS' ? (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 flex items-center gap-1">
-                            <XCircle className="w-3 h-3" /> BELUM LULUS
+                            <XCircle className="w-3 h-3" /> TIDAK LULUS
+                          </span>
+                        ) : (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 flex items-center gap-1">
+                            BELUM MENGERJAKAN
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.attempt_number}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data, attendances: [] })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.final_score !== null ? 1 : 0}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
                         View Photos
                       </td>
                     </tr>
