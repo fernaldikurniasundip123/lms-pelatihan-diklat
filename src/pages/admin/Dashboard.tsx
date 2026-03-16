@@ -112,9 +112,9 @@ export default function AdminDashboard() {
       enrollQuery = enrollQuery.eq('course_id', filterCourseId);
     }
     if (filterClassName) {
-      vpQuery = vpQuery.ilike('users.class_name', `%${filterClassName}%`);
-      arQuery = arQuery.ilike('users.class_name', `%${filterClassName}%`);
-      enrollQuery = enrollQuery.ilike('users.class_name', `%${filterClassName}%`);
+      vpQuery = vpQuery.eq('users.class_name', filterClassName);
+      arQuery = arQuery.eq('users.class_name', filterClassName);
+      enrollQuery = enrollQuery.eq('users.class_name', filterClassName);
     }
     if (filterPeriodStart) {
       enrollQuery = enrollQuery.gte('period_start', filterPeriodStart);
@@ -404,7 +404,7 @@ export default function AdminDashboard() {
   const filterReports = (reports: any[]) => {
     return reports.filter(r => {
       if (filterCourseId && r.course_id !== filterCourseId) return false;
-      if (filterClassName && r.class_name && !r.class_name.toLowerCase().includes(filterClassName.toLowerCase())) return false;
+      if (filterClassName && r.class_name !== filterClassName) return false;
       if (filterPeriodStart && r.period_start && r.period_start < filterPeriodStart) return false;
       if (filterPeriodEnd && r.period_end && r.period_end > filterPeriodEnd) return false;
       if (filterDate && r.created_at && !r.created_at.startsWith(filterDate)) return false;
@@ -840,7 +840,12 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
-                <input type="text" placeholder="Cari kelas..." value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+                <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                  <option value="">Semua Kelas</option>
+                  {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                    <option key={letter} value={letter}>{letter}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
@@ -940,7 +945,12 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
-                <input type="text" placeholder="Cari kelas..." value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+                <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                  <option value="">Semua Kelas</option>
+                  {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                    <option key={letter} value={letter}>{letter}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
@@ -1045,7 +1055,12 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
-                <input type="text" placeholder="Cari kelas..." value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+                <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                  <option value="">Semua Kelas</option>
+                  {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                    <option key={letter} value={letter}>{letter}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>

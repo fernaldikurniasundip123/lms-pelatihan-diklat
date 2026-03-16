@@ -13,6 +13,7 @@ export default function Login() {
   const [periodEnd, setPeriodEnd] = useState("");
   const [courses, setCourses] = useState<any[]>([]);
   const [error, setError] = useState("");
+  const [isAdminLogin, setIsAdminLogin] = useState(false);
   const { login } = useAuthStore();
   const navigate = useNavigate();
 
@@ -220,95 +221,127 @@ export default function Login() {
 
             <div>
               <label htmlFor="className" className="block text-sm font-medium text-gray-700">
-                Kelas (atau Password Admin)
+                {isAdminLogin ? "Password Admin" : "Kelas"}
               </label>
               <div className="mt-1">
-                <input
-                  id="className"
-                  name="className"
-                  type="text"
-                  required
-                  placeholder="Contoh: A, B, atau admin123"
-                  value={className}
-                  onChange={(e) => setClassName(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
-                Jenis Pelatihan
-              </label>
-              <div className="mt-1">
-                <select
-                  id="courseId"
-                  name="courseId"
-                  value={courseId}
-                  onChange={(e) => setCourseId(e.target.value)}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                >
-                  <option value="">-- Pilih Pelatihan (Opsional untuk Admin) --</option>
-                  {courses.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {requiresSeafarerCode && (
-              <div>
-                <label htmlFor="seafarerCode" className="block text-sm font-medium text-gray-700">
-                  Kode Pelaut (10 digit angka)
-                </label>
-                <div className="mt-1">
+                {isAdminLogin ? (
                   <input
-                    id="seafarerCode"
-                    name="seafarerCode"
-                    type="text"
+                    id="className"
+                    name="className"
+                    type="password"
                     required
-                    maxLength={10}
-                    value={seafarerCode}
-                    onChange={(e) => setSeafarerCode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Masukkan 10 digit angka"
+                    placeholder="Masukkan Password Admin"
+                    value={className}
+                    onChange={(e) => setClassName(e.target.value)}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   />
-                </div>
+                ) : (
+                  <select
+                    id="className"
+                    name="className"
+                    required
+                    value={className}
+                    onChange={(e) => setClassName(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  >
+                    <option value="" disabled>Pilih Kelas</option>
+                    {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                      <option key={letter} value={letter}>Kelas {letter}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
-                  Periode Diklat Mulai
-                </label>
-                <div className="mt-1">
-                  <input
-                    id="periodStart"
-                    name="periodStart"
-                    type="date"
-                    value={periodStart}
-                    onChange={(e) => setPeriodStart(e.target.value)}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                </div>
-              </div>
-              <div>
-                <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
-                  Periode Diklat Selesai
-                </label>
-                <div className="mt-1">
-                  <input
-                    id="periodEnd"
-                    name="periodEnd"
-                    type="date"
-                    value={periodEnd}
-                    onChange={(e) => setPeriodEnd(e.target.value)}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                </div>
+              <div className="mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAdminLogin(!isAdminLogin);
+                    setClassName("");
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-500"
+                >
+                  {isAdminLogin ? "Masuk sebagai Peserta?" : "Masuk sebagai Admin?"}
+                </button>
               </div>
             </div>
+
+            {!isAdminLogin && (
+              <>
+                <div>
+                  <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
+                    Jenis Pelatihan
+                  </label>
+                  <div className="mt-1">
+                    <select
+                      id="courseId"
+                      name="courseId"
+                      value={courseId}
+                      onChange={(e) => setCourseId(e.target.value)}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    >
+                      <option value="">-- Pilih Pelatihan (Opsional untuk Admin) --</option>
+                      {courses.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {requiresSeafarerCode && (
+                  <div>
+                    <label htmlFor="seafarerCode" className="block text-sm font-medium text-gray-700">
+                      Kode Pelaut (10 digit angka)
+                    </label>
+                    <div className="mt-1">
+                      <input
+                        id="seafarerCode"
+                        name="seafarerCode"
+                        type="text"
+                        required
+                        maxLength={10}
+                        value={seafarerCode}
+                        onChange={(e) => setSeafarerCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Masukkan 10 digit angka"
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
+                      Periode Diklat Mulai
+                    </label>
+                    <div className="mt-1">
+                      <input
+                        id="periodStart"
+                        name="periodStart"
+                        type="date"
+                        value={periodStart}
+                        onChange={(e) => setPeriodStart(e.target.value)}
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
+                      Periode Diklat Selesai
+                    </label>
+                    <div className="mt-1">
+                      <input
+                        id="periodEnd"
+                        name="periodEnd"
+                        type="date"
+                        value={periodEnd}
+                        onChange={(e) => setPeriodEnd(e.target.value)}
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div>
               <button
