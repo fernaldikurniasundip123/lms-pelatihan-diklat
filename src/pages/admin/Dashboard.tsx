@@ -76,7 +76,8 @@ export default function AdminDashboard() {
         videos (*),
         assessments (*)
       `)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(10000);
     
     if (coursesData) {
       const formatted = coursesData.map(c => ({
@@ -88,10 +89,57 @@ export default function AdminDashboard() {
   };
 
   const fetchReports = async () => {
-    // Video Reports
-    const { data: vpData } = await supabase
+    // Build queries with filters
+    let vpQuery = supabase
       .from('video_progress')
-      .select(`*, users(full_name, identity_number), courses(name), videos(title)`);
+      .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name), videos(title)`)
+      .limit(10000);
+      
+    let arQuery = supabase
+      .from('assessment_results')
+      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url)), courses!inner(name)`)
+      .limit(10000);
+      
+    let enrollQuery = supabase
+      .from('enrollments')
+      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url)), courses!inner(id, name)`)
+      .limit(10000);
+
+    // Apply filters
+    if (filterCourseId) {
+      vpQuery = vpQuery.eq('course_id', filterCourseId);
+      arQuery = arQuery.eq('course_id', filterCourseId);
+      enrollQuery = enrollQuery.eq('course_id', filterCourseId);
+    }
+    if (filterClassName) {
+      vpQuery = vpQuery.ilike('users.class_name', `%${filterClassName}%`);
+      arQuery = arQuery.ilike('users.class_name', `%${filterClassName}%`);
+      enrollQuery = enrollQuery.ilike('users.class_name', `%${filterClassName}%`);
+    }
+    if (filterPeriodStart) {
+      enrollQuery = enrollQuery.gte('period_start', filterPeriodStart);
+    }
+    if (filterPeriodEnd) {
+      enrollQuery = enrollQuery.lte('period_end', filterPeriodEnd);
+    }
+    if (filterDate) {
+      const startOfDay = `${filterDate}T00:00:00.000Z`;
+      const endOfDay = `${filterDate}T23:59:59.999Z`;
+      vpQuery = vpQuery.gte('created_at', startOfDay).lte('created_at', endOfDay);
+      arQuery = arQuery.gte('created_at', startOfDay).lte('created_at', endOfDay);
+      enrollQuery = enrollQuery.gte('created_at', startOfDay).lte('created_at', endOfDay);
+    }
+
+    // Execute queries
+    const [vpRes, arRes, enrollRes] = await Promise.all([
+      vpQuery,
+      arQuery,
+      enrollQuery
+    ]);
+
+    const vpData = vpRes.data;
+    const arData = arRes.data;
+    const enrollData = enrollRes.data;
     
     if (vpData) {
       setVideoReports(vpData.map((vp: any) => ({
@@ -105,11 +153,6 @@ export default function AdminDashboard() {
       })));
     }
 
-    // Assessment Reports
-    const { data: arData } = await supabase
-      .from('assessment_results')
-      .select(`*, users(full_name, identity_number, global_verifications(live_photo_url, ktp_photo_url)), courses(name)`);
-    
     if (arData) {
       setAssessmentReports(arData.map((ar: any) => {
         const gv = ar.users?.global_verifications?.[0] || ar.users?.global_verifications;
@@ -127,13 +170,8 @@ export default function AdminDashboard() {
       }));
     }
 
-    // Final Reports
-    const { data: enrollData } = await supabase
-      .from('enrollments')
-      .select(`*, users(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url)), courses(id, name)`);
-      
     // Fetch total videos per course to calculate accurate percentage
-    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true });
+    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true }).limit(10000);
     const videoCountByCourse: Record<string, number> = {};
     if (allVideos) {
       allVideos.forEach(v => {
@@ -158,10 +196,12 @@ export default function AdminDashboard() {
       });
     }
 
-    if (enrollData && vpData && arData) {
+    if (enrollData) {
+      const safeVpData = vpData || [];
+      const safeArData = arData || [];
       const finalReps = enrollData.map((en: any) => {
-        const userVp = vpData.filter((vp: any) => vp.user_id === en.user_id && vp.course_id === en.course_id);
-        const userAr = arData.filter((ar: any) => ar.user_id === en.user_id && ar.course_id === en.course_id);
+        const userVp = safeVpData.filter((vp: any) => vp.user_id === en.user_id && vp.course_id === en.course_id);
+        const userAr = safeArData.filter((ar: any) => ar.user_id === en.user_id && ar.course_id === en.course_id);
         
         const courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
         const videoBreakdown = courseVideos.map(v => {
@@ -755,6 +795,14 @@ export default function AdminDashboard() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
+              <div>
+                <button 
+                  onClick={() => fetchReports()} 
+                  className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-indigo-700"
+                >
+                  Terapkan Filter
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -825,6 +873,14 @@ export default function AdminDashboard() {
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <button 
+                  onClick={() => fetchReports()} 
+                  className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-indigo-700"
+                >
+                  Terapkan Filter
+                </button>
               </div>
             </div>
 
@@ -918,6 +974,14 @@ export default function AdminDashboard() {
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
                 <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <button 
+                  onClick={() => fetchReports()} 
+                  className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-indigo-700"
+                >
+                  Terapkan Filter
+                </button>
               </div>
             </div>
 
