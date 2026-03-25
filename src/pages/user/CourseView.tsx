@@ -225,10 +225,12 @@ export default function CourseView() {
   };
 
   const lastSavedProgress = useRef<number>(0);
+  const lastSaveTime = useRef<number>(0);
 
   // Reset progress tracker when video changes
   useEffect(() => {
-    lastSavedProgress.current = activeVideo?.progress || 0;
+    lastSavedProgress.current = activeVideo?.progress_percentage || 0;
+    lastSaveTime.current = 0;
   }, [activeVideo?.id]);
 
   const handleProgress = async (percentage: number, currentTime: number) => {
@@ -242,8 +244,15 @@ export default function CourseView() {
       // Prevent redundant saves if already at 100
       if (lastSavedProgress.current === 100 && percentage >= 99) return;
       
+      const now = Date.now();
+      // Debounce DB writes to at most once every 5 seconds, unless it's the final completion (>= 99%)
+      if (now - lastSaveTime.current < 5000 && percentage < 99) {
+        return;
+      }
+      
       const pctToSave = percentage >= 99 ? 100 : steppedPct;
       lastSavedProgress.current = pctToSave;
+      lastSaveTime.current = now;
       
       try {
         const { data: existing, error: fetchError } = await supabase

@@ -13,6 +13,7 @@ export default function Login() {
   const [periodEnd, setPeriodEnd] = useState("");
   const [courses, setCourses] = useState<any[]>([]);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const [isAdminLogin, setIsAdminLogin] = useState(false);
   const { login } = useAuthStore();
   const navigate = useNavigate();
@@ -42,7 +43,10 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
+    
     setError("");
+    setIsLoading(true);
 
     try {
       // Validasi awal
@@ -211,6 +215,8 @@ export default function Login() {
       }
     } catch (err: any) {
       setError(err.message || "Terjadi kesalahan saat login");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -380,9 +386,10 @@ export default function Login() {
             <div>
               <button
                 type="submit"
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                disabled={isLoading}
+                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${isLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
               >
-                Sign in
+                {isLoading ? 'Sedang memproses...' : 'Sign in'}
               </button>
             </div>
           </form>
