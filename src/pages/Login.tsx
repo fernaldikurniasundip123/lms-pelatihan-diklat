@@ -45,16 +45,62 @@ export default function Login() {
     setError("");
 
     try {
+      // Validasi awal
+      if (courseId && !isAdminLogin) {
+        if (!periodStart || !periodEnd) {
+          throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
+        }
+        
+        if (requiresSeafarerCode) {
+          if (!seafarerCode) {
+            throw new Error("Kode Pelaut wajib diisi untuk jenis pelatihan ini");
+          }
+          if (!/^\d{10}$/.test(seafarerCode)) {
+            throw new Error("Kode Pelaut harus berupa 10 digit angka");
+          }
+        }
+      }
+
       // 1. Check if user exists or create new one
-      let { data: user, error: userError } = await supabase
+      let { data: users, error: userError } = await supabase
         .from('users')
         .select('*')
-        .eq('full_name', fullName)
-        .single();
+        .eq('full_name', fullName);
 
-      if (userError && userError.code !== 'PGRST116') { // PGRST116 is "not found"
+      if (userError) {
         console.error("Supabase error checking user:", userError);
         throw new Error(`Gagal memeriksa data pengguna: ${userError.message}`);
+      }
+
+      let user = null;
+      const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
+
+      if (users && users.length > 0) {
+        // Check if it's an admin login attempt
+        const adminUser = users.find(u => u.role === 'admin' || u.role === 'admin2');
+        if (adminUser) {
+          user = adminUser;
+        } else {
+          if (requiresSeafarerCode && seafarerCode) {
+            // Find user with exact seafarer code
+            user = users.find(u => u.identity_number === seafarerCode);
+            // If not found, try to find a user with a dummy identity (from BST) that we can upgrade
+            if (!user) {
+              user = users.find(u => !/^\d{10}$/.test(u.identity_number));
+            }
+          } else {
+            // Doesn't require seafarer code. Try to find by dummy identity
+            user = users.find(u => u.identity_number === dummyIdentity);
+            // If not found, try to find a user who already has a seafarer code
+            if (!user) {
+              user = users.find(u => /^\d{10}$/.test(u.identity_number));
+            }
+            // Fallback to the first user if still not found
+            if (!user) {
+              user = users[0];
+            }
+          }
+        }
       }
 
       if (user) {
@@ -74,6 +120,17 @@ export default function Login() {
               .single();
             if (updatedUser) user = updatedUser;
           }
+          
+          // Update identity_number jika sebelumnya dummy dan sekarang ada seafarerCode
+          if (requiresSeafarerCode && seafarerCode && user.identity_number !== seafarerCode) {
+            const { data: updatedUser } = await supabase
+              .from('users')
+              .update({ identity_number: seafarerCode })
+              .eq('id', user.id)
+              .select()
+              .single();
+            if (updatedUser) user = updatedUser;
+          }
         }
       } else {
         // Create new user
@@ -84,10 +141,11 @@ export default function Login() {
           throw new Error("Tidak dapat membuat akun admin baru");
         }
         
-        const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
+        const newIdentity = (requiresSeafarerCode && seafarerCode) ? seafarerCode : dummyIdentity;
+        
         const { data: newUser, error: createError } = await supabase
           .from('users')
-          .insert([{ full_name: fullName, identity_number: dummyIdentity, class_name: className, role: role }])
+          .insert([{ full_name: fullName, identity_number: newIdentity, class_name: className, role: role }])
           .select()
           .single();
           
@@ -100,30 +158,6 @@ export default function Login() {
 
       // 2. Handle enrollment if course selected
       if (courseId && user.role !== 'admin' && user.role !== 'admin2') {
-        if (!periodStart || !periodEnd) {
-          throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
-        }
-        
-        if (requiresSeafarerCode) {
-          if (!seafarerCode) {
-            throw new Error("Kode Pelaut wajib diisi untuk jenis pelatihan ini");
-          }
-          if (!/^\d{10}$/.test(seafarerCode)) {
-            throw new Error("Kode Pelaut harus berupa 10 digit angka");
-          }
-          
-          // Update user's identity_number with seafarer code if it's different
-          if (user.identity_number !== seafarerCode) {
-            const { data: updatedUser } = await supabase
-              .from('users')
-              .update({ identity_number: seafarerCode })
-              .eq('id', user.id)
-              .select()
-              .single();
-            if (updatedUser) user = updatedUser;
-          }
-        }
-
         // Check existing enrollment
         const { data: existingEnrollment } = await supabase
           .from('enrollments')
