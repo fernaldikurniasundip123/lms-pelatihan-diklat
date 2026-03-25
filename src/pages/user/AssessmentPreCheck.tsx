@@ -8,7 +8,7 @@ import { supabase } from "../../lib/supabase";
 import { compressImage } from "../../utils/imageCompression";
 
 export default function AssessmentPreCheck() {
-  const { courseId } = useParams();
+  const { courseId, assessmentId } = useParams();
   const { user, checkAuth } = useAuthStore();
   const navigate = useNavigate();
   const webcamRef = useRef<Webcam>(null);
@@ -32,7 +32,8 @@ export default function AssessmentPreCheck() {
         .from('assessment_results')
         .select('passed')
         .eq('user_id', user.id)
-        .eq('course_id', courseId);
+        .eq('course_id', courseId)
+        .eq('assessment_id', assessmentId);
 
       if (results) {
         const passed = results.some(r => r.passed);
@@ -52,7 +53,7 @@ export default function AssessmentPreCheck() {
       if (attemptsInfo.passed || attemptsInfo.count >= 3) {
         // Stay here to show the message
       } else {
-        navigate(`/course/${courseId}/assessment`);
+        navigate(`/course/${courseId}/assessment/${assessmentId}`);
       }
     }
   }, [user, courseId, navigate, attemptsInfo]);
@@ -140,7 +141,7 @@ export default function AssessmentPreCheck() {
       if (insertError) throw insertError;
 
       await checkAuth(); // Update user.is_verified
-      navigate(`/course/${courseId}/assessment`);
+      navigate(`/course/${courseId}/assessment/${assessmentId}`);
     } catch (err: any) {
       setError(err.message || "Verification failed");
     } finally {

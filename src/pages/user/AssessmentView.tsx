@@ -5,7 +5,7 @@ import { Clock, AlertTriangle, CheckCircle } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 export default function AssessmentView() {
-  const { courseId } = useParams();
+  const { courseId, assessmentId } = useParams();
   const { user } = useAuthStore();
   const navigate = useNavigate();
   
@@ -39,7 +39,7 @@ export default function AssessmentView() {
       const { data: assessmentData, error: assessmentError } = await supabase
         .from('assessments')
         .select('*')
-        .eq('course_id', courseId)
+        .eq('id', assessmentId)
         .single();
 
       if (assessmentError || !assessmentData) {
@@ -89,13 +89,14 @@ export default function AssessmentView() {
         .from('assessment_results')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
-        .eq('course_id', courseId);
+        .eq('assessment_id', assessmentId);
 
       const { error: insertError } = await supabase
         .from('assessment_results')
         .insert({
           user_id: user.id,
           course_id: courseId,
+          assessment_id: assessmentId,
           score: score,
           passed: passed
         });

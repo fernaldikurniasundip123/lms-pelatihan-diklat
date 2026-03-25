@@ -51,13 +51,13 @@ export default function App() {
           </ProtectedRoute>
         } />
 
-        <Route path="/course/:courseId/assessment/precheck" element={
+        <Route path="/course/:courseId/assessment/:assessmentId/precheck" element={
           <ProtectedRoute role="user">
             <AssessmentPreCheck />
           </ProtectedRoute>
         } />
 
-        <Route path="/course/:courseId/assessment" element={
+        <Route path="/course/:courseId/assessment/:assessmentId" element={
           <ProtectedRoute role="user">
             <AssessmentView />
           </ProtectedRoute>
