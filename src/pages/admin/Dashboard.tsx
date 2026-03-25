@@ -446,7 +446,7 @@ export default function AdminDashboard() {
   const downloadPDF = async (type: 'video' | 'assessment' | 'final') => {
     setIsGeneratingPDF(true);
     try {
-      const doc = new jsPDF();
+      const doc = new jsPDF('landscape');
       let title = 'Report';
       if (type === 'video') title = 'Video Progress Report';
       if (type === 'assessment') title = 'Assessment Report';
@@ -463,11 +463,12 @@ export default function AdminDashboard() {
       if (type === 'video') {
         autoTable(doc, {
           startY: 40,
-          head: [['Name', 'NIK', 'Course', 'Video', 'Progress', 'Status']],
+          head: [['Name', 'Kode Pelaut', 'Course', 'Periode Diklat', 'Video Progress', 'Progress', 'Status']],
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
             r.course_name,
+            `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown,
             `${Math.round(r.avg_video_progress)}%`,
             r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
@@ -476,11 +477,12 @@ export default function AdminDashboard() {
       } else if (type === 'assessment') {
         autoTable(doc, {
           startY: 40,
-          head: [['Name', 'NIK', 'Course', 'Score', 'Status', 'Attempt']],
+          head: [['Name', 'Kode Pelaut', 'Course', 'Periode Diklat', 'Score', 'Status', 'Attempt']],
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
             r.course_name,
+            `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.final_score !== null ? Math.round(r.final_score).toString() : '-',
             r.assessment_status || 'BELUM MENGERJAKAN',
             r.final_score !== null ? '#1' : '#0'
@@ -500,6 +502,7 @@ export default function AdminDashboard() {
             r.full_name + '\n' + r.identity_number,
             r.class_name || '-',
             r.course_name,
+            `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.final_score != null ? Math.round(r.final_score).toString() : '-',
             r.assessment_status || '-',
@@ -510,20 +513,20 @@ export default function AdminDashboard() {
 
         autoTable(doc, {
           startY: 40,
-          head: [['User', 'Kelas', 'Course', 'Video Progress', 'Score', 'Status', 'Live Photo', 'KTP']],
+          head: [['User', 'Kelas', 'Course', 'Periode Diklat', 'Video Progress', 'Score', 'Status', 'Live Photo', 'KTP']],
           body: bodyData,
           styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 20 },
           columnStyles: {
-            6: { cellWidth: 25 }, // Live Photo
-            7: { cellWidth: 35 }  // KTP
+            7: { cellWidth: 25 }, // Live Photo
+            8: { cellWidth: 35 }  // KTP
           },
           didDrawCell: (data) => {
             if (data.section === 'body') {
               const imgs = imagesMap.get(data.row.index);
-              if (data.column.index === 6 && imgs?.live) {
+              if (data.column.index === 7 && imgs?.live) {
                 doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
               }
-              if (data.column.index === 7 && imgs?.ktp) {
+              if (data.column.index === 8 && imgs?.ktp) {
                 doc.addImage(imgs.ktp, 'JPEG', data.cell.x + 2, data.cell.y + 2, 30, 16);
               }
             }
@@ -570,7 +573,8 @@ export default function AdminDashboard() {
         columns = [
           { header: 'No', key: 'no', width: 5 },
           { header: 'Nama Lengkap', key: 'name', width: 25 },
-          { header: 'NIK/NRP', key: 'nik', width: 20 },
+          { header: 'Kode Pelaut', key: 'nik', width: 20 },
+          { header: 'Periode Diklat', key: 'period', width: 25 },
           { header: 'Pelatihan', key: 'course', width: 25 },
           { header: 'Video Progress', key: 'video', width: 40 },
           { header: 'Progress (%)', key: 'progress', width: 15 },
@@ -580,7 +584,8 @@ export default function AdminDashboard() {
         columns = [
           { header: 'No', key: 'no', width: 5 },
           { header: 'Nama Lengkap', key: 'name', width: 25 },
-          { header: 'NIK/NRP', key: 'nik', width: 20 },
+          { header: 'Kode Pelaut', key: 'nik', width: 20 },
+          { header: 'Periode Diklat', key: 'period', width: 25 },
           { header: 'Pelatihan', key: 'course', width: 25 },
           { header: 'Nilai Assessment', key: 'score', width: 15 },
           { header: 'Status', key: 'status', width: 15 },
@@ -595,8 +600,9 @@ export default function AdminDashboard() {
         columns = [
           { header: 'No', key: 'no', width: 5 },
           { header: 'Nama Lengkap', key: 'name', width: 25 },
-          { header: 'NIK/NRP', key: 'nik', width: 20 },
+          { header: 'Kode Pelaut', key: 'nik', width: 20 },
           { header: 'Kelas', key: 'kelas', width: 15 },
+          { header: 'Periode Diklat', key: 'period', width: 25 },
           { header: 'Pelatihan', key: 'course', width: 25 },
           { header: 'Video Progress', key: 'video', width: 40 },
           { header: 'Link Tugas', key: 'assignment_link', width: 30 },
@@ -625,6 +631,7 @@ export default function AdminDashboard() {
             no: i + 1,
             name: r.full_name,
             nik: r.identity_number,
+            period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             progress: `${Math.round(r.avg_video_progress || 0)}%`,
@@ -635,6 +642,7 @@ export default function AdminDashboard() {
             no: i + 1,
             name: r.full_name,
             nik: r.identity_number,
+            period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
             score: r.final_score != null ? Math.round(r.final_score) : '-',
             status: r.assessment_status || 'BELUM MENGERJAKAN',
@@ -646,6 +654,7 @@ export default function AdminDashboard() {
             name: r.full_name,
             nik: r.identity_number,
             kelas: r.class_name,
+            period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
@@ -670,7 +679,7 @@ export default function AdminDashboard() {
                   base64: liveB64,
                   extension: 'jpeg',
                 });
-                const colIndex = type === 'assessment' ? 6 : 8;
+                const colIndex = type === 'assessment' ? 7 : 9;
                 worksheet.addImage(imageId, {
                   tl: { col: colIndex, row: i + 1 },
                   ext: { width: 100, height: 80 }
@@ -689,7 +698,7 @@ export default function AdminDashboard() {
                   base64: ktpB64,
                   extension: 'jpeg',
                 });
-                const colIndex = type === 'assessment' ? 7 : 10;
+                const colIndex = type === 'assessment' ? 8 : 10;
                 worksheet.addImage(imageId, {
                   tl: { col: colIndex, row: i + 1 },
                   ext: { width: 150, height: 80 }
