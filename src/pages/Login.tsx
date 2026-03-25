@@ -19,8 +19,8 @@ export default function Login() {
 
   const selectedCourse = courses.find(c => c.id === courseId);
   const isBstOrKonvensi = selectedCourse && (
-    selectedCourse.name.toLowerCase().includes('bst') || 
-    selectedCourse.name.toLowerCase().includes('konvensi international')
+    selectedCourse.name.trim().toUpperCase() === 'BST' || 
+    selectedCourse.name.trim().toUpperCase() === 'KONVENSI INTERNATIONAL'
   );
   const requiresSeafarerCode = courseId && !isBstOrKonvensi;
 

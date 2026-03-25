@@ -29,6 +29,7 @@ export default function AdminDashboard() {
   const [newVideoTitle, setNewVideoTitle] = useState("");
   const [newVideoDesc, setNewVideoDesc] = useState("");
   const [newVideoYoutubeId, setNewVideoYoutubeId] = useState("");
+  const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
 
   // Assessment State
   const [isCreatingAssessment, setIsCreatingAssessment] = useState(false);
@@ -305,6 +306,25 @@ export default function AdminDashboard() {
       }
     } else {
       alert("Failed to add video");
+    }
+  };
+
+  const handleDeleteVideo = async (videoId: string) => {
+    const { error } = await supabase
+      .from('videos')
+      .delete()
+      .eq('id', videoId);
+      
+    if (!error) {
+      fetchCourses();
+      // Update selected course locally
+      setSelectedCourse((prev: any) => ({
+        ...prev,
+        videos: prev.videos.filter((v: any) => v.id !== videoId)
+      }));
+      setDeletingVideoId(null);
+    } else {
+      alert("Gagal menghapus video");
     }
   };
 
@@ -1291,8 +1311,18 @@ export default function AdminDashboard() {
                               <h5 className="font-medium text-gray-900 truncate">{video.title}</h5>
                               <p className="text-xs text-gray-500 mt-1 truncate">ID: {video.youtube_id}</p>
                             </div>
-                            <button className="text-red-500 hover:text-red-700 p-1">
-                              <Trash2 className="w-4 h-4" />
+                            <button 
+                              onClick={() => {
+                                if (deletingVideoId === video.id) {
+                                  handleDeleteVideo(video.id);
+                                } else {
+                                  setDeletingVideoId(video.id);
+                                  setTimeout(() => setDeletingVideoId(null), 3000);
+                                }
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1"
+                            >
+                              {deletingVideoId === video.id ? <span className="text-xs font-bold">Hapus?</span> : <Trash2 className="w-4 h-4" />}
                             </button>
                           </div>
                           
