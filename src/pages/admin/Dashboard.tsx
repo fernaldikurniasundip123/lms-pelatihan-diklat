@@ -554,7 +554,8 @@ export default function AdminDashboard() {
     try {
       // Dynamic import to keep bundle small if not used
       const ExcelJS = (await import('exceljs')).default;
-      const { saveAs } = (await import('file-saver')).default;
+      const fileSaver = await import('file-saver');
+      const saveAs = fileSaver.default?.saveAs || fileSaver.saveAs || fileSaver.default;
       
       const workbook = new ExcelJS.Workbook();
       let sheetName = 'Final Report';
@@ -675,8 +676,9 @@ export default function AdminDashboard() {
             try {
               const liveB64 = await getBase64ImageFromUrl(r.live_photo_data);
               if (liveB64) {
+                const base64Data = liveB64.split(',')[1] || liveB64;
                 const imageId = workbook.addImage({
-                  base64: liveB64,
+                  base64: base64Data,
                   extension: 'jpeg',
                 });
                 const colIndex = type === 'assessment' ? 7 : 9;
@@ -694,8 +696,9 @@ export default function AdminDashboard() {
             try {
               const ktpB64 = await getBase64ImageFromUrl(r.ktp_photo_data);
               if (ktpB64) {
+                const base64Data = ktpB64.split(',')[1] || ktpB64;
                 const imageId = workbook.addImage({
-                  base64: ktpB64,
+                  base64: base64Data,
                   extension: 'jpeg',
                 });
                 const colIndex = type === 'assessment' ? 8 : 10;
@@ -714,8 +717,9 @@ export default function AdminDashboard() {
               try {
                 const attB64 = await getBase64ImageFromUrl(r.attendance_photos[j]);
                 if (attB64) {
+                  const base64Data = attB64.split(',')[1] || attB64;
                   const imageId = workbook.addImage({
-                    base64: attB64,
+                    base64: base64Data,
                     extension: 'jpeg',
                   });
                   const colIndex = type === 'assessment' ? 8 + j : 11 + j;

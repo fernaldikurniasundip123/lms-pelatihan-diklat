@@ -26,6 +26,9 @@ export default function Login() {
   const requiresSeafarerCode = courseId && !isBstOrKonvensi;
 
   useEffect(() => {
+    // Clear session selfie when visiting login page
+    sessionStorage.removeItem('session_selfie');
+    
     const fetchCourses = async () => {
       const { data, error } = await supabase
         .from('courses')
