@@ -1347,12 +1347,16 @@ export default function AdminDashboard() {
                                   </div>
                                 </div>
                                 <div className="flex gap-2 mt-2">
+                                  <button onClick={downloadTemplate} className="flex-1 px-2 py-1.5 bg-white border border-blue-300 rounded text-xs font-medium hover:bg-blue-100 flex items-center justify-center gap-1">
+                                    <Download className="w-3 h-3" /> Template
+                                  </button>
                                   <button onClick={() => {
                                     setUploadingAssessmentId(videoAssessment.id);
                                     fileInputRef.current?.click();
                                   }} className="flex-1 px-2 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center justify-center gap-1">
                                     <Upload className="w-3 h-3" /> Import CSV
                                   </button>
+                                  <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                                   <button 
                                     onClick={() => {
                                       if (viewingQuestionsForAssessmentId === videoAssessment.id) {
