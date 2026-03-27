@@ -84,8 +84,8 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                 const duration = playerRef.current?.getDuration() || durationRef.current;
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 
-                // Consider video completed if it reaches 90%
-                if (percentage >= 90) {
+                // Consider video completed if it reaches 85% or is within 5 seconds of the end
+                if (percentage >= 85 || (duration - maxTimeWatched.current <= 5)) {
                   onProgress(100, duration);
                   onComplete();
                 } else {
@@ -444,29 +444,20 @@ export default function CourseView() {
                     {videoAssessment && (
                       <button
                         onClick={() => {
-                          if (!isCompleted) {
-                            alert("Anda harus menonton video ini minimal 90% untuk membuka assessment.");
-                            return;
-                          }
                           navigate(`/course/${course.id}/assessment/${videoAssessment.id}/precheck`);
                         }}
-                        disabled={!isCompleted}
                         className={`ml-12 mr-4 p-3 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
-                          !isCompleted 
-                            ? 'bg-gray-50 text-gray-500 border border-gray-200 cursor-not-allowed opacity-75'
-                            : isAssessmentPassed 
-                              ? 'bg-green-50 text-green-700 border border-green-200' 
-                              : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                          isAssessmentPassed 
+                            ? 'bg-green-50 text-green-700 border border-green-200' 
+                            : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {!isCompleted ? <Lock className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                          <FileText className="w-4 h-4" />
                           <span>Assessment: {video.title}</span>
                         </div>
                         {isAssessmentPassed ? (
                           <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">Lulus</span>
-                        ) : !isCompleted ? (
-                          <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">Terkunci</span>
                         ) : (
                           <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full">{videoAssessment.is_mandatory ? 'Wajib' : 'Opsional'}</span>
                         )}

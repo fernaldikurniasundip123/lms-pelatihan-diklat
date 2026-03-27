@@ -46,7 +46,8 @@ export default function AdminDashboard() {
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd] = useState("");
   const [filterClassName, setFilterClassName] = useState("");
-  const [filterDate, setFilterDate] = useState("");
+  const [filterActivityStart, setFilterActivityStart] = useState("");
+  const [filterActivityEnd, setFilterActivityEnd] = useState("");
 
   // Photo Modal State
   const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null, attendances: string[]} | null>(null);
@@ -127,13 +128,8 @@ export default function AdminDashboard() {
     if (filterPeriodEnd) {
       enrollQuery = enrollQuery.lte('period_end', filterPeriodEnd);
     }
-    if (filterDate) {
-      const startOfDay = `${filterDate}T00:00:00.000Z`;
-      const endOfDay = `${filterDate}T23:59:59.999Z`;
-      vpQuery = vpQuery.gte('created_at', startOfDay).lte('created_at', endOfDay);
-      arQuery = arQuery.gte('created_at', startOfDay).lte('created_at', endOfDay);
-      enrollQuery = enrollQuery.gte('created_at', startOfDay).lte('created_at', endOfDay);
-    }
+    // We no longer filter by filterDate in the Supabase query to ensure we get all users
+    // and then filter in memory based on any activity (enrollment, video, assessment, attendance) on that date.
 
     // Execute queries
     const assessmentsQuery = supabase.from('assessments').select('*');
@@ -215,6 +211,20 @@ export default function AdminDashboard() {
         const attendanceKey = en.user_id;
         const attendancePhotos = attendanceMap[attendanceKey] || [];
 
+        const activityDates = new Set<string>();
+        if (en.created_at) activityDates.add(en.created_at.split('T')[0]);
+        userVp.forEach((vp: any) => {
+          if (vp.created_at) activityDates.add(vp.created_at.split('T')[0]);
+          if (vp.completed_at) activityDates.add(vp.completed_at.split('T')[0]);
+        });
+        userAr.forEach((ar: any) => {
+          if (ar.created_at) activityDates.add(ar.created_at.split('T')[0]);
+        });
+        const userAttendances = allAttendances?.filter(f => f.name.startsWith(`${en.user_id}_login_attendance_`)) || [];
+        userAttendances.forEach(f => {
+          if (f.created_at) activityDates.add(f.created_at.split('T')[0]);
+        });
+
         return {
           full_name: en.users?.full_name,
           identity_number: en.users?.identity_number,
@@ -224,6 +234,7 @@ export default function AdminDashboard() {
           period_start: en.period_start,
           period_end: en.period_end,
           created_at: en.created_at,
+          activity_dates: Array.from(activityDates),
           avg_video_progress: avgVideo,
           video_breakdown: videoBreakdown || 'No videos',
           final_score: bestScore,
@@ -438,7 +449,21 @@ export default function AdminDashboard() {
       if (filterClassName && r.class_name !== filterClassName) return false;
       if (filterPeriodStart && r.period_start && r.period_start < filterPeriodStart) return false;
       if (filterPeriodEnd && r.period_end && r.period_end > filterPeriodEnd) return false;
-      if (filterDate && r.created_at && !r.created_at.startsWith(filterDate)) return false;
+      
+      if (filterActivityStart || filterActivityEnd) {
+        if (!r.activity_dates || r.activity_dates.length === 0) return false;
+        
+        const hasActivityInRange = r.activity_dates.some((d: string) => {
+          let isAfterStart = true;
+          let isBeforeEnd = true;
+          if (filterActivityStart) isAfterStart = d >= filterActivityStart;
+          if (filterActivityEnd) isBeforeEnd = d <= filterActivityEnd;
+          return isAfterStart && isBeforeEnd;
+        });
+        
+        if (!hasActivityInRange) return false;
+      }
+      
       return true;
     }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
   };
@@ -900,8 +925,12 @@ export default function AdminDashboard() {
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
-                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+                <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
+                <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Selesai</label>
+                <input type="date" value={filterActivityEnd} onChange={e => setFilterActivityEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <button 
@@ -1005,8 +1034,12 @@ export default function AdminDashboard() {
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
-                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+                <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
+                <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Selesai</label>
+                <input type="date" value={filterActivityEnd} onChange={e => setFilterActivityEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <button 
@@ -1115,8 +1148,12 @@ export default function AdminDashboard() {
                 <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Filter Hari (Tanggal)</label>
-                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+                <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
+                <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Selesai</label>
+                <input type="date" value={filterActivityEnd} onChange={e => setFilterActivityEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
               </div>
               <div>
                 <button 
