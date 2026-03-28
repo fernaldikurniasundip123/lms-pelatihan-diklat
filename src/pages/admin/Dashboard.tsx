@@ -103,12 +103,12 @@ export default function AdminDashboard() {
       
     let arQuery = supabase
       .from('assessment_results')
-      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url)), courses!inner(name)`)
+      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(name)`)
       .limit(10000);
       
     let enrollQuery = supabase
       .from('enrollments')
-      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url)), courses!inner(id, name)`)
+      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name)`)
       .limit(10000);
 
     // Apply filters
@@ -192,23 +192,34 @@ export default function AdminDashboard() {
           bestScore = userAr.length > 0 ? Math.max(...userAr.map((a: any) => a.score)) : null;
           passed = userAr.some((a: any) => a.passed);
         }
+        const uniqueUserVpMap = new Map();
+        userVp.forEach((vp: any) => {
+          const existing = uniqueUserVpMap.get(vp.video_id);
+          if (!existing || (vp.progress_percentage || 0) > (existing.progress_percentage || 0)) {
+            uniqueUserVpMap.set(vp.video_id, vp);
+          }
+        });
+        const uniqueUserVp = Array.from(uniqueUserVpMap.values());
+
         const courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
         const videoBreakdown = courseVideos.map(v => {
-          const vp = userVp.find((uvp: any) => uvp.video_id === v.id);
+          const vp = uniqueUserVpMap.get(v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
           const isCompleted = vp ? (vp.completed || (vp.progress_percentage || 0) >= 90) : false;
           return `${v.title}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
         }).join('\n');
 
         const totalVideosForCourse = videoCountByCourse[en.course_id] || 0;
-        const totalProgressSum = userVp.reduce((acc: number, vp: any) => {
+        const totalProgressSum = uniqueUserVp.reduce((acc: number, vp: any) => {
           const isCompleted = vp.completed || (vp.progress_percentage || 0) >= 90;
           return acc + (isCompleted ? 100 : (vp.progress_percentage || 0));
         }, 0);
         
         const avgVideo = totalVideosForCourse > 0 ? totalProgressSum / totalVideosForCourse : 0;
         
-        const gv = en.users?.global_verifications?.[0] || en.users?.global_verifications;
+        const gvs = en.users?.global_verifications || [];
+        const sortedGvs = Array.isArray(gvs) ? [...gvs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : [];
+        const gv = sortedGvs[0] || gvs;
         const attendanceKey = en.user_id;
         const attendancePhotos = attendanceMap[attendanceKey] || [];
 

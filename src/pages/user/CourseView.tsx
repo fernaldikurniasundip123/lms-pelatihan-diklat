@@ -189,7 +189,11 @@ export default function CourseView() {
       setAssessmentResults(resultsData || []);
 
       const videosWithProgress = (videosData || []).map(v => {
-        const prog = progressData?.find(p => p.video_id === v.id);
+        const videoProgresses = progressData?.filter(p => p.video_id === v.id) || [];
+        const prog = videoProgresses.reduce((max: any, current: any) => {
+          return (current.progress_percentage || 0) > (max?.progress_percentage || 0) ? current : max;
+        }, videoProgresses[0]);
+        
         return {
           ...v,
           completed: prog?.completed || false,
@@ -260,14 +264,16 @@ export default function CourseView() {
       
       savePromiseRef.current = savePromiseRef.current.then(async () => {
         try {
-          const { data: existing, error: fetchError } = await supabase
+          const { data, error: fetchError } = await supabase
             .from('video_progress')
             .select('completed, progress_percentage')
             .eq('user_id', user.id)
             .eq('video_id', activeVideo.id)
-            .maybeSingle();
+            .order('progress_percentage', { ascending: false })
+            .limit(1);
 
           if (fetchError) throw fetchError;
+          const existing = data?.[0];
 
           const isCompleted = pctToSave >= 90 || existing?.completed;
           const maxPercentage = Math.max(pctToSave, existing?.progress_percentage || 0);
