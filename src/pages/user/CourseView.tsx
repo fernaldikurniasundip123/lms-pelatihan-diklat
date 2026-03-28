@@ -125,6 +125,7 @@ export default function CourseView() {
   const [assignmentLink, setAssignmentLink] = useState('');
   const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false);
   const [assignmentSaved, setAssignmentSaved] = useState(false);
+  const savePromiseRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (user && courseId) {
@@ -242,7 +243,10 @@ export default function CourseView() {
     // Only save if we reached a new 1% milestone that is higher than previously saved
     if (steppedPct > lastSavedProgress.current || percentage >= 99) {
       // Prevent redundant saves if already at 100
-      if (lastSavedProgress.current === 100 && percentage >= 99) return;
+      if (lastSavedProgress.current === 100 && percentage >= 99) {
+        await savePromiseRef.current;
+        return;
+      }
       
       const now = Date.now();
       // Debounce DB writes to at most once every 5 seconds, unless it's the final completion (>= 99%)
@@ -254,62 +258,66 @@ export default function CourseView() {
       lastSavedProgress.current = pctToSave;
       lastSaveTime.current = now;
       
-      try {
-        const { data: existing, error: fetchError } = await supabase
-          .from('video_progress')
-          .select('completed, progress_percentage')
-          .eq('user_id', user.id)
-          .eq('video_id', activeVideo.id)
-          .maybeSingle();
+      savePromiseRef.current = savePromiseRef.current.then(async () => {
+        try {
+          const { data: existing, error: fetchError } = await supabase
+            .from('video_progress')
+            .select('completed, progress_percentage')
+            .eq('user_id', user.id)
+            .eq('video_id', activeVideo.id)
+            .maybeSingle();
 
-        if (fetchError) throw fetchError;
+          if (fetchError) throw fetchError;
 
-        const isCompleted = pctToSave >= 90 || existing?.completed;
-        const maxPercentage = Math.max(pctToSave, existing?.progress_percentage || 0);
+          const isCompleted = pctToSave >= 90 || existing?.completed;
+          const maxPercentage = Math.max(pctToSave, existing?.progress_percentage || 0);
 
-        if (existing) {
-          await supabase.from('video_progress').update({
-            progress_percentage: maxPercentage,
-            completed: isCompleted,
-            ...(isCompleted && !existing.completed ? { completed_at: new Date().toISOString() } : {})
-          }).eq('user_id', user.id).eq('video_id', activeVideo.id);
-        } else {
-          await supabase.from('video_progress').insert({
-            user_id: user.id,
-            video_id: activeVideo.id,
-            course_id: courseId,
-            progress_percentage: maxPercentage,
-            completed: isCompleted,
-            ...(isCompleted ? { completed_at: new Date().toISOString() } : {})
-          });
-        }
-
-        // Update local state so UI progress bar updates immediately
-        setCourse((prev: any) => {
-          if (!prev) return prev;
-          const updatedVideos = prev.videos.map((v: any) => {
-            if (v.id === activeVideo.id) {
-              return { ...v, progress_percentage: maxPercentage, completed: isCompleted };
-            }
-            return v;
-          });
-          
-          const finalAssessment = assessments?.find((a: any) => !a.video_id);
-          const totalItems = updatedVideos.length + (finalAssessment ? 1 : 0);
-          let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
-          
-          if (finalAssessment) {
-            const finalResult = assessmentResults?.find((r: any) => r.assessment_id === finalAssessment.id);
-            if (finalResult?.passed) completedItems += 1;
+          if (existing) {
+            await supabase.from('video_progress').update({
+              progress_percentage: maxPercentage,
+              completed: isCompleted,
+              ...(isCompleted && !existing.completed ? { completed_at: new Date().toISOString() } : {})
+            }).eq('user_id', user.id).eq('video_id', activeVideo.id);
+          } else {
+            await supabase.from('video_progress').insert({
+              user_id: user.id,
+              video_id: activeVideo.id,
+              course_id: courseId,
+              progress_percentage: maxPercentage,
+              completed: isCompleted,
+              ...(isCompleted ? { completed_at: new Date().toISOString() } : {})
+            });
           }
-          
-          const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
-          return { ...prev, videos: updatedVideos, progress, isCompleted: progress === 100 };
-        });
 
-      } catch (err) {
-        console.error("Failed to save partial progress:", err);
-      }
+          // Update local state so UI progress bar updates immediately
+          setCourse((prev: any) => {
+            if (!prev) return prev;
+            const updatedVideos = prev.videos.map((v: any) => {
+              if (v.id === activeVideo.id) {
+                return { ...v, progress_percentage: maxPercentage, completed: isCompleted };
+              }
+              return v;
+            });
+            
+            const finalAssessment = assessments?.find((a: any) => !a.video_id);
+            const totalItems = updatedVideos.length + (finalAssessment ? 1 : 0);
+            let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
+            
+            if (finalAssessment) {
+              const finalResult = assessmentResults?.find((r: any) => r.assessment_id === finalAssessment.id);
+              if (finalResult?.passed) completedItems += 1;
+            }
+            
+            const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
+            return { ...prev, videos: updatedVideos, progress, isCompleted: progress === 100 };
+          });
+
+        } catch (err) {
+          console.error("Failed to save partial progress:", err);
+        }
+      });
+      
+      await savePromiseRef.current;
     }
   };
 

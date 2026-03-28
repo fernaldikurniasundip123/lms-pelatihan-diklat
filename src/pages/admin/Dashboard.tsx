@@ -158,6 +158,7 @@ export default function AdminDashboard() {
     const { data: allAttendances } = await supabase.storage.from('verifications').list('', { limit: 10000, search: '_login_attendance_' });
     const attendanceMap: Record<string, string[]> = {};
     if (allAttendances) {
+      allAttendances.sort((a, b) => a.name.localeCompare(b.name));
       allAttendances.forEach(file => {
         const parts = file.name.split('_');
         if (parts.length >= 2) {
@@ -519,7 +520,9 @@ export default function AdminDashboard() {
         
         for (let i = 0; i < filtered.length; i++) {
           const r = filtered[i];
-          const liveB64 = r.live_photo_data ? await getBase64ImageFromUrl(r.live_photo_data) : null;
+          const latestAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[r.attendance_photos.length - 1] : null;
+          const photoToUse = latestAttendancePhoto || r.live_photo_data;
+          const liveB64 = photoToUse ? await getBase64ImageFromUrl(photoToUse) : null;
           const ktpB64 = r.ktp_photo_data ? await getBase64ImageFromUrl(r.ktp_photo_data) : null;
           imagesMap.set(i, { live: liveB64, ktp: ktpB64 });
           
@@ -697,9 +700,12 @@ export default function AdminDashboard() {
           row.alignment = { vertical: 'middle', wrapText: true };
 
           // Add Images if exist
-          if (r.live_photo_data) {
+          const latestAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[r.attendance_photos.length - 1] : null;
+          const photoToUse = latestAttendancePhoto || r.live_photo_data;
+          
+          if (photoToUse) {
             try {
-              const liveB64 = await getBase64ImageFromUrl(r.live_photo_data);
+              const liveB64 = await getBase64ImageFromUrl(photoToUse);
               if (liveB64) {
                 const base64Data = liveB64.split(',')[1] || liveB64;
                 const imageId = workbook.addImage({
