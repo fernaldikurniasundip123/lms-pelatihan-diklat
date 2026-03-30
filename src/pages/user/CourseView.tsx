@@ -281,8 +281,7 @@ export default function CourseView() {
           if (existing) {
             await supabase.from('video_progress').update({
               progress_percentage: maxPercentage,
-              completed: isCompleted,
-              ...(isCompleted && !existing.completed ? { completed_at: new Date().toISOString() } : {})
+              completed: isCompleted
             }).eq('user_id', user.id).eq('video_id', activeVideo.id);
           } else {
             await supabase.from('video_progress').insert({
@@ -290,8 +289,7 @@ export default function CourseView() {
               video_id: activeVideo.id,
               course_id: courseId,
               progress_percentage: maxPercentage,
-              completed: isCompleted,
-              ...(isCompleted ? { completed_at: new Date().toISOString() } : {})
+              completed: isCompleted
             });
           }
 

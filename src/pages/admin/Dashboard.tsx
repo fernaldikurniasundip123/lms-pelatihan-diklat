@@ -155,9 +155,14 @@ export default function AdminDashboard() {
     }
 
     // Fetch all attendances
-    const { data: allAttendances } = await supabase.storage.from('verifications').list('', { limit: 10000, search: '_login_attendance_' });
+    const { data: allFiles } = await supabase.storage.from('verifications').list('', { 
+      limit: 10000,
+      sortBy: { column: 'created_at', order: 'desc' }
+    });
+    const allAttendances = allFiles?.filter(f => f.name.includes('_login_attendance_')) || [];
     const attendanceMap: Record<string, string[]> = {};
-    if (allAttendances) {
+    if (allAttendances.length > 0) {
+      // Sort ascending by name so that the oldest is first and newest is last for each user
       allAttendances.sort((a, b) => a.name.localeCompare(b.name));
       allAttendances.forEach(file => {
         const parts = file.name.split('_');
@@ -228,7 +233,6 @@ export default function AdminDashboard() {
         if (en.created_at) activityDates.add(en.created_at.split('T')[0]);
         userVp.forEach((vp: any) => {
           if (vp.created_at) activityDates.add(vp.created_at.split('T')[0]);
-          if (vp.completed_at) activityDates.add(vp.completed_at.split('T')[0]);
         });
         userAr.forEach((ar: any) => {
           if (ar.created_at) activityDates.add(ar.created_at.split('T')[0]);
@@ -536,8 +540,7 @@ export default function AdminDashboard() {
           const latestAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[r.attendance_photos.length - 1] : null;
           const livePhotoToUse = latestAttendancePhoto || r.live_photo_data;
           
-          const initialAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[0] : null;
-          const initialPhotoToUse = initialAttendancePhoto || r.initial_photo_data;
+          const initialPhotoToUse = r.initial_photo_data || r.live_photo_data;
 
           const liveB64 = livePhotoToUse ? await getBase64ImageFromUrl(livePhotoToUse) : null;
           const initialB64 = initialPhotoToUse ? await getBase64ImageFromUrl(initialPhotoToUse) : null;
@@ -726,8 +729,7 @@ export default function AdminDashboard() {
           const latestAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[r.attendance_photos.length - 1] : null;
           const livePhotoToUse = latestAttendancePhoto || r.live_photo_data;
           
-          const initialAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[0] : null;
-          const initialPhotoToUse = initialAttendancePhoto || r.initial_photo_data;
+          const initialPhotoToUse = r.initial_photo_data || r.live_photo_data;
 
           if (initialPhotoToUse && type === 'final') {
             try {
@@ -1139,7 +1141,7 @@ export default function AdminDashboard() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.final_score !== null ? 1 : 0}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, initial: report.initial_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: (report.attendance_photos && report.attendance_photos.length > 0) ? report.attendance_photos[report.attendance_photos.length - 1] : report.live_photo_data, initial: report.initial_photo_data || report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
                         View Photos
                       </td>
                     </tr>
@@ -1265,7 +1267,7 @@ export default function AdminDashboard() {
                           <span className="text-sm text-gray-500">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, initial: report.initial_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: (report.attendance_photos && report.attendance_photos.length > 0) ? report.attendance_photos[report.attendance_photos.length - 1] : report.live_photo_data, initial: report.initial_photo_data || report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
                         View Photos
                       </td>
                     </tr>
