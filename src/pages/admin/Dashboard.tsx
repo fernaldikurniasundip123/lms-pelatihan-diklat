@@ -50,7 +50,7 @@ export default function AdminDashboard() {
   const [filterActivityEnd, setFilterActivityEnd] = useState("");
 
   // Photo Modal State
-  const [photoModalData, setPhotoModalData] = useState<{live: string | null, ktp: string | null, attendances: string[]} | null>(null);
+  const [photoModalData, setPhotoModalData] = useState<{live: string | null, initial: string | null, ktp: string | null, attendances: string[]} | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const getBase64ImageFromUrl = async (imageUrl: string) => {
@@ -220,6 +220,7 @@ export default function AdminDashboard() {
         const gvs = en.users?.global_verifications || [];
         const sortedGvs = Array.isArray(gvs) ? [...gvs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : [];
         const gv = sortedGvs[0] || gvs;
+        const oldestGv = sortedGvs[sortedGvs.length - 1] || gv;
         const attendanceKey = en.user_id;
         const attendancePhotos = attendanceMap[attendanceKey] || [];
 
@@ -253,7 +254,8 @@ export default function AdminDashboard() {
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
           assignment_link: en.assignment_link,
           live_photo_data: gv?.live_photo_url,
-          ktp_photo_data: gv?.ktp_photo_url,
+          initial_photo_data: oldestGv?.live_photo_url,
+          ktp_photo_data: gv?.ktp_photo_url || oldestGv?.ktp_photo_url,
           attendance_photos: attendancePhotos
         };
       });
@@ -532,10 +534,16 @@ export default function AdminDashboard() {
         for (let i = 0; i < filtered.length; i++) {
           const r = filtered[i];
           const latestAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[r.attendance_photos.length - 1] : null;
-          const photoToUse = latestAttendancePhoto || r.live_photo_data;
-          const liveB64 = photoToUse ? await getBase64ImageFromUrl(photoToUse) : null;
+          const livePhotoToUse = latestAttendancePhoto || r.live_photo_data;
+          
+          const initialAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[0] : null;
+          const initialPhotoToUse = initialAttendancePhoto || r.initial_photo_data;
+
+          const liveB64 = livePhotoToUse ? await getBase64ImageFromUrl(livePhotoToUse) : null;
+          const initialB64 = initialPhotoToUse ? await getBase64ImageFromUrl(initialPhotoToUse) : null;
           const ktpB64 = r.ktp_photo_data ? await getBase64ImageFromUrl(r.ktp_photo_data) : null;
-          imagesMap.set(i, { live: liveB64, ktp: ktpB64 });
+          
+          imagesMap.set(i, { live: liveB64, initial: initialB64, ktp: ktpB64 });
           
           bodyData.push([
             r.full_name + '\n' + r.identity_number,
@@ -544,24 +552,28 @@ export default function AdminDashboard() {
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.final_score != null ? Math.round(r.final_score).toString() : '-',
-            r.assessment_status || '-',
-            '', // Live Photo placeholder
+            r.assessment_status || '-', // Status (Foto Awal)
+            '', // Live Photo (Foto Akhir) placeholder
             ''  // KTP placeholder
           ]);
         }
 
         autoTable(doc, {
           startY: 40,
-          head: [['User', 'Kelas', 'Course', 'Periode Diklat', 'Video Progress', 'Score', 'Status', 'Live Photo', 'KTP']],
+          head: [['User', 'Kelas', 'Course', 'Periode', 'Video', 'Score', 'Status\n(Foto Awal)', 'Live Photo\n(Terbaru)', 'KTP']],
           body: bodyData,
-          styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 20 },
+          styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 25 },
           columnStyles: {
-            7: { cellWidth: 25 }, // Live Photo
+            6: { cellWidth: 25 }, // Status (Initial Photo)
+            7: { cellWidth: 25 }, // Live Photo (Latest Photo)
             8: { cellWidth: 35 }  // KTP
           },
           didDrawCell: (data) => {
             if (data.section === 'body') {
               const imgs = imagesMap.get(data.row.index);
+              if (data.column.index === 6 && imgs?.initial) {
+                doc.addImage(imgs.initial, 'JPEG', data.cell.x + 2, data.cell.y + 8, 20, 16);
+              }
               if (data.column.index === 7 && imgs?.live) {
                 doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
               }
@@ -647,8 +659,8 @@ export default function AdminDashboard() {
           { header: 'Video Progress', key: 'video', width: 40 },
           { header: 'Link Tugas', key: 'assignment_link', width: 30 },
           { header: 'Nilai Assessment', key: 'score', width: 15 },
-          { header: 'Status', key: 'status', width: 15 },
-          { header: 'Foto Live', key: 'live', width: 20 },
+          { header: 'Status / Foto Awal', key: 'status', width: 25 },
+          { header: 'Foto Live (Terbaru)', key: 'live', width: 25 },
           { header: 'Foto KTP', key: 'ktp', width: 30 }
         ];
         for (let j = 0; j < maxAttendances; j++) {
@@ -707,23 +719,45 @@ export default function AdminDashboard() {
 
         // Make row tall enough for images if not video report
         if (type !== 'video') {
-          row.height = 80;
-          row.alignment = { vertical: 'middle', wrapText: true };
+          row.height = 100;
+          row.alignment = { vertical: 'top', wrapText: true };
 
           // Add Images if exist
           const latestAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[r.attendance_photos.length - 1] : null;
-          const photoToUse = latestAttendancePhoto || r.live_photo_data;
+          const livePhotoToUse = latestAttendancePhoto || r.live_photo_data;
           
-          if (photoToUse) {
+          const initialAttendancePhoto = r.attendance_photos && r.attendance_photos.length > 0 ? r.attendance_photos[0] : null;
+          const initialPhotoToUse = initialAttendancePhoto || r.initial_photo_data;
+
+          if (initialPhotoToUse && type === 'final') {
             try {
-              const liveB64 = await getBase64ImageFromUrl(photoToUse);
+              const initialB64 = await getBase64ImageFromUrl(initialPhotoToUse);
+              if (initialB64) {
+                const base64Data = initialB64.split(',')[1] || initialB64;
+                const imageId = workbook.addImage({
+                  base64: base64Data,
+                  extension: 'jpeg',
+                });
+                worksheet.addImage(imageId, {
+                  tl: { col: 9, row: i + 1 }, // Column 10 (0-indexed 9) is Status / Foto Awal
+                  ext: { width: 100, height: 80 }
+                });
+              }
+            } catch (e) {
+              console.error("Failed to add initial photo to excel", e);
+            }
+          }
+          
+          if (livePhotoToUse) {
+            try {
+              const liveB64 = await getBase64ImageFromUrl(livePhotoToUse);
               if (liveB64) {
                 const base64Data = liveB64.split(',')[1] || liveB64;
                 const imageId = workbook.addImage({
                   base64: base64Data,
                   extension: 'jpeg',
                 });
-                const colIndex = type === 'assessment' ? 7 : 9;
+                const colIndex = type === 'assessment' ? 8 : 10; // Column 11 (0-indexed 10) is Foto Live
                 worksheet.addImage(imageId, {
                   tl: { col: colIndex, row: i + 1 },
                   ext: { width: 100, height: 80 }
@@ -743,7 +777,7 @@ export default function AdminDashboard() {
                   base64: base64Data,
                   extension: 'jpeg',
                 });
-                const colIndex = type === 'assessment' ? 8 : 10;
+                const colIndex = type === 'assessment' ? 9 : 11; // Column 12 (0-indexed 11) is Foto KTP
                 worksheet.addImage(imageId, {
                   tl: { col: colIndex, row: i + 1 },
                   ext: { width: 150, height: 80 }
@@ -1105,7 +1139,7 @@ export default function AdminDashboard() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.final_score !== null ? 1 : 0}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, initial: report.initial_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
                         View Photos
                       </td>
                     </tr>
@@ -1231,7 +1265,7 @@ export default function AdminDashboard() {
                           <span className="text-sm text-gray-500">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: report.live_photo_data, initial: report.initial_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
                         View Photos
                       </td>
                     </tr>
@@ -1254,11 +1288,19 @@ export default function AdminDashboard() {
               </button>
             </div>
             <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Live Photo (Awal)</h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Foto Live (Awal)</h4>
+                  {photoModalData.initial ? (
+                    <img src={photoModalData.initial} alt="Initial Live" className="w-full rounded-lg border border-gray-200" />
+                  ) : (
+                    <div className="w-full aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">No photo</div>
+                  )}
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Foto Live (Terbaru)</h4>
                   {photoModalData.live ? (
-                    <img src={photoModalData.live} alt="Live" className="w-full rounded-lg border border-gray-200" />
+                    <img src={photoModalData.live} alt="Latest Live" className="w-full rounded-lg border border-gray-200" />
                   ) : (
                     <div className="w-full aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">No photo</div>
                   )}
