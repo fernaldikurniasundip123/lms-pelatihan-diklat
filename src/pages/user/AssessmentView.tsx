@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
-import { Clock, AlertTriangle, CheckCircle } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle, Headphones, ExternalLink } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 export default function AssessmentView() {
@@ -179,6 +179,29 @@ export default function AssessmentView() {
               <p className="font-bold text-gray-900">{Object.keys(answers).length} / {questions.length} Answered</p>
             </div>
           </div>
+
+          {assessment?.audio_link && (
+            <div className="p-6 bg-blue-50 border-b border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-2.5 rounded-full text-blue-600 flex-shrink-0">
+                  <Headphones className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-blue-900">Audio Material</h3>
+                  <p className="text-sm text-blue-700">Please listen to the audio material while answering the questions.</p>
+                </div>
+              </div>
+              <a 
+                href={assessment.audio_link} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2 whitespace-nowrap"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Open Audio Link
+              </a>
+            </div>
+          )}
           
           <div className="p-8 space-y-12">
             {questions.map((q, idx) => (

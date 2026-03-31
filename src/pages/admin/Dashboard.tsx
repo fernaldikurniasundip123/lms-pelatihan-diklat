@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
   const [passingGrade, setPassingGrade] = useState(70);
   const [durationMinutes, setDurationMinutes] = useState(60);
+  const [audioLink, setAudioLink] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filters
@@ -361,19 +362,26 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!selectedCourse) return;
 
+    const payload: any = {
+      course_id: selectedCourse.id,
+      video_id: creatingAssessmentForVideoId,
+      passing_score: passingGrade,
+      duration_minutes: durationMinutes,
+      is_mandatory: isMandatory
+    };
+    
+    if (audioLink) {
+      payload.audio_link = audioLink;
+    }
+
     const { error } = await supabase
       .from('assessments')
-      .insert([{
-        course_id: selectedCourse.id,
-        video_id: creatingAssessmentForVideoId,
-        passing_score: passingGrade,
-        duration_minutes: durationMinutes,
-        is_mandatory: isMandatory
-      }]);
+      .insert([payload]);
 
     if (!error) {
       setIsCreatingAssessment(false);
       setCreatingAssessmentForVideoId(null);
+      setAudioLink("");
       fetchCourses();
       const { data } = await supabase
         .from('courses')
@@ -1446,6 +1454,11 @@ export default function AdminDashboard() {
                                     <p className="font-medium">Assessment Configured</p>
                                     <p className="text-xs mt-1">Passing Grade: {videoAssessment.passing_score} | Duration: {videoAssessment.duration_minutes}m</p>
                                     <p className="text-xs mt-1">Mandatory: {videoAssessment.is_mandatory ? 'Yes' : 'No'}</p>
+                                    {videoAssessment.audio_link && (
+                                      <p className="text-xs mt-1 truncate max-w-xs">
+                                        Audio: <a href={videoAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{videoAssessment.audio_link}</a>
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="flex gap-2 mt-2">
@@ -1508,6 +1521,10 @@ export default function AdminDashboard() {
                                   <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
                                   <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded text-xs" />
                                 </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
+                                  <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded text-xs" />
+                                </div>
                                 <div className="flex items-center gap-2 mt-2">
                                   <input type="checkbox" id={`isMandatory-${video.id}`} checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                                   <label htmlFor={`isMandatory-${video.id}`} className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
@@ -1518,7 +1535,7 @@ export default function AdminDashboard() {
                                 </div>
                               </form>
                             ) : (
-                              <button onClick={() => { setIsCreatingAssessment(true); setCreatingAssessmentForVideoId(video.id); }} className="w-full py-2 border border-dashed border-gray-300 rounded text-gray-500 text-xs font-medium hover:border-indigo-500 hover:text-indigo-600 transition-colors">
+                              <button onClick={() => { setIsCreatingAssessment(true); setCreatingAssessmentForVideoId(video.id); setAudioLink(""); }} className="w-full py-2 border border-dashed border-gray-300 rounded text-gray-500 text-xs font-medium hover:border-indigo-500 hover:text-indigo-600 transition-colors">
                                 + Add Assessment for this Video
                               </button>
                             )}
@@ -1547,6 +1564,11 @@ export default function AdminDashboard() {
                               <p className="font-medium">Final Assessment Configured</p>
                               <p className="text-sm mt-1">Passing Grade: {finalAssessment.passing_score} | Duration: {finalAssessment.duration_minutes}m</p>
                               <p className="text-sm mt-1">Mandatory: {finalAssessment.is_mandatory ? 'Yes' : 'No'}</p>
+                              {finalAssessment.audio_link && (
+                                <p className="text-sm mt-1 truncate max-w-sm">
+                                  Audio: <a href={finalAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline">{finalAssessment.audio_link}</a>
+                                </p>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2 mt-2">
@@ -1613,6 +1635,10 @@ export default function AdminDashboard() {
                           <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
                           <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded" />
                         </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
+                          <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded" />
+                        </div>
                         <div className="flex items-center gap-2 mt-2">
                           <input type="checkbox" id="isMandatoryFinal" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                           <label htmlFor="isMandatoryFinal" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
@@ -1623,7 +1649,7 @@ export default function AdminDashboard() {
                         </div>
                       </form>
                     ) : (
-                      <button onClick={() => { setIsCreatingAssessment(true); setCreatingAssessmentForVideoId(null); }} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 font-medium hover:border-indigo-500 hover:text-indigo-600 transition-colors">
+                      <button onClick={() => { setIsCreatingAssessment(true); setCreatingAssessmentForVideoId(null); setAudioLink(""); }} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 font-medium hover:border-indigo-500 hover:text-indigo-600 transition-colors">
                         + Create Final Assessment
                       </button>
                     );
