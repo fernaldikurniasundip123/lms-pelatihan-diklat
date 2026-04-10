@@ -69,18 +69,37 @@ export default function Login() {
       }
 
       // 1. Check if user exists or create new one
-      let { data: users, error: userError } = await supabase
+      const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
+      const newIdentity = (requiresSeafarerCode && seafarerCode) ? seafarerCode : dummyIdentity;
+
+      // Fetch users by identity number or name
+      let { data: usersByIdentity, error: idError } = await supabase
         .from('users')
         .select('*')
-        .eq('full_name', fullName);
+        .in('identity_number', [newIdentity, dummyIdentity]);
 
-      if (userError) {
-        console.error("Supabase error checking user:", userError);
-        throw new Error(`Gagal memeriksa data pengguna: ${userError.message}`);
+      let { data: usersByName, error: nameError } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('full_name', fullName);
+
+      if (idError || nameError) {
+        console.error("Supabase error checking user:", idError || nameError);
+        throw new Error(`Gagal memeriksa data pengguna: ${(idError || nameError)?.message}`);
       }
 
+      const allUsers = [...(usersByIdentity || []), ...(usersByName || [])];
+      const uniqueUsers = Array.from(new Map(allUsers.map(u => [u.id, u])).values());
+      
+      const normalizeName = (name: string) => name.replace(/\s+/g, '').toLowerCase();
+      const normalizedInputName = normalizeName(fullName);
+
+      let users = uniqueUsers.filter(u => {
+        if (u.role === 'admin' || u.role === 'admin2') return true;
+        return normalizeName(u.full_name) === normalizedInputName;
+      });
+
       let user = null;
-      const dummyIdentity = `${fullName.replace(/\s+/g, '').toUpperCase()}-${className}`;
 
       if (users && users.length > 0) {
         // Check if it's an admin login attempt
