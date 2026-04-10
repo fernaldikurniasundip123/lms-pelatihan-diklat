@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
-import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon } from "lucide-react";
+import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, Download, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import AIChat from "../../components/AIChat";
 
@@ -125,6 +125,7 @@ export default function CourseView() {
   const [assignmentLink, setAssignmentLink] = useState('');
   const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false);
   const [assignmentSaved, setAssignmentSaved] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const savePromiseRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
@@ -358,11 +359,22 @@ export default function CourseView() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-4">
-          <button onClick={() => navigate("/user")} className="p-2 text-gray-400 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-xl font-bold text-gray-900 truncate">{course.name}</h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate("/user")} className="p-2 text-gray-400 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h1 className="text-xl font-bold text-gray-900 truncate">{course.name}</h1>
+          </div>
+          <div className="hidden sm:flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-sm font-bold text-gray-900">{user?.name}</p>
+              <p className="text-xs text-gray-500">{user?.identity}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+              {user?.name?.charAt(0).toUpperCase() || 'U'}
+            </div>
+          </div>
         </div>
       </header>
 
@@ -479,97 +491,135 @@ export default function CourseView() {
                 );
               })}
 
-              <div className="pt-4 mt-4 border-t border-gray-200">
-                <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-                  <h4 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
-                    <LinkIcon className="w-4 h-4" />
-                    Lampirkan Tugas
-                  </h4>
-                  <p className="text-xs text-indigo-700 mb-3">
-                    Masukkan link tugas Anda (Google Drive, Dropbox, dll). Pastikan akses link sudah dibuka (Public).
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    <input
-                      type="url"
-                      value={assignmentLink}
-                      onChange={(e) => {
-                        setAssignmentLink(e.target.value);
-                        setAssignmentSaved(false);
-                      }}
-                      placeholder="https://drive.google.com/..."
-                      className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleSaveAssignment}
-                        disabled={isSubmittingAssignment || !assignmentLink.trim() || assignmentSaved}
-                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          assignmentSaved 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
-                        }`}
-                      >
-                        {isSubmittingAssignment ? 'Menyimpan...' : assignmentSaved ? 'Tugas Tersimpan ✓' : 'Simpan Link Tugas'}
-                      </button>
-                      {assignmentSaved && (
+              <div className="pt-4 mt-4 border-t border-gray-200 flex flex-col gap-4">
+                {/* Download Materi Section */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
+                    <Download className="w-4 h-4 text-indigo-600" />
+                    Materi Pembelajaran
+                  </h3>
+                  <a 
+                    href="https://drive.google.com/drive/folders/1wz2a2B3_uWd8QxYyZz_q2B3_uWd8QxYyZz" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Materi (Google Drive)
+                  </a>
+                </div>
+
+                {/* Final Assessment Section */}
+                {assessments.find(a => !a.video_id) && (
+                  <button
+                    onClick={() => {
+                      const finalAssessment = assessments.find(a => !a.video_id);
+                      navigate(`/course/${course.id}/assessment/${finalAssessment.id}/precheck`);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 rounded-xl text-left transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-md"
+                  >
+                    <div className="mt-0.5">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold">Final Assessment</p>
+                      <p className="text-xs mt-1 text-indigo-100">
+                        Ready to start
+                      </p>
+                    </div>
+                  </button>
+                )}
+
+                {/* Link Tugas Section */}
+                <div className="bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
+                  <div className="p-4 border-b border-indigo-100 flex items-center gap-2">
+                    <LinkIcon className="w-4 h-4 text-indigo-900" />
+                    <h4 className="text-sm font-bold text-indigo-900">Lampirkan Tugas</h4>
+                  </div>
+                  <div className="p-4">
+                    <p className="text-xs text-indigo-700 mb-3">
+                      Masukkan link tugas Anda (Google Drive, Dropbox, dll). Pastikan akses link sudah dibuka (Public).
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <input
+                        type="url"
+                        value={assignmentLink}
+                        onChange={(e) => {
+                          setAssignmentLink(e.target.value);
+                          setAssignmentSaved(false);
+                        }}
+                        placeholder="https://drive.google.com/..."
+                        className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex gap-2">
                         <button
-                          onClick={async () => {
-                            if (confirm('Apakah Anda yakin ingin menghapus link tugas ini?')) {
-                              setIsSubmittingAssignment(true);
-                              try {
-                                const { error } = await supabase
-                                  .from('enrollments')
-                                  .update({ assignment_link: null })
-                                  .eq('user_id', user.id)
-                                  .eq('course_id', courseId);
-                                if (error) throw error;
-                                setAssignmentLink('');
-                                setAssignmentSaved(false);
-                              } catch (err) {
-                                console.error(err);
-                                alert('Gagal menghapus link tugas');
-                              } finally {
-                                setIsSubmittingAssignment(false);
-                              }
-                            }
-                          }}
-                          disabled={isSubmittingAssignment}
-                          className="px-4 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg text-sm font-medium transition-colors"
+                          onClick={handleSaveAssignment}
+                          disabled={isSubmittingAssignment || !assignmentLink.trim() || assignmentSaved}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            assignmentSaved 
+                              ? 'bg-green-100 text-green-700' 
+                              : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
+                          }`}
                         >
-                          Hapus
+                          {isSubmittingAssignment ? 'Menyimpan...' : assignmentSaved ? 'Tugas Tersimpan ✓' : 'Simpan Link Tugas'}
                         </button>
-                      )}
+                        {assignmentSaved && (
+                          <button
+                            onClick={async () => {
+                              if (confirm('Apakah Anda yakin ingin menghapus link tugas ini?')) {
+                                setIsSubmittingAssignment(true);
+                                try {
+                                  const { error } = await supabase
+                                    .from('enrollments')
+                                    .update({ assignment_link: null })
+                                    .eq('user_id', user.id)
+                                    .eq('course_id', courseId);
+                                  if (error) throw error;
+                                  setAssignmentLink('');
+                                  setAssignmentSaved(false);
+                                } catch (err) {
+                                  console.error(err);
+                                  alert('Gagal menghapus link tugas');
+                                } finally {
+                                  setIsSubmittingAssignment(false);
+                                }
+                              }
+                            }}
+                            disabled={isSubmittingAssignment}
+                            className="px-4 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            Hapus
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-
-                {assessments.find(a => !a.video_id) && (
-                <button
-                  onClick={() => {
-                    const finalAssessment = assessments.find(a => !a.video_id);
-                    navigate(`/course/${course.id}/assessment/${finalAssessment.id}/precheck`);
-                  }}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl text-left transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-md"
-                >
-                  <div className="mt-0.5">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold">Final Assessment</p>
-                    <p className="text-xs mt-1 text-indigo-100">
-                      Ready to start
-                    </p>
-                  </div>
-                </button>
-              )}
               </div>
             </div>
           </div>
 
           {/* AI Chat Section in Right Column */}
           {activeVideo && (
-            <div className="flex flex-col flex-1 min-h-[300px]">
-              <AIChat courseName={course.name} />
+            <div className="flex flex-col flex-1">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <button 
+                  onClick={() => setIsChatOpen(!isChatOpen)}
+                  className="w-full p-4 bg-indigo-600 text-white flex items-center justify-between hover:bg-indigo-700 transition-colors"
+                >
+                  <div className="flex items-center gap-2 font-bold">
+                    <MessageSquare className="w-5 h-5" />
+                    Tanya Aspri (Asisten Pak Pria)
+                  </div>
+                  {isChatOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </button>
+                
+                {isChatOpen && (
+                  <div className="h-[400px] flex flex-col">
+                    <AIChat courseName={course.name} />
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
