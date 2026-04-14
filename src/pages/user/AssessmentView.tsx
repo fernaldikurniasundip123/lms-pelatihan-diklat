@@ -15,6 +15,7 @@ export default function AssessmentView() {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [result, setResult] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
   useEffect(() => {
     if (courseId && user) {
@@ -56,8 +57,17 @@ export default function AssessmentView() {
 
       if (questionsError) throw questionsError;
 
+      let fetchedQuestions = questionsData || [];
+      if (!assessmentData.video_id) {
+        // Fisher-Yates shuffle for Final Assessment
+        for (let i = fetchedQuestions.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [fetchedQuestions[i], fetchedQuestions[j]] = [fetchedQuestions[j], fetchedQuestions[i]];
+        }
+      }
+
       setAssessment(assessmentData);
-      setQuestions(questionsData || []);
+      setQuestions(fetchedQuestions);
       setTimeLeft(60 * 60); // Default 60 minutes
     } catch (err) {
       console.error("Failed to fetch assessment:", err);
@@ -204,31 +214,79 @@ export default function AssessmentView() {
           )}
           
           <div className="p-8 space-y-12">
-            {questions.map((q, idx) => (
-              <div key={q.id} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900 flex gap-4">
-                  <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
-                    {idx + 1}
-                  </span>
-                  <span className="mt-1">{q.question_text}</span>
-                </h3>
-                <div className="pl-12 space-y-3">
-                  {q.options.map((opt: string, oIdx: number) => (
-                    <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[q.id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
-                      <input
-                        type="radio"
-                        name={`question-${q.id}`}
-                        value={opt}
-                        checked={answers[q.id] === opt}
-                        onChange={() => handleAnswer(q.id, opt)}
-                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                      />
-                      <span className="ml-3 text-gray-700">{opt}</span>
-                    </label>
-                  ))}
+            {!assessment?.video_id ? (
+              questions.length > 0 && (
+                <div 
+                  className="space-y-4 select-none"
+                  onCopy={(e) => e.preventDefault()}
+                  onContextMenu={(e) => e.preventDefault()}
+                >
+                  <h3 className="text-lg font-medium text-gray-900 flex gap-4">
+                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                      {currentQuestionIndex + 1}
+                    </span>
+                    <span className="mt-1">{questions[currentQuestionIndex].question_text}</span>
+                  </h3>
+                  <div className="pl-12 space-y-3">
+                    {questions[currentQuestionIndex].options.map((opt: string, oIdx: number) => (
+                      <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[questions[currentQuestionIndex].id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
+                        <input
+                          type="radio"
+                          name={`question-${questions[currentQuestionIndex].id}`}
+                          value={opt}
+                          checked={answers[questions[currentQuestionIndex].id] === opt}
+                          onChange={() => handleAnswer(questions[currentQuestionIndex].id, opt)}
+                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                        />
+                        <span className="ml-3 text-gray-700">{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex justify-between pt-8">
+                    <button
+                      onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
+                      disabled={currentQuestionIndex === 0}
+                      className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Sebelumnya
+                    </button>
+                    <button
+                      onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
+                      disabled={currentQuestionIndex === questions.length - 1}
+                      className="px-6 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:opacity-50"
+                    >
+                      Selanjutnya
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            ) : (
+              questions.map((q, idx) => (
+                <div key={q.id} className="space-y-4">
+                  <h3 className="text-lg font-medium text-gray-900 flex gap-4">
+                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                      {idx + 1}
+                    </span>
+                    <span className="mt-1">{q.question_text}</span>
+                  </h3>
+                  <div className="pl-12 space-y-3">
+                    {q.options.map((opt: string, oIdx: number) => (
+                      <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[q.id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
+                        <input
+                          type="radio"
+                          name={`question-${q.id}`}
+                          value={opt}
+                          checked={answers[q.id] === opt}
+                          onChange={() => handleAnswer(q.id, opt)}
+                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                        />
+                        <span className="ml-3 text-gray-700">{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           
           <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end">
