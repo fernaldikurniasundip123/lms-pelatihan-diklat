@@ -189,6 +189,50 @@ export default function AdminDashboard() {
         
         let bestScore = null;
         let passed = false;
+        let detailedScores = '';
+        let detailedStatuses = '';
+        
+        // Group assessment results by assessment_id
+        const resultsByAssessment = new Map();
+        userAr.forEach((ar: any) => {
+          if (!resultsByAssessment.has(ar.assessment_id)) {
+            resultsByAssessment.set(ar.assessment_id, []);
+          }
+          resultsByAssessment.get(ar.assessment_id).push(ar);
+        });
+
+        // Format detailed scores and statuses
+        const scoreLines: string[] = [];
+        const statusLines: string[] = [];
+
+        resultsByAssessment.forEach((results, assessmentId) => {
+          // Sort results by created_at to get attempts in order
+          results.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+          
+          const assessment = assessmentsData?.find((a: any) => a.id === assessmentId);
+          let label = 'Unknown Assessment';
+          if (assessment) {
+            if (assessment.video_id) {
+              const video = allVideos?.find(v => v.id === assessment.video_id);
+              label = video ? `Ass. ${video.title}` : 'Video Assessment';
+            } else {
+              label = 'Final Ass.';
+            }
+          }
+
+          const scores = results.map((r: any) => Math.round(r.score)).join(' / ');
+          scoreLines.push(`${label}: ${scores}`);
+
+          const statuses = results.map((r: any) => {
+            const color = r.passed ? 'text-green-600' : 'text-red-600';
+            return `<span class="${color}">${Math.round(r.score)}</span>`;
+          }).join(' / ');
+          const finalPassed = results.some((r: any) => r.passed);
+          statusLines.push(`${label}: ${statuses} (${finalPassed ? 'LULUS' : 'NGULANG'})`);
+        });
+
+        detailedScores = scoreLines.join('\n');
+        detailedStatuses = statusLines.join('<br/>');
         
         if (finalAssessment) {
           const finalResults = userAr.filter((a: any) => a.assessment_id === finalAssessment.id);
@@ -256,6 +300,8 @@ export default function AdminDashboard() {
           avg_video_progress: avgVideo,
           video_breakdown: videoBreakdown || 'No videos',
           final_score: bestScore,
+          detailed_scores: detailedScores,
+          detailed_statuses: detailedStatuses,
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
           assignment_link: en.assignment_link,
           live_photo_data: gv?.live_photo_url,
@@ -1132,9 +1178,11 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{report.final_score !== null ? Math.round(report.final_score) : '-'}</td>
+                      <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {report.assessment_status === 'LULUS' ? (
+                        {report.detailed_statuses ? (
+                          <div className="text-sm font-medium" dangerouslySetInnerHTML={{ __html: report.detailed_statuses }} />
+                        ) : report.assessment_status === 'LULUS' ? (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 flex items-center gap-1">
                             <CheckCircle className="w-3 h-3" /> LULUS
                           </span>
@@ -1261,9 +1309,11 @@ export default function AdminDashboard() {
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{report.final_score != null ? Math.round(report.final_score) : '-'}</td>
+                      <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {report.assessment_status === 'LULUS' ? (
+                        {report.detailed_statuses ? (
+                          <div className="text-sm font-medium" dangerouslySetInnerHTML={{ __html: report.detailed_statuses }} />
+                        ) : report.assessment_status === 'LULUS' ? (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 flex items-center gap-1">
                             <CheckCircle className="w-3 h-3" /> LULUS
                           </span>

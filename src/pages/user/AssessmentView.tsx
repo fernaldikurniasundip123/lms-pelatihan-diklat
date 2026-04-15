@@ -57,7 +57,7 @@ export default function AssessmentView() {
 
       if (questionsError) throw questionsError;
 
-      let fetchedQuestions = questionsData || [];
+      let fetchedQuestions = [...(questionsData || [])];
       if (!assessmentData.video_id) {
         // Fisher-Yates shuffle for Final Assessment
         for (let i = fetchedQuestions.length - 1; i > 0; i--) {
