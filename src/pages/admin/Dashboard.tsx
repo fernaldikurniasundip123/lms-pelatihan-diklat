@@ -214,7 +214,7 @@ export default function AdminDashboard() {
           if (assessment) {
             if (assessment.video_id) {
               const video = allVideos?.find(v => v.id === assessment.video_id);
-              label = video ? `Ass. ${video.title}` : 'Video Assessment';
+              label = video ? `Ass. Part ${video.order_num}` : 'Video Assessment';
             } else {
               label = 'Final Ass.';
             }
