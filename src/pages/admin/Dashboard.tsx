@@ -100,17 +100,17 @@ export default function AdminDashboard() {
     let vpQuery = supabase
       .from('video_progress')
       .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name), videos(title)`)
-      .limit(10000);
+      .order('created_at', { ascending: false });
       
     let arQuery = supabase
       .from('assessment_results')
       .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(name)`)
-      .limit(10000);
+      .order('created_at', { ascending: false });
       
     let enrollQuery = supabase
       .from('enrollments')
       .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name)`)
-      .limit(10000);
+      .order('created_at', { ascending: false });
 
     // Apply filters
     if (filterCourseId) {
@@ -132,19 +132,36 @@ export default function AdminDashboard() {
     // We no longer filter by filterDate in the Supabase query to ensure we get all users
     // and then filter in memory based on any activity (enrollment, video, assessment, attendance) on that date.
 
-    // Execute queries
-    const assessmentsQuery = supabase.from('assessments').select('*');
-    const [vpRes, arRes, enrollRes, assessmentsRes] = await Promise.all([
-      vpQuery,
-      arQuery,
-      enrollQuery,
-      assessmentsQuery
-    ]);
+    // Helper function to fetch all rows with pagination
+    const fetchAll = async (queryBuilder: any) => {
+      let allData: any[] = [];
+      let from = 0;
+      const step = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await queryBuilder.range(from, from + step - 1);
+        if (error) {
+          console.error("Error fetching data:", error);
+          break;
+        }
+        if (data && data.length > 0) {
+          allData = [...allData, ...data];
+          from += step;
+          if (data.length < step) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      }
+      return allData;
+    };
 
-    const vpData = vpRes.data;
-    const arData = arRes.data;
-    const enrollData = enrollRes.data;
-    const assessmentsData = assessmentsRes.data;
+    const assessmentsQuery = supabase.from('assessments').select('*');
+    const [vpData, arData, enrollData, assessmentsData] = await Promise.all([
+      fetchAll(vpQuery),
+      fetchAll(arQuery),
+      fetchAll(enrollQuery),
+      fetchAll(assessmentsQuery)
+    ]);
     
     // Fetch total videos per course to calculate accurate percentage
     const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true }).limit(10000);
