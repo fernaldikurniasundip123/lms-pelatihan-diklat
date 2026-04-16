@@ -259,8 +259,10 @@ export default function AdminDashboard() {
           return `${v.title}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
         }).join('\n');
 
-        const totalVideosForCourse = videoCountByCourse[en.course_id] || 0;
-        const totalProgressSum = uniqueUserVp.reduce((acc: number, vp: any) => {
+        const totalVideosForCourse = courseVideos.length;
+        const totalProgressSum = courseVideos.reduce((acc: number, v: any) => {
+          const vp = uniqueUserVpMap.get(v.id);
+          if (!vp) return acc;
           const isCompleted = vp.completed || (vp.progress_percentage || 0) >= 90;
           return acc + (isCompleted ? 100 : (vp.progress_percentage || 0));
         }, 0);
