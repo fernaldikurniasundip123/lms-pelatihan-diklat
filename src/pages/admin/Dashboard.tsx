@@ -256,7 +256,7 @@ export default function AdminDashboard() {
           const vp = uniqueUserVpMap.get(v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
           const isCompleted = vp ? (vp.completed || (vp.progress_percentage || 0) >= 90) : false;
-          return `${v.title}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
+          return `Part ${v.order_num}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
         }).join('\n');
 
         const totalVideosForCourse = courseVideos.length;
