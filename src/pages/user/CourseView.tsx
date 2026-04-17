@@ -493,21 +493,23 @@ export default function CourseView() {
 
               <div className="pt-4 mt-4 border-t border-gray-200 flex flex-col gap-4">
                 {/* Download Materi Section */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                  <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
-                    <Download className="w-4 h-4 text-indigo-600" />
-                    Materi Pembelajaran
-                  </h3>
-                  <a 
-                    href="https://drive.google.com/drive/folders/1wz2a2B3_uWd8QxYyZz_q2B3_uWd8QxYyZz" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download Materi (Google Drive)
-                  </a>
-                </div>
+                {course.material_link && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                    <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
+                      <Download className="w-4 h-4 text-indigo-600" />
+                      Materi Pembelajaran
+                    </h3>
+                    <a 
+                      href={course.material_link} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download Materi
+                    </a>
+                  </div>
+                )}
 
                 {/* Final Assessment Section */}
                 {assessments.find(a => !a.video_id) && (

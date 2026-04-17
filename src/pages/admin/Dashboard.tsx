@@ -20,10 +20,13 @@ export default function AdminDashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newCourseName, setNewCourseName] = useState("");
   const [newCourseDesc, setNewCourseDesc] = useState("");
+  const [newCourseMaterialLink, setNewCourseMaterialLink] = useState("");
 
   // Manage Content Modal State
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [materialLink, setMaterialLink] = useState("");
+  const [isSavingMaterial, setIsSavingMaterial] = useState(false);
   const [assessmentQuestions, setAssessmentQuestions] = useState<any[]>([]);
   const [isViewingQuestions, setIsViewingQuestions] = useState(false);
   const [newVideoTitle, setNewVideoTitle] = useState("");
@@ -344,23 +347,49 @@ export default function AdminDashboard() {
     e.preventDefault();
     const { error } = await supabase
       .from('courses')
-      .insert([{ name: newCourseName, description: newCourseDesc, status: 'active' }]);
+      .insert([{ 
+        name: newCourseName, 
+        description: newCourseDesc, 
+        material_link: newCourseMaterialLink,
+        status: 'active' 
+      }]);
 
     if (!error) {
       setIsAddModalOpen(false);
       setNewCourseName("");
       setNewCourseDesc("");
+      setNewCourseMaterialLink("");
       fetchCourses();
     } else {
-      alert("Failed to create course");
+      alert("Failed to create course. Ensure 'material_link' column exists.");
     }
   };
 
   const openManageModal = async (course: any) => {
     setSelectedCourse(course);
+    setMaterialLink(course.material_link || "");
     setIsManageModalOpen(true);
     setIsViewingQuestions(false);
     setAssessmentQuestions([]);
+  };
+
+  const handleSaveMaterialLink = async () => {
+    if (!selectedCourse) return;
+    setIsSavingMaterial(true);
+    const { error } = await supabase
+      .from('courses')
+      .update({ material_link: materialLink })
+      .eq('id', selectedCourse.id);
+
+    if (!error) {
+      alert("Material link saved successfully");
+      fetchCourses();
+      setSelectedCourse(prev => ({ ...prev, material_link: materialLink }));
+    } else {
+      console.error(error);
+      alert("Failed to save material link. Check if 'material_link' column exists in 'courses' table.");
+    }
+    setIsSavingMaterial(false);
   };
 
   const handleAddVideo = async (e: React.FormEvent) => {
@@ -1445,6 +1474,16 @@ export default function AdminDashboard() {
                   placeholder="Course description..."
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Material Link (Optional)</label>
+                <input
+                  type="url"
+                  value={newCourseMaterialLink}
+                  onChange={(e) => setNewCourseMaterialLink(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="https://drive.google.com/..."
+                />
+              </div>
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -1479,13 +1518,34 @@ export default function AdminDashboard() {
             </div>
             
             <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-8">
-              {/* Left Column: Existing Videos */}
-              <div className="flex-1 space-y-4">
-                <h4 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                  <Video className="w-5 h-5 text-indigo-600" /> Existing Videos
-                </h4>
-                
-                {selectedCourse.videos && selectedCourse.videos.length > 0 ? (
+              {/* Left Column: Existing Videos & Material Link */}
+              <div className="flex-1 space-y-8">
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-3 text-sm">Course Material Link (Google Drive, Dropbox, etc.)</h4>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={materialLink}
+                      onChange={e => setMaterialLink(e.target.value)}
+                      placeholder="https://drive.google.com/..."
+                      className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <button
+                      onClick={handleSaveMaterialLink}
+                      disabled={isSavingMaterial}
+                      className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {isSavingMaterial ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+                    <Video className="w-5 h-5 text-indigo-600" /> Existing Videos
+                  </h4>
+                  
+                  {selectedCourse.videos && selectedCourse.videos.length > 0 ? (
                   <div className="space-y-3">
                     {selectedCourse.videos.map((video: any, idx: number) => {
                       const videoAssessment = selectedCourse.assessments?.find((a: any) => a.video_id === video.id);
@@ -1724,6 +1784,7 @@ export default function AdminDashboard() {
                     );
                   })()}
                 </div>
+              </div>
               </div>
 
               {/* Right Column: Add New Video Form */}
