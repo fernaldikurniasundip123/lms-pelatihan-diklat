@@ -69,7 +69,8 @@ export default function AssessmentView() {
 
       setAssessment(assessmentData);
       setQuestions(fetchedQuestions);
-      setTimeLeft(60 * 60); // Default 60 minutes
+      const durationSeconds = (assessmentData.duration_minutes || 60) * 60;
+      setTimeLeft(durationSeconds);
     } catch (err) {
       console.error("Failed to fetch assessment:", err);
     }

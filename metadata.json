@@ -1,5 +1,8 @@
 {
   "name": "LMS Video & Assessment",
   "description": "Learning Management System with YouTube integration and online assessments.",
-  "requestFramePermissions": ["camera"]
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
 }
