@@ -59,8 +59,8 @@ export default function AssessmentView() {
       if (questionsError) throw questionsError;
 
       let fetchedQuestions = [...(questionsData || [])];
-      if (!assessmentData.video_id) {
-        // Fisher-Yates shuffle for Final Assessment
+      if (assessmentData.is_randomized) {
+        // Fisher-Yates shuffle for Randomized Assessment
         for (let i = fetchedQuestions.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [fetchedQuestions[i], fetchedQuestions[j]] = [fetchedQuestions[j], fetchedQuestions[i]];
@@ -129,10 +129,10 @@ export default function AssessmentView() {
   }, [assessment, user, courseId, questions, answers, assessmentId, submitting]);
 
   useEffect(() => {
-    if (!assessment?.is_strict_mode || result || submitting) return;
+    if (!assessment || result || submitting) return;
 
     const handleVisibilityChange = () => {
-      if (document.hidden) {
+      if (assessment.is_strict_mode && document.hidden) {
         setWarnings(prev => {
           const w = prev + 1;
           if (w >= 3) {
@@ -147,19 +147,29 @@ export default function AssessmentView() {
     };
 
     const handleCopy = (e: ClipboardEvent) => {
-      e.preventDefault();
-      alert("Penyalinan teks dinonaktifkan selama ujian!");
+      if (assessment.prevent_copypaste || assessment.is_strict_mode) {
+        e.preventDefault();
+        alert("Penyalinan teks dinonaktifkan selama ujian!");
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v' || e.key === 'x')) {
-        e.preventDefault();
-        alert("Pintasan keyboard dinonaktifkan selama ujian!");
+      if (assessment.prevent_copypaste || assessment.is_strict_mode) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v' || e.key === 'x')) {
+          e.preventDefault();
+          alert("Pintasan keyboard dinonaktifkan selama ujian!");
+        }
+        if (e.key === 'PrintScreen' || (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 's') || (e.shiftKey && e.metaKey && e.key === '3') || (e.shiftKey && e.metaKey && e.key === '4')) {
+          e.preventDefault();
+          alert("Screenshot dilarang selama ujian!");
+        }
       }
     };
 
     const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
+      if (assessment.prevent_copypaste || assessment.is_strict_mode) {
+        e.preventDefault();
+      }
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -211,7 +221,7 @@ export default function AssessmentView() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className={`min-h-screen bg-gray-50 flex flex-col ${assessment?.prevent_copypaste || assessment?.is_strict_mode ? 'no-print' : ''}`}>
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -263,12 +273,12 @@ export default function AssessmentView() {
           )}
           
           <div className="p-8 space-y-12">
-            {!assessment?.video_id ? (
+            {assessment?.show_one_by_one ? (
               questions.length > 0 && (
                 <div 
-                  className="space-y-4 select-none"
-                  onCopy={(e) => e.preventDefault()}
-                  onContextMenu={(e) => e.preventDefault()}
+                  className={`space-y-4 ${assessment?.prevent_copypaste ? 'select-none' : ''}`}
+                  onCopy={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
+                  onContextMenu={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
                 >
                   <h3 className="text-lg font-medium text-gray-900 flex gap-4">
                     <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
@@ -310,31 +320,37 @@ export default function AssessmentView() {
                 </div>
               )
             ) : (
-              questions.map((q, idx) => (
-                <div key={q.id} className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900 flex gap-4">
-                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
-                      {idx + 1}
-                    </span>
-                    <span className="mt-1">{q.question_text}</span>
-                  </h3>
-                  <div className="pl-12 space-y-3">
-                    {q.options.map((opt: string, oIdx: number) => (
-                      <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[q.id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
-                        <input
-                          type="radio"
-                          name={`question-${q.id}`}
-                          value={opt}
-                          checked={answers[q.id] === opt}
-                          onChange={() => handleAnswer(q.id, opt)}
-                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                        />
-                        <span className="ml-3 text-gray-700">{opt}</span>
-                      </label>
-                    ))}
+              <div 
+                className={`space-y-12 ${assessment?.prevent_copypaste ? 'select-none' : ''}`}
+                onCopy={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
+                onContextMenu={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
+              >
+                {questions.map((q, idx) => (
+                  <div key={q.id} className="space-y-4">
+                    <h3 className="text-lg font-medium text-gray-900 flex gap-4">
+                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                        {idx + 1}
+                      </span>
+                      <span className="mt-1">{q.question_text}</span>
+                    </h3>
+                    <div className="pl-12 space-y-3">
+                      {q.options.map((opt: string, oIdx: number) => (
+                        <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[q.id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name={`question-${q.id}`}
+                            value={opt}
+                            checked={answers[q.id] === opt}
+                            onChange={() => handleAnswer(q.id, opt)}
+                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                          />
+                          <span className="ml-3 text-gray-700">{opt}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </div>
           

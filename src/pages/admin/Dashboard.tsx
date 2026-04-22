@@ -39,6 +39,9 @@ export default function AdminDashboard() {
   const [creatingAssessmentForVideoId, setCreatingAssessmentForVideoId] = useState<string | null>(null);
   const [isMandatory, setIsMandatory] = useState(true);
   const [isStrictMode, setIsStrictMode] = useState(false);
+  const [isRandomized, setIsRandomized] = useState(false);
+  const [showOneByOne, setShowOneByOne] = useState(false);
+  const [preventCopypaste, setPreventCopypaste] = useState(false);
   const [uploadingAssessmentId, setUploadingAssessmentId] = useState<string | null>(null);
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
   const [passingGrade, setPassingGrade] = useState(70);
@@ -467,7 +470,10 @@ export default function AdminDashboard() {
       passing_score: passingGrade,
       duration_minutes: durationMinutes,
       is_mandatory: isMandatory,
-      is_strict_mode: isStrictMode
+      is_strict_mode: isStrictMode,
+      is_randomized: isRandomized,
+      show_one_by_one: showOneByOne,
+      prevent_copypaste: preventCopypaste
     };
     
     if (audioLink) {
@@ -1588,8 +1594,10 @@ export default function AdminDashboard() {
                                   <div>
                                     <p className="font-medium">Assessment Configured</p>
                                     <p className="text-xs mt-1">Passing Grade: {videoAssessment.passing_score} | Duration: {videoAssessment.duration_minutes}m</p>
-                                    <p className="text-xs mt-1">Mandatory: {videoAssessment.is_mandatory ? 'Yes' : 'No'}</p>
-                                    <p className="text-xs mt-1 text-red-600 font-medium">Strict Mode: {videoAssessment.is_strict_mode ? 'Enabled' : 'Disabled'}</p>
+                                    <p className="text-xs mt-1 text-gray-700">
+                                      Mandatory: {videoAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {videoAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {videoAssessment.show_one_by_one ? 'Yes' : 'No'}
+                                    </p>
+                                    <p className="text-xs mt-1 text-red-600 font-medium">Strict Mode: {videoAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {videoAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'}</p>
                                     {videoAssessment.audio_link && (
                                       <p className="text-xs mt-1 truncate max-w-xs">
                                         Audio: <a href={videoAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{videoAssessment.audio_link}</a>
@@ -1667,7 +1675,19 @@ export default function AdminDashboard() {
                                 </div>
                                 <div className="flex items-center gap-2 mt-2">
                                   <input type="checkbox" id={`isStrictMode-${video.id}`} checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                                  <label htmlFor={`isStrictMode-${video.id}`} className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab & Anti Copas)</label>
+                                  <label htmlFor={`isStrictMode-${video.id}`} className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab dll)</label>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input type="checkbox" id={`isRandomized-${video.id}`} checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                  <label htmlFor={`isRandomized-${video.id}`} className="text-xs font-medium text-gray-700">Acak Urutan Soal (Sistem Otomatis)</label>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input type="checkbox" id={`showOneByOne-${video.id}`} checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                  <label htmlFor={`showOneByOne-${video.id}`} className="text-xs font-medium text-gray-700">Tampilkan Soal Per Satuan (Satu per satu)</label>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input type="checkbox" id={`preventCopypaste-${video.id}`} checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                  <label htmlFor={`preventCopypaste-${video.id}`} className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
                                 </div>
                                 <div className="flex gap-2 pt-1">
                                   <button type="button" onClick={() => setIsCreatingAssessment(false)} className="flex-1 py-1 bg-gray-200 rounded text-xs font-medium">Cancel</button>
@@ -1703,8 +1723,10 @@ export default function AdminDashboard() {
                             <div>
                               <p className="font-medium">Final Assessment Configured</p>
                               <p className="text-sm mt-1">Passing Grade: {finalAssessment.passing_score} | Duration: {finalAssessment.duration_minutes}m</p>
-                              <p className="text-sm mt-1">Mandatory: {finalAssessment.is_mandatory ? 'Yes' : 'No'}</p>
-                              <p className="text-sm mt-1 text-red-600 font-medium">Strict Mode: {finalAssessment.is_strict_mode ? 'Enabled' : 'Disabled'}</p>
+                              <p className="text-sm mt-1 text-gray-700">
+                                Mandatory: {finalAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {finalAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {finalAssessment.show_one_by_one ? 'Yes' : 'No'}
+                              </p>
+                              <p className="text-sm mt-1 text-red-600 font-medium">Strict Mode: {finalAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {finalAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'}</p>
                               {finalAssessment.audio_link && (
                                 <p className="text-sm mt-1 truncate max-w-sm">
                                   Audio: <a href={finalAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline">{finalAssessment.audio_link}</a>
@@ -1786,7 +1808,19 @@ export default function AdminDashboard() {
                         </div>
                         <div className="flex items-center gap-2 mt-2">
                           <input type="checkbox" id="isStrictModeFinal" checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                          <label htmlFor="isStrictModeFinal" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab & Anti Copas)</label>
+                          <label htmlFor="isStrictModeFinal" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab dll)</label>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <input type="checkbox" id="isRandomizedFinal" checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <label htmlFor="isRandomizedFinal" className="text-xs font-medium text-gray-700">Acak Urutan Soal (Sistem Otomatis)</label>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <input type="checkbox" id="showOneByOneFinal" checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <label htmlFor="showOneByOneFinal" className="text-xs font-medium text-gray-700">Tampilkan Soal Per Satuan (Satu per satu)</label>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <input type="checkbox" id="preventCopypasteFinal" checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <label htmlFor="preventCopypasteFinal" className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
                         </div>
                         <div className="flex gap-2 pt-2">
                           <button type="button" onClick={() => setIsCreatingAssessment(false)} className="flex-1 py-1.5 bg-gray-200 rounded text-sm font-medium">Cancel</button>

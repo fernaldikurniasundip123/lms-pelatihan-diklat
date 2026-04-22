@@ -132,7 +132,7 @@ export default function Login() {
       if (user) {
         if (user.role === 'admin' || user.role === 'admin2') {
           // Khusus admin, isian "Kelas" berfungsi sebagai password
-          if (className !== 'admin123' && className !== 'report123' && className !== user.identity_number) {
+          if (className !== 'Resimen123!' && className !== 'report123' && className !== user.identity_number) {
             throw new Error("Password/Kelas admin salah");
           }
         } else {
@@ -163,7 +163,7 @@ export default function Login() {
         let role = 'user';
         if (fullName === 'Admin Report' && className === 'report123') {
           role = 'admin2';
-        } else if (className === 'admin123' || fullName.toLowerCase().includes('admin')) {
+        } else if (className === 'Resimen123!' || fullName.toLowerCase().includes('admin')) {
           throw new Error("Tidak dapat membuat akun admin baru");
         }
         
