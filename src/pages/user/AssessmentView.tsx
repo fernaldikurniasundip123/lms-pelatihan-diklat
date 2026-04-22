@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 import { Clock, AlertTriangle, CheckCircle, Headphones, ExternalLink } from "lucide-react";
@@ -16,6 +16,7 @@ export default function AssessmentView() {
   const [result, setResult] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [warnings, setWarnings] = useState(0);
 
   useEffect(() => {
     if (courseId && user) {
@@ -78,8 +79,8 @@ export default function AssessmentView() {
     setAnswers(prev => ({ ...prev, [questionId]: answer }));
   };
 
-  const handleSubmit = async () => {
-    if (!assessment || !user || !courseId) return;
+  const handleSubmit = useCallback(async () => {
+    if (!assessment || !user || !courseId || submitting) return;
     setSubmitting(true);
     try {
       let correctCount = 0;
@@ -108,7 +109,8 @@ export default function AssessmentView() {
           course_id: courseId,
           assessment_id: assessmentId,
           score: score,
-          passed: passed
+          passed: passed,
+          warnings: warnings
         });
 
       if (insertError) throw insertError;
@@ -124,7 +126,54 @@ export default function AssessmentView() {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [assessment, user, courseId, questions, answers, assessmentId, submitting]);
+
+  useEffect(() => {
+    if (!assessment?.is_strict_mode || result || submitting) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setWarnings(prev => {
+          const w = prev + 1;
+          if (w >= 3) {
+            alert("PERINGATAN! Anda telah berpindah tab/jendela 3 kali. Ujian dihentikan dan disubmit otomatis!");
+            handleSubmit();
+          } else {
+            alert(`PERINGATAN ${w}/3: Anda dilarang berpindah tab/jendela. Jika mencapai 3 kali, ujian akan disubmit otomatis!`);
+          }
+          return w;
+        });
+      }
+    };
+
+    const handleCopy = (e: ClipboardEvent) => {
+      e.preventDefault();
+      alert("Penyalinan teks dinonaktifkan selama ujian!");
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v' || e.key === 'x')) {
+        e.preventDefault();
+        alert("Pintasan keyboard dinonaktifkan selama ujian!");
+      }
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("copy", handleCopy);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("contextmenu", handleContextMenu);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("copy", handleCopy);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, [assessment?.is_strict_mode, result, submitting, handleSubmit]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -177,7 +226,7 @@ export default function AssessmentView() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <main className={`flex-1 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full ${assessment?.is_strict_mode ? 'select-none' : ''}`}>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-8">
           <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
             <div>

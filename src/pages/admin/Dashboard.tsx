@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [isCreatingAssessment, setIsCreatingAssessment] = useState(false);
   const [creatingAssessmentForVideoId, setCreatingAssessmentForVideoId] = useState<string | null>(null);
   const [isMandatory, setIsMandatory] = useState(true);
+  const [isStrictMode, setIsStrictMode] = useState(false);
   const [uploadingAssessmentId, setUploadingAssessmentId] = useState<string | null>(null);
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
   const [passingGrade, setPassingGrade] = useState(70);
@@ -240,13 +241,17 @@ export default function AdminDashboard() {
             }
           }
 
-          const scores = results.map((r: any) => Math.round(r.score)).join(' / ');
+          const scores = results.map((r: any) => {
+            const warningsInfo = r.warnings && r.warnings > 0 ? ` [Cheating: ${r.warnings}x]` : '';
+            return `${Math.round(r.score)}${warningsInfo}`;
+          }).join(' / ');
           scoreLines.push(`${label}: ${scores}`);
 
           const statuses = results.map((r: any) => {
             const color = r.passed ? 'text-green-600' : 'text-red-600';
-            return `<span class="${color}">${Math.round(r.score)}</span>`;
-          }).join(' / ');
+            const warningsInfo = r.warnings && r.warnings > 0 ? `<span class="text-orange-600 text-xs ml-1" title="Pelanggaran Strict Mode">(! ${r.warnings}x)</span>` : '';
+            return `<span class="${color}">${Math.round(r.score)}</span>${warningsInfo}`;
+          }).join(' | ');
           const finalPassed = results.some((r: any) => r.passed);
           statusLines.push(`${label}: ${statuses} (${finalPassed ? 'LULUS' : 'NGULANG'})`);
         });
@@ -461,7 +466,8 @@ export default function AdminDashboard() {
       video_id: creatingAssessmentForVideoId,
       passing_score: passingGrade,
       duration_minutes: durationMinutes,
-      is_mandatory: isMandatory
+      is_mandatory: isMandatory,
+      is_strict_mode: isStrictMode
     };
     
     if (audioLink) {
@@ -1583,6 +1589,7 @@ export default function AdminDashboard() {
                                     <p className="font-medium">Assessment Configured</p>
                                     <p className="text-xs mt-1">Passing Grade: {videoAssessment.passing_score} | Duration: {videoAssessment.duration_minutes}m</p>
                                     <p className="text-xs mt-1">Mandatory: {videoAssessment.is_mandatory ? 'Yes' : 'No'}</p>
+                                    <p className="text-xs mt-1 text-red-600 font-medium">Strict Mode: {videoAssessment.is_strict_mode ? 'Enabled' : 'Disabled'}</p>
                                     {videoAssessment.audio_link && (
                                       <p className="text-xs mt-1 truncate max-w-xs">
                                         Audio: <a href={videoAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{videoAssessment.audio_link}</a>
@@ -1658,6 +1665,10 @@ export default function AdminDashboard() {
                                   <input type="checkbox" id={`isMandatory-${video.id}`} checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                                   <label htmlFor={`isMandatory-${video.id}`} className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
                                 </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input type="checkbox" id={`isStrictMode-${video.id}`} checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                  <label htmlFor={`isStrictMode-${video.id}`} className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab & Anti Copas)</label>
+                                </div>
                                 <div className="flex gap-2 pt-1">
                                   <button type="button" onClick={() => setIsCreatingAssessment(false)} className="flex-1 py-1 bg-gray-200 rounded text-xs font-medium">Cancel</button>
                                   <button type="submit" className="flex-1 py-1 bg-indigo-600 text-white rounded text-xs font-medium">Save</button>
@@ -1693,6 +1704,7 @@ export default function AdminDashboard() {
                               <p className="font-medium">Final Assessment Configured</p>
                               <p className="text-sm mt-1">Passing Grade: {finalAssessment.passing_score} | Duration: {finalAssessment.duration_minutes}m</p>
                               <p className="text-sm mt-1">Mandatory: {finalAssessment.is_mandatory ? 'Yes' : 'No'}</p>
+                              <p className="text-sm mt-1 text-red-600 font-medium">Strict Mode: {finalAssessment.is_strict_mode ? 'Enabled' : 'Disabled'}</p>
                               {finalAssessment.audio_link && (
                                 <p className="text-sm mt-1 truncate max-w-sm">
                                   Audio: <a href={finalAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline">{finalAssessment.audio_link}</a>
@@ -1771,6 +1783,10 @@ export default function AdminDashboard() {
                         <div className="flex items-center gap-2 mt-2">
                           <input type="checkbox" id="isMandatoryFinal" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                           <label htmlFor="isMandatoryFinal" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <input type="checkbox" id="isStrictModeFinal" checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <label htmlFor="isStrictModeFinal" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab & Anti Copas)</label>
                         </div>
                         <div className="flex gap-2 pt-2">
                           <button type="button" onClick={() => setIsCreatingAssessment(false)} className="flex-1 py-1.5 bg-gray-200 rounded text-sm font-medium">Cancel</button>
