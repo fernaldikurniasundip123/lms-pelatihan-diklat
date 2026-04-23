@@ -17,6 +17,8 @@ export default function AssessmentView() {
   const [submitting, setSubmitting] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [warnings, setWarnings] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isAgreedToRules, setIsAgreedToRules] = useState(false);
 
   useEffect(() => {
     if (courseId && user) {
@@ -133,7 +135,20 @@ export default function AssessmentView() {
     if (!assessment || result || submitting) return;
 
     const handleVisibilityChange = () => {
-      if (assessment.is_strict_mode && document.hidden) {
+      // If anti-split screen is enabled, 2nd violation is auto-submit
+      if (assessment.prevent_split_screen && document.hidden) {
+        setWarnings(prev => {
+          const w = prev + 1;
+          if (w >= 2) {
+            alert("PERINGATAN! Anda telah berpindah tab/jendela 2 kali. Ujian dihentikan dan disubmit otomatis sesuai dengan aturan Anti-Split Screen!");
+            handleSubmit();
+          } else {
+            alert(`PERINGATAN ${w}/2: Anda dilarang berpindah tab/jendela. Pada pelanggaran ke-2, ujian akan disubmit otomatis!`);
+          }
+          return w;
+        });
+      // Fallback to strict mode 3 violations
+      } else if (assessment.is_strict_mode && document.hidden) {
         setWarnings(prev => {
           const w = prev + 1;
           if (w >= 3) {
@@ -145,6 +160,10 @@ export default function AssessmentView() {
           return w;
         });
       }
+    };
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
     };
 
     const handleCopy = (e: ClipboardEvent) => {
@@ -174,17 +193,19 @@ export default function AssessmentView() {
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("copy", handleCopy);
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("contextmenu", handleContextMenu);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("copy", handleCopy);
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [assessment?.is_strict_mode, result, submitting, handleSubmit]);
+  }, [assessment?.is_strict_mode, assessment?.prevent_split_screen, result, submitting, handleSubmit]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -192,7 +213,59 @@ export default function AssessmentView() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const requestFullscreen = async () => {
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+      setIsAgreedToRules(true);
+    } catch (err: any) {
+      alert(`Gagal memasuki mode layar penuh: ${err.message}`);
+    }
+  };
+
   if (!assessment) return <div className="p-8 text-center">Loading assessment...</div>;
+
+  if (assessment?.prevent_split_screen && (!isAgreedToRules || !isFullscreen)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden p-8">
+          <div className="text-center mb-6">
+            <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Persiapan Ujian</h2>
+            <p className="text-sm text-gray-600 font-medium">Ujian ini menggunakan sistem Anti-Split Screen.</p>
+          </div>
+          
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+            <ul className="text-sm text-amber-800 space-y-2 list-disc pl-4">
+              <li>Ujian wajib dikerjakan dalam mode <strong>Layar Penuh (Full-Screen)</strong>.</li>
+              <li>Dilarang membuka dua aplikasi berdampingan (Split-Screen).</li>
+              <li>Dilarang berpindah tab atau mengecilkan browser selama ujian berlangsung.</li>
+              <li><strong>Pelanggaran maksimal: 1 kali.</strong> Pada pelanggaran ke-2, jawaban akan langsung dikumpulkan secara otomatis (Diskualifikasi).</li>
+            </ul>
+          </div>
+
+          <label className="flex items-start gap-3 mb-6 p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
+            <input 
+              type="checkbox" 
+              checked={isAgreedToRules} 
+              onChange={e => setIsAgreedToRules(e.target.checked)}
+              className="mt-1 block h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+            />
+            <span className="text-sm text-gray-700">Saya memahami dan setuju dengan aturan ujian di atas, dan bersedia memasuki mode Layar Penuh.</span>
+          </label>
+
+          <button
+            onClick={requestFullscreen}
+            disabled={!isAgreedToRules}
+            className="w-full py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Mulai Mode Layar Penuh
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (result) {
     return (

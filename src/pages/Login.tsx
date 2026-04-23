@@ -29,6 +29,7 @@ export default function Login() {
     // Clear session selfie when visiting login page
     sessionStorage.removeItem('session_selfie');
     
+    // Check available courses
     const fetchCourses = async () => {
       const { data, error } = await supabase
         .from('courses')
