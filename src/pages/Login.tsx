@@ -34,7 +34,11 @@ export default function Login() {
     const fetchCourses = async () => {
       const { data, error } = await supabase
         .from('courses')
-        .select('*')
+        .select(`
+          *,
+          videos (id, is_refreshing),
+          assessments (id, is_refreshing)
+        `)
         .eq('status', 'active');
       
       if (data) {
@@ -254,7 +258,12 @@ export default function Login() {
   const filteredCourses = useMemo(() => {
     if (!selectedCategory) return courses;
     if (selectedCategory === "REFRESING") {
-      return courses.filter(c => c.category === "DIKLAT KETRAMPILAN (SHORT COURSE)" && c.is_refreshing);
+      return courses.filter(c => {
+        if (c.category !== "DIKLAT KETRAMPILAN (SHORT COURSE)") return false;
+        const hasRefreshingVideo = c.videos?.some((v: any) => v.is_refreshing);
+        const hasRefreshingAssessment = c.assessments?.some((a: any) => a.is_refreshing);
+        return c.is_refreshing || hasRefreshingVideo || hasRefreshingAssessment;
+      });
     }
     return courses.filter(c => c.category === selectedCategory);
   }, [selectedCategory, courses]);
