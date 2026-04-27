@@ -551,7 +551,7 @@ export default function AdminDashboard() {
       }));
     } else {
       console.error(error);
-      alert("Gagal memperbarui status refresing video");
+      alert(`Gagal memperbarui status refresing video. Pastikan kolom is_refreshing sudah ditambahkan di tabel videos. Error: ${error.message}`);
     }
   };
 
@@ -569,7 +569,7 @@ export default function AdminDashboard() {
       }));
     } else {
       console.error(error);
-      alert("Gagal memperbarui status refresing assessment");
+      alert(`Gagal memperbarui status refresing assessment. Pastikan kolom is_refreshing sudah ditambahkan di tabel assessments. Error: ${error.message}`);
     }
   };
 
