@@ -201,10 +201,17 @@ export default function Login() {
               user_id: user.id,
               course_id: courseId,
               period_start: new Date(periodStart).toISOString(),
-              period_end: new Date(periodEnd).toISOString()
+              period_end: new Date(periodEnd).toISOString(),
+              category: selectedCategory
             }]);
             
           if (enrollError) throw new Error("Gagal mendaftar pelatihan");
+        } else {
+          // Update the category if they login again with a different category
+          await supabase
+            .from('enrollments')
+            .update({ category: selectedCategory })
+            .eq('id', existingEnrollment.id);
         }
       }
 

@@ -40,6 +40,7 @@ export default function UserDashboard() {
         .from('enrollments')
         .select(`
           course_id,
+          category,
           courses (*)
         `)
         .eq('user_id', user.id);
@@ -48,12 +49,19 @@ export default function UserDashboard() {
 
       const coursesData = await Promise.all((enrollments || []).map(async (enrollment: any) => {
         const course = enrollment.courses;
+        const isRefreshing = enrollment.category === 'REFRESING';
         
         // Fetch videos count
-        const { count: videoCount } = await supabase
+        let videoQuery = supabase
           .from('videos')
           .select('*', { count: 'exact', head: true })
           .eq('course_id', course.id);
+          
+        if (isRefreshing) {
+          videoQuery = videoQuery.eq('is_refreshing', true);
+        }
+        
+        const { count: videoCount } = await videoQuery;
 
         // Fetch video progress
         const { data: progressData } = await supabase

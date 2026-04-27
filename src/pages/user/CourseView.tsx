@@ -147,12 +147,33 @@ export default function CourseView() {
 
       if (courseError) throw courseError;
 
+      // Fetch enrollment to get assignment link and category
+      const { data: enrollmentData } = await supabase
+        .from('enrollments')
+        .select('assignment_link, category')
+        .eq('user_id', user.id)
+        .eq('course_id', courseId)
+        .maybeSingle();
+
+      const isRefreshing = enrollmentData?.category === 'REFRESING';
+
+      if (enrollmentData?.assignment_link) {
+        setAssignmentLink(enrollmentData.assignment_link);
+        setAssignmentSaved(true);
+      }
+
       // Fetch videos
-      const { data: videosData } = await supabase
+      let videosQuery = supabase
         .from('videos')
         .select('*')
         .eq('course_id', courseId)
         .order('order_num', { ascending: true });
+        
+      if (isRefreshing) {
+        videosQuery = videosQuery.eq('is_refreshing', true);
+      }
+      
+      const { data: videosData } = await videosQuery;
 
       // Fetch progress
       const { data: progressData } = await supabase
@@ -161,24 +182,17 @@ export default function CourseView() {
         .eq('user_id', user.id)
         .eq('course_id', courseId);
 
-      // Fetch enrollment to get assignment link
-      const { data: enrollmentData } = await supabase
-        .from('enrollments')
-        .select('assignment_link')
-        .eq('user_id', user.id)
-        .eq('course_id', courseId)
-        .maybeSingle();
-
-      if (enrollmentData?.assignment_link) {
-        setAssignmentLink(enrollmentData.assignment_link);
-        setAssignmentSaved(true);
-      }
-
       // Fetch assessments
-      const { data: assessmentsData } = await supabase
+      let assessmentsQuery = supabase
         .from('assessments')
         .select('*')
         .eq('course_id', courseId);
+        
+      if (isRefreshing) {
+        assessmentsQuery = assessmentsQuery.eq('is_refreshing', true);
+      }
+      
+      const { data: assessmentsData } = await assessmentsQuery;
       setAssessments(assessmentsData || []);
 
       // Fetch all assessment results

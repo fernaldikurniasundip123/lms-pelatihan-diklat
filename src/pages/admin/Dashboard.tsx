@@ -22,7 +22,6 @@ export default function AdminDashboard() {
   const [newCourseDesc, setNewCourseDesc] = useState("");
   const [newCourseMaterialLink, setNewCourseMaterialLink] = useState("");
   const [newCourseCategory, setNewCourseCategory] = useState("DIKLAT KETRAMPILAN (SHORT COURSE)");
-  const [newCourseIsRefreshing, setNewCourseIsRefreshing] = useState(false);
 
   // Edit Course Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -31,7 +30,6 @@ export default function AdminDashboard() {
   const [editCourseDesc, setEditCourseDesc] = useState("");
   const [editCourseMaterialLink, setEditCourseMaterialLink] = useState("");
   const [editCourseCategory, setEditCourseCategory] = useState("DIKLAT KETRAMPILAN (SHORT COURSE)");
-  const [editCourseIsRefreshing, setEditCourseIsRefreshing] = useState(false);
 
   // Manage Content Modal State
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -62,6 +60,7 @@ export default function AdminDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filters
+  const [filterCategory, setFilterCategory] = useState("");
   const [filterCourseId, setFilterCourseId] = useState("");
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd] = useState("");
@@ -118,17 +117,17 @@ export default function AdminDashboard() {
     // Build queries with filters
     let vpQuery = supabase
       .from('video_progress')
-      .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name), videos(title)`)
+      .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name, category), videos(title)`)
       .order('created_at', { ascending: false });
       
     let arQuery = supabase
       .from('assessment_results')
-      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(name)`)
+      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(name, category)`)
       .order('created_at', { ascending: false });
       
     let enrollQuery = supabase
       .from('enrollments')
-      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name)`)
+      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name, category)`)
       .order('created_at', { ascending: false });
 
     // Apply filters
@@ -137,6 +136,21 @@ export default function AdminDashboard() {
       arQuery = arQuery.eq('course_id', filterCourseId);
       enrollQuery = enrollQuery.eq('course_id', filterCourseId);
     }
+    
+    if (filterCategory) {
+      let targetCategory = filterCategory === 'REFRESING' ? 'DIKLAT KETRAMPILAN (SHORT COURSE)' : filterCategory;
+      vpQuery = vpQuery.eq('courses.category', targetCategory);
+      arQuery = arQuery.eq('courses.category', targetCategory);
+      enrollQuery = enrollQuery.eq('courses.category', targetCategory);
+      
+      // For refreshing, we also narrow enrollments by their enrollment category
+      if (filterCategory === 'REFRESING') {
+        enrollQuery = enrollQuery.eq('category', 'REFRESING');
+        // We also need to filter video/assessment progress by the fact that the user enrolled as 'REFRESING'?
+        // Wait, video_progress doesn't have enrollment_id. But enrollQuery acts as the master list.
+      }
+    }
+    
     if (filterClassName) {
       vpQuery = vpQuery.eq('users.class_name', filterClassName);
       arQuery = arQuery.eq('users.class_name', filterClassName);
@@ -392,7 +406,6 @@ export default function AdminDashboard() {
         description: newCourseDesc, 
         material_link: newCourseMaterialLink,
         category: newCourseCategory,
-        is_refreshing: newCourseIsRefreshing,
         status: 'active' 
       }]);
 
@@ -402,10 +415,9 @@ export default function AdminDashboard() {
       setNewCourseDesc("");
       setNewCourseMaterialLink("");
       setNewCourseCategory("DIKLAT KETRAMPILAN (SHORT COURSE)");
-      setNewCourseIsRefreshing(false);
       fetchCourses();
     } else {
-      alert("Failed to create course. Pastikan Anda sudah menambahkan kolom 'category' dan 'is_refreshing' di database (lihat instruksi SQL).");
+      alert("Failed to create course. Pastikan Anda sudah menambahkan kolom 'category' di database (lihat instruksi SQL).");
     }
   };
 
@@ -415,7 +427,6 @@ export default function AdminDashboard() {
     setEditCourseDesc(course.description || "");
     setEditCourseMaterialLink(course.material_link || "");
     setEditCourseCategory(course.category || "DIKLAT KETRAMPILAN (SHORT COURSE)");
-    setEditCourseIsRefreshing(course.is_refreshing || false);
     setIsEditModalOpen(true);
   };
 
@@ -427,8 +438,7 @@ export default function AdminDashboard() {
         name: editCourseName, 
         description: editCourseDesc, 
         material_link: editCourseMaterialLink,
-        category: editCourseCategory,
-        is_refreshing: editCourseIsRefreshing
+        category: editCourseCategory
       })
       .eq('id', editCourseId);
 
@@ -524,6 +534,42 @@ export default function AdminDashboard() {
       setDeletingVideoId(null);
     } else {
       alert("Gagal menghapus video");
+    }
+  };
+
+  const handleToggleVideoRefreshing = async (videoId: string, currentValue: boolean) => {
+    const { error } = await supabase
+      .from('videos')
+      .update({ is_refreshing: !currentValue })
+      .eq('id', videoId);
+    
+    if (!error) {
+      fetchCourses();
+      setSelectedCourse((prev: any) => ({
+        ...prev,
+        videos: prev.videos.map((v: any) => v.id === videoId ? { ...v, is_refreshing: !currentValue } : v)
+      }));
+    } else {
+      console.error(error);
+      alert("Gagal memperbarui status refresing video");
+    }
+  };
+
+  const handleToggleAssessmentRefreshing = async (assessmentId: string, currentValue: boolean) => {
+    const { error } = await supabase
+      .from('assessments')
+      .update({ is_refreshing: !currentValue })
+      .eq('id', assessmentId);
+    
+    if (!error) {
+      fetchCourses();
+      setSelectedCourse((prev: any) => ({
+        ...prev,
+        assessments: prev.assessments.map((a: any) => a.id === assessmentId ? { ...a, is_refreshing: !currentValue } : a)
+      }));
+    } else {
+      console.error(error);
+      alert("Gagal memperbarui status refresing assessment");
     }
   };
 
@@ -1149,9 +1195,21 @@ export default function AdminDashboard() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
+                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                  <option value="">Semua Jenis Pelatihan</option>
+                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="REFRESING">REFRESING</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Sub Pelatihan</label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                  <option value="">Semua Pelatihan</option>
-                  {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="">Semua Sub Pelatihan</option>
+                  {courses
+                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && c.category === 'DIKLAT KETRAMPILAN (SHORT COURSE)') : true)
+                    .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>
@@ -1258,9 +1316,21 @@ export default function AdminDashboard() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
+                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                  <option value="">Semua Jenis Pelatihan</option>
+                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="REFRESING">REFRESING</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Sub Pelatihan</label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                  <option value="">Semua Pelatihan</option>
-                  {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="">Semua Sub Pelatihan</option>
+                  {courses
+                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && c.category === 'DIKLAT KETRAMPILAN (SHORT COURSE)') : true)
+                    .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>
@@ -1374,9 +1444,21 @@ export default function AdminDashboard() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
+                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                  <option value="">Semua Jenis Pelatihan</option>
+                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="REFRESING">REFRESING</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Sub Pelatihan</label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                  <option value="">Semua Pelatihan</option>
-                  {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="">Semua Sub Pelatihan</option>
+                  {courses
+                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && c.category === 'DIKLAT KETRAMPILAN (SHORT COURSE)') : true)
+                    .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>
@@ -1586,21 +1668,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
-                  <option value="REFRESING">REFRESING</option>
                 </select>
               </div>
-              {newCourseCategory === 'DIKLAT KETRAMPILAN (SHORT COURSE)' && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="newCourseIsRefreshing"
-                    checked={newCourseIsRefreshing}
-                    onChange={(e) => setNewCourseIsRefreshing(e.target.checked)}
-                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <label htmlFor="newCourseIsRefreshing" className="text-sm font-medium text-gray-700">Tersedia juga sebagai Refresing</label>
-                </div>
-              )}
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -1670,21 +1739,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
-                  <option value="REFRESING">REFRESING</option>
                 </select>
               </div>
-              {editCourseCategory === 'DIKLAT KETRAMPILAN (SHORT COURSE)' && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="editCourseIsRefreshing"
-                    checked={editCourseIsRefreshing}
-                    onChange={(e) => setEditCourseIsRefreshing(e.target.checked)}
-                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <label htmlFor="editCourseIsRefreshing" className="text-sm font-medium text-gray-700">Tersedia juga sebagai Refresing</label>
-                </div>
-              )}
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -1760,6 +1816,16 @@ export default function AdminDashboard() {
                             <div className="flex-1 min-w-0">
                               <h5 className="font-medium text-gray-900 truncate">{video.title}</h5>
                               <p className="text-xs text-gray-500 mt-1 truncate">ID: {video.youtube_id}</p>
+                              <div className="mt-2 flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  id={`refreshing-video-${video.id}`}
+                                  checked={video.is_refreshing || false}
+                                  onChange={() => handleToggleVideoRefreshing(video.id, video.is_refreshing || false)}
+                                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <label htmlFor={`refreshing-video-${video.id}`} className="text-xs font-medium text-gray-700">Tersedia untuk Refresing</label>
+                              </div>
                             </div>
                             <button 
                               onClick={() => {
@@ -1793,6 +1859,16 @@ export default function AdminDashboard() {
                                         Audio: <a href={videoAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{videoAssessment.audio_link}</a>
                                       </p>
                                     )}
+                                    <div className="flex items-center gap-2 mt-2">
+                                      <input
+                                        type="checkbox"
+                                        id={`refreshing-video-assessment-${videoAssessment.id}`}
+                                        checked={videoAssessment.is_refreshing || false}
+                                        onChange={() => handleToggleAssessmentRefreshing(videoAssessment.id, videoAssessment.is_refreshing || false)}
+                                        className="rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      <label htmlFor={`refreshing-video-assessment-${videoAssessment.id}`} className="text-xs font-medium text-blue-800">Tersedia untuk Refresing</label>
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="flex gap-2 mt-2">
@@ -1926,6 +2002,16 @@ export default function AdminDashboard() {
                                   Audio: <a href={finalAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline">{finalAssessment.audio_link}</a>
                                 </p>
                               )}
+                              <div className="flex items-center gap-2 mt-2">
+                                <input
+                                  type="checkbox"
+                                  id={`refreshing-final-assessment-${finalAssessment.id}`}
+                                  checked={finalAssessment.is_refreshing || false}
+                                  onChange={() => handleToggleAssessmentRefreshing(finalAssessment.id, finalAssessment.is_refreshing || false)}
+                                  className="rounded border-green-300 text-green-600 focus:ring-green-500"
+                                />
+                                <label htmlFor={`refreshing-final-assessment-${finalAssessment.id}`} className="text-sm font-medium text-green-800">Tersedia untuk Refresing</label>
+                              </div>
                             </div>
                           </div>
                           <div className="flex gap-2 mt-2">
