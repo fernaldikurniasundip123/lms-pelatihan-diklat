@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 import { Clock, AlertTriangle, CheckCircle, Headphones, ExternalLink } from "lucide-react";
@@ -19,6 +19,7 @@ export default function AssessmentView() {
   const [warnings, setWarnings] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isAgreedToRules, setIsAgreedToRules] = useState(false);
+  const isAlerting = useRef(false);
 
   useEffect(() => {
     if (courseId && user) {
@@ -135,20 +136,35 @@ export default function AssessmentView() {
     if (!assessment || result || submitting) return;
 
     const handleVisibilityChange = () => {
+      if (document.hidden) handleViolationFocus();
+    };
+
+    const handleBlur = () => {
+      handleViolationFocus();
+    };
+
+    const handleViolationFocus = () => {
       // If anti-split screen is enabled, 2nd violation is auto-submit
-      if (assessment.prevent_split_screen && document.hidden) {
+      if (assessment.prevent_split_screen) {
+        if (isAlerting.current) return;
+        isAlerting.current = true;
+        
         setWarnings(prev => {
           const w = prev + 1;
           if (w >= 2) {
-            alert("PERINGATAN! Anda telah berpindah tab/jendela 2 kali. Ujian dihentikan dan disubmit otomatis sesuai dengan aturan Anti-Split Screen!");
+            alert("PERINGATAN! Anda telah berpindah jendela/menggunakan kombinasi tombol (Alt+Tab/Klik Luar) 2 kali. Ujian dihentikan dan disubmit otomatis sesuai dengan aturan Anti-Split Screen!");
             handleSubmit();
           } else {
-            alert(`PERINGATAN ${w}/2: Anda dilarang berpindah tab/jendela. Pada pelanggaran ke-2, ujian akan disubmit otomatis!`);
+            alert(`PERINGATAN ${w}/2: Anda dilarang berpindah jendela (Alt+Tab/Klik Luar). Pada pelanggaran ke-2, ujian akan disubmit otomatis!`);
           }
+          setTimeout(() => { isAlerting.current = false; }, 1000);
           return w;
         });
       // Fallback to strict mode 3 violations
-      } else if (assessment.is_strict_mode && document.hidden) {
+      } else if (assessment.is_strict_mode) {
+        if (isAlerting.current) return;
+        isAlerting.current = true;
+
         setWarnings(prev => {
           const w = prev + 1;
           if (w >= 3) {
@@ -157,6 +173,7 @@ export default function AssessmentView() {
           } else {
             alert(`PERINGATAN ${w}/3: Anda dilarang berpindah tab/jendela. Jika mencapai 3 kali, ujian akan disubmit otomatis!`);
           }
+          setTimeout(() => { isAlerting.current = false; }, 1000);
           return w;
         });
       }
@@ -174,7 +191,11 @@ export default function AssessmentView() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (assessment.prevent_copypaste || assessment.is_strict_mode) {
+      if (assessment.prevent_split_screen) {
+        // Blokir total keyboard saat ujian Anti-Split Screen
+        // Izinkan F5 (refresh) atau F12 (inspect) jika diperlukan, tapi kita blokir fungsi utama Alt+Tab (meski ditangkap oleh blur nantinya), Windows Key, Ctrl, dll.
+        e.preventDefault();
+      } else if (assessment.prevent_copypaste || assessment.is_strict_mode) {
         if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v' || e.key === 'x')) {
           e.preventDefault();
           alert("Pintasan keyboard dinonaktifkan selama ujian!");
@@ -193,6 +214,7 @@ export default function AssessmentView() {
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("copy", handleCopy);
     document.addEventListener("keydown", handleKeyDown);
@@ -200,6 +222,7 @@ export default function AssessmentView() {
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("copy", handleCopy);
       document.removeEventListener("keydown", handleKeyDown);
@@ -239,8 +262,9 @@ export default function AssessmentView() {
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
             <ul className="text-sm text-amber-800 space-y-2 list-disc pl-4">
               <li>Ujian wajib dikerjakan dalam mode <strong>Layar Penuh (Full-Screen)</strong>.</li>
-              <li>Dilarang membuka dua aplikasi berdampingan (Split-Screen).</li>
-              <li>Dilarang berpindah tab atau mengecilkan browser selama ujian berlangsung.</li>
+              <li>Dilarang membuka dua aplikasi berdampingan (Split-Screen) atau memencet tombol kombinasi (Alt+Tab).</li>
+              <li><strong>Semua fungsi keyboard dimatikan total</strong>. Ujian hanya bisa dikerjakan menggunakan sentuhan/klik.</li>
+              <li>Dilarang mengeklik area di luar ujian (pindah fokus) selama ujian berlangsung.</li>
               <li><strong>Pelanggaran maksimal: 1 kali.</strong> Pada pelanggaran ke-2, jawaban akan langsung dikumpulkan secara otomatis (Diskualifikasi).</li>
             </ul>
           </div>

@@ -180,29 +180,6 @@ export default function AdminDashboard() {
       });
     }
 
-    // Fetch all attendances
-    const { data: allFiles } = await supabase.storage.from('verifications').list('', { 
-      limit: 10000,
-      sortBy: { column: 'created_at', order: 'desc' }
-    });
-    const allAttendances = allFiles?.filter(f => f.name.includes('_login_attendance_')) || [];
-    const attendanceMap: Record<string, string[]> = {};
-    if (allAttendances.length > 0) {
-      // Sort ascending by name so that the oldest is first and newest is last for each user
-      allAttendances.sort((a, b) => a.name.localeCompare(b.name));
-      allAttendances.forEach(file => {
-        const parts = file.name.split('_');
-        if (parts.length >= 2) {
-          const userId = parts[0];
-          const key = userId;
-          if (!attendanceMap[key]) attendanceMap[key] = [];
-          
-          const { data: publicUrlData } = supabase.storage.from('verifications').getPublicUrl(file.name);
-          attendanceMap[key].push(publicUrlData.publicUrl);
-        }
-      });
-    }
-
     if (enrollData) {
       const safeVpData = vpData || [];
       const safeArData = arData || [];
@@ -302,8 +279,6 @@ export default function AdminDashboard() {
         const sortedGvs = Array.isArray(gvs) ? [...gvs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : [];
         const gv = sortedGvs[0] || gvs;
         const oldestGv = sortedGvs[sortedGvs.length - 1] || gv;
-        const attendanceKey = en.user_id;
-        const attendancePhotos = attendanceMap[attendanceKey] || [];
 
         const activityDates = new Set<string>();
         if (en.created_at) activityDates.add(en.created_at.split('T')[0]);
@@ -313,10 +288,6 @@ export default function AdminDashboard() {
         userAr.forEach((ar: any) => {
           if (ar.created_at) activityDates.add(ar.created_at.split('T')[0]);
         });
-        const userAttendances = allAttendances?.filter(f => f.name.startsWith(`${en.user_id}_login_attendance_`)) || [];
-        userAttendances.forEach(f => {
-          if (f.created_at) activityDates.add(f.created_at.split('T')[0]);
-        });
 
         return {
           full_name: en.users?.full_name,
@@ -324,6 +295,7 @@ export default function AdminDashboard() {
           class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
           course_id: en.course_id,
+          user_id: en.user_id, // Important to keep for async matching
           period_start: en.period_start,
           period_end: en.period_end,
           created_at: en.created_at,
@@ -338,12 +310,60 @@ export default function AdminDashboard() {
           live_photo_data: gv?.live_photo_url,
           initial_photo_data: oldestGv?.live_photo_url,
           ktp_photo_data: gv?.ktp_photo_url || oldestGv?.ktp_photo_url,
-          attendance_photos: attendancePhotos
+          attendance_photos: [] // Will fetch async
         };
       });
       setFinalReports(finalReps);
       setVideoReports(finalReps);
       setAssessmentReports(finalReps);
+      
+      // Fetch attendances asynchronously to prevent blocking the UI
+      fetchAttendancesAsync(finalReps);
+    }
+  };
+
+  const fetchAttendancesAsync = async (currentReps: any[]) => {
+    try {
+      const { data: allFiles } = await supabase.storage.from('verifications').list('', { 
+        limit: 10000,
+        sortBy: { column: 'created_at', order: 'desc' }
+      });
+      const allAttendances = allFiles?.filter(f => f.name.includes('_login_attendance_')) || [];
+      if (allAttendances.length === 0) return;
+
+      const attendanceMap: Record<string, string[]> = {};
+      allAttendances.sort((a, b) => a.name.localeCompare(b.name));
+      allAttendances.forEach(file => {
+        const parts = file.name.split('_');
+        if (parts.length >= 2) {
+          const userId = parts[0];
+          if (!attendanceMap[userId]) attendanceMap[userId] = [];
+          
+          const { data: publicUrlData } = supabase.storage.from('verifications').getPublicUrl(file.name);
+          attendanceMap[userId].push(publicUrlData.publicUrl);
+        }
+      });
+
+      const updatedReps = currentReps.map(rep => {
+        const attendanceKey = rep.user_id;
+        const userAttendances = allAttendances?.filter(f => f.name.startsWith(`${rep.user_id}_login_attendance_`)) || [];
+        const activityDates = new Set<string>(rep.activity_dates);
+        userAttendances.forEach(f => {
+          if (f.created_at) activityDates.add(f.created_at.split('T')[0]);
+        });
+
+        return {
+          ...rep,
+          attendance_photos: attendanceMap[attendanceKey] || [],
+          activity_dates: Array.from(activityDates)
+        };
+      });
+
+      setFinalReports(updatedReps);
+      setVideoReports(updatedReps);
+      setAssessmentReports(updatedReps);
+    } catch (err) {
+      console.error("Failed to load attendance photos in background", err);
     }
   };
 
@@ -1691,7 +1711,7 @@ export default function AdminDashboard() {
                                   <input type="checkbox" id={`preventCopypaste-${video.id}`} checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                                   <label htmlFor={`preventCopypaste-${video.id}`} className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 mt-2">
                                   <input type="checkbox" id={`preventSplitScreen-${video.id}`} checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                                   <label htmlFor={`preventSplitScreen-${video.id}`} className="text-xs font-medium text-gray-700">Anti Split Screen (Full-Screen & Diskualifikasi Ke-2)</label>
                                 </div>
@@ -1828,7 +1848,7 @@ export default function AdminDashboard() {
                           <input type="checkbox" id="preventCopypasteFinal" checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                           <label htmlFor="preventCopypasteFinal" className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-2">
                           <input type="checkbox" id="preventSplitScreenFinal" checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                           <label htmlFor="preventSplitScreenFinal" className="text-xs font-medium text-gray-700">Anti Split Screen (Full-Screen & Diskualifikasi Ke-2)</label>
                         </div>
