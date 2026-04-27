@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuthStore } from "../store/authStore";
 import { useNavigate } from "react-router-dom";
 import { BookOpen } from "lucide-react";
@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 export default function Login() {
   const [fullName, setFullName] = useState("");
   const [className, setClassName] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [courseId, setCourseId] = useState("");
   const [seafarerCode, setSeafarerCode] = useState("");
   const [periodStart, setPeriodStart] = useState("");
@@ -243,6 +244,14 @@ export default function Login() {
     }
   };
 
+  const filteredCourses = useMemo(() => {
+    if (!selectedCategory) return courses;
+    if (selectedCategory === "REFRESING") {
+      return courses.filter(c => c.category === "DIKLAT KETRAMPILAN (SHORT COURSE)" && c.is_refreshing);
+    }
+    return courses.filter(c => c.category === selectedCategory);
+  }, [selectedCategory, courses]);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -330,24 +339,52 @@ export default function Login() {
 
             {!isAdminLogin && (
               <>
-                <div>
-                  <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
-                    Jenis Pelatihan
-                  </label>
-                  <div className="mt-1">
-                    <select
-                      id="courseId"
-                      name="courseId"
-                      value={courseId}
-                      onChange={(e) => setCourseId(e.target.value)}
-                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    >
-                      <option value="">-- Pilih Pelatihan (Opsional untuk Admin) --</option>
-                      {courses.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label htmlFor="selectedCategory" className="block text-sm font-medium text-gray-700">
+                      Jenis Pelatihan
+                    </label>
+                    <div className="mt-1">
+                      <select
+                        id="selectedCategory"
+                        name="selectedCategory"
+                        value={selectedCategory}
+                        onChange={(e) => {
+                          setSelectedCategory(e.target.value);
+                          setCourseId(""); // reset course selection when category changes
+                        }}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      >
+                        <option value="">-- Pilih Jenis Pelatihan (Opsional untuk Admin) --</option>
+                        <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                        <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                        <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                        <option value="REFRESING">REFRESING</option>
+                      </select>
+                    </div>
                   </div>
+
+                  {selectedCategory && (
+                    <div>
+                      <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
+                        Sub Pelatihan
+                      </label>
+                      <div className="mt-1">
+                        <select
+                          id="courseId"
+                          name="courseId"
+                          value={courseId}
+                          onChange={(e) => setCourseId(e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        >
+                          <option value="">-- Pilih Sub Pelatihan --</option>
+                          {filteredCourses.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {requiresSeafarerCode && (

@@ -21,6 +21,17 @@ export default function AdminDashboard() {
   const [newCourseName, setNewCourseName] = useState("");
   const [newCourseDesc, setNewCourseDesc] = useState("");
   const [newCourseMaterialLink, setNewCourseMaterialLink] = useState("");
+  const [newCourseCategory, setNewCourseCategory] = useState("DIKLAT KETRAMPILAN (SHORT COURSE)");
+  const [newCourseIsRefreshing, setNewCourseIsRefreshing] = useState(false);
+
+  // Edit Course Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editCourseId, setEditCourseId] = useState("");
+  const [editCourseName, setEditCourseName] = useState("");
+  const [editCourseDesc, setEditCourseDesc] = useState("");
+  const [editCourseMaterialLink, setEditCourseMaterialLink] = useState("");
+  const [editCourseCategory, setEditCourseCategory] = useState("DIKLAT KETRAMPILAN (SHORT COURSE)");
+  const [editCourseIsRefreshing, setEditCourseIsRefreshing] = useState(false);
 
   // Manage Content Modal State
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -380,6 +391,8 @@ export default function AdminDashboard() {
         name: newCourseName, 
         description: newCourseDesc, 
         material_link: newCourseMaterialLink,
+        category: newCourseCategory,
+        is_refreshing: newCourseIsRefreshing,
         status: 'active' 
       }]);
 
@@ -388,9 +401,42 @@ export default function AdminDashboard() {
       setNewCourseName("");
       setNewCourseDesc("");
       setNewCourseMaterialLink("");
+      setNewCourseCategory("DIKLAT KETRAMPILAN (SHORT COURSE)");
+      setNewCourseIsRefreshing(false);
       fetchCourses();
     } else {
-      alert("Failed to create course. Ensure 'material_link' column exists.");
+      alert("Failed to create course. Pastikan Anda sudah menambahkan kolom 'category' dan 'is_refreshing' di database (lihat instruksi SQL).");
+    }
+  };
+
+  const openEditModal = (course: any) => {
+    setEditCourseId(course.id);
+    setEditCourseName(course.name);
+    setEditCourseDesc(course.description || "");
+    setEditCourseMaterialLink(course.material_link || "");
+    setEditCourseCategory(course.category || "DIKLAT KETRAMPILAN (SHORT COURSE)");
+    setEditCourseIsRefreshing(course.is_refreshing || false);
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { error } = await supabase
+      .from('courses')
+      .update({ 
+        name: editCourseName, 
+        description: editCourseDesc, 
+        material_link: editCourseMaterialLink,
+        category: editCourseCategory,
+        is_refreshing: editCourseIsRefreshing
+      })
+      .eq('id', editCourseId);
+
+    if (!error) {
+      setIsEditModalOpen(false);
+      fetchCourses();
+    } else {
+      alert("Failed to update course.");
     }
   };
 
@@ -1033,9 +1079,21 @@ export default function AdminDashboard() {
                 <div key={course.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="text-lg font-bold text-gray-900">{course.name}</h3>
-                    <span className={`px-2 py-1 text-xs rounded-full ${course.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {course.status}
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`px-2 py-1 text-xs rounded-full ${course.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {course.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <span className="inline-block px-2 py-1 text-[10px] font-semibold tracking-wider text-indigo-800 bg-indigo-100 rounded-full">
+                      {course.category || 'DIKLAT KETRAMPILAN (SHORT COURSE)'}
                     </span>
+                    {course.is_refreshing && (
+                      <span className="inline-block ml-2 px-2 py-1 text-[10px] font-semibold tracking-wider text-teal-800 bg-teal-100 rounded-full">
+                        REFRESING
+                      </span>
+                    )}
                   </div>
                   <p className="text-gray-600 text-sm mb-4 line-clamp-2">{course.description}</p>
                   
@@ -1049,7 +1107,7 @@ export default function AdminDashboard() {
                   </div>
                   
                   <div className="flex gap-2">
-                    <button className="flex-1 bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 border border-gray-200">
+                    <button onClick={() => openEditModal(course)} className="flex-1 bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 border border-gray-200">
                       Edit
                     </button>
                     <button 
@@ -1518,6 +1576,31 @@ export default function AdminDashboard() {
                   placeholder="https://drive.google.com/..."
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Pelatihan</label>
+                <select
+                  value={newCourseCategory}
+                  onChange={(e) => setNewCourseCategory(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="REFRESING">REFRESING</option>
+                </select>
+              </div>
+              {newCourseCategory === 'DIKLAT KETRAMPILAN (SHORT COURSE)' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="newCourseIsRefreshing"
+                    checked={newCourseIsRefreshing}
+                    onChange={(e) => setNewCourseIsRefreshing(e.target.checked)}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="newCourseIsRefreshing" className="text-sm font-medium text-gray-700">Tersedia juga sebagai Refresing</label>
+                </div>
+              )}
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -1537,6 +1620,91 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+      {/* Edit Course Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h3 className="text-lg font-bold text-gray-900">Edit Course</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-gray-400 hover:text-gray-500">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEditCourse} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Course Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editCourseName}
+                  onChange={(e) => setEditCourseName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  required
+                  value={editCourseDesc}
+                  onChange={(e) => setEditCourseDesc(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Material Link (Optional)</label>
+                <input
+                  type="url"
+                  value={editCourseMaterialLink}
+                  onChange={(e) => setEditCourseMaterialLink(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Pelatihan</label>
+                <select
+                  value={editCourseCategory}
+                  onChange={(e) => setEditCourseCategory(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="REFRESING">REFRESING</option>
+                </select>
+              </div>
+              {editCourseCategory === 'DIKLAT KETRAMPILAN (SHORT COURSE)' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="editCourseIsRefreshing"
+                    checked={editCourseIsRefreshing}
+                    onChange={(e) => setEditCourseIsRefreshing(e.target.checked)}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="editCourseIsRefreshing" className="text-sm font-medium text-gray-700">Tersedia juga sebagai Refresing</label>
+                </div>
+              )}
+              <div className="pt-4 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Manage Content Modal */}
       {isManageModalOpen && selectedCourse && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
