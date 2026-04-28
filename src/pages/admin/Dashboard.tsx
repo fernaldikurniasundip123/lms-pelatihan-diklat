@@ -71,6 +71,7 @@ export default function AdminDashboard() {
   // Photo Modal State
   const [photoModalData, setPhotoModalData] = useState<{live: string | null, initial: string | null, ktp: string | null, attendances: string[]} | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
 
   const getBase64ImageFromUrl = async (imageUrl: string) => {
     try {
@@ -114,11 +115,13 @@ export default function AdminDashboard() {
   };
 
   const fetchReports = async () => {
-    // Build queries with filters
-    let vpQuery = supabase
-      .from('video_progress')
-      .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name, category), videos(title)`)
-      .order('created_at', { ascending: false });
+    setIsLoadingReports(true);
+    try {
+      // Build queries with filters
+      let vpQuery = supabase
+        .from('video_progress')
+        .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name, category), videos(title)`)
+        .order('created_at', { ascending: false });
       
     let arQuery = supabase
       .from('assessment_results')
@@ -344,6 +347,11 @@ export default function AdminDashboard() {
       
       // Fetch attendances asynchronously to prevent blocking the UI
       fetchAttendancesAsync(finalReps);
+    }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoadingReports(false);
     }
   };
 
@@ -754,10 +762,11 @@ export default function AdminDashboard() {
             r.identity_number,
             r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            r.final_score !== null ? Math.round(r.final_score).toString() : '-',
-            r.assessment_status || 'BELUM MENGERJAKAN',
+            r.detailed_scores || (r.final_score !== null ? Math.round(r.final_score).toString() : '-'),
+            r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || 'BELUM MENGERJAKAN'),
             r.final_score !== null ? '#1' : '#0'
           ]),
+          styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 15 },
         });
       } else {
         const imagesMap = new Map();
@@ -782,8 +791,8 @@ export default function AdminDashboard() {
             r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
-            r.final_score != null ? Math.round(r.final_score).toString() : '-',
-            r.assessment_status || '-', // Status (Foto Awal)
+            r.detailed_scores || (r.final_score != null ? Math.round(r.final_score).toString() : '-'),
+            r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || '-'), // Status (Foto Awal)
             '', // Live Photo (Foto Akhir) placeholder
             ''  // KTP placeholder
           ]);
@@ -927,8 +936,8 @@ export default function AdminDashboard() {
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
-            score: r.final_score != null ? Math.round(r.final_score) : '-',
-            status: r.assessment_status || 'BELUM MENGERJAKAN',
+            score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
+            status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || 'BELUM MENGERJAKAN'),
             attempt: r.final_score != null ? '#1' : '#0'
           };
         } else {
@@ -941,8 +950,8 @@ export default function AdminDashboard() {
             course: r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
-            score: r.final_score != null ? Math.round(r.final_score) : '-',
-            status: r.assessment_status || '-'
+            score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
+            status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || '-')
           };
         }
         
@@ -1240,15 +1249,16 @@ export default function AdminDashboard() {
               <div>
                 <button 
                   onClick={() => fetchReports()} 
-                  className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-indigo-700"
+                  disabled={isLoadingReports}
+                  className={`px-4 py-1.5 rounded-md text-sm ${isLoadingReports ? 'bg-indigo-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                 >
-                  Terapkan Filter
+                  {isLoadingReports ? 'Sedang Memuat...' : 'Terapkan Filter'}
                 </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 min-w-[max-content]">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
@@ -1361,15 +1371,16 @@ export default function AdminDashboard() {
               <div>
                 <button 
                   onClick={() => fetchReports()} 
-                  className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-indigo-700"
+                  disabled={isLoadingReports}
+                  className={`px-4 py-1.5 rounded-md text-sm ${isLoadingReports ? 'bg-indigo-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                 >
-                  Terapkan Filter
+                  {isLoadingReports ? 'Sedang Memuat...' : 'Terapkan Filter'}
                 </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 min-w-[max-content]">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
@@ -1489,15 +1500,16 @@ export default function AdminDashboard() {
               <div>
                 <button 
                   onClick={() => fetchReports()} 
-                  className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-indigo-700"
+                  disabled={isLoadingReports}
+                  className={`px-4 py-1.5 rounded-md text-sm ${isLoadingReports ? 'bg-indigo-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                 >
-                  Terapkan Filter
+                  {isLoadingReports ? 'Sedang Memuat...' : 'Terapkan Filter'}
                 </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 min-w-[max-content]">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
