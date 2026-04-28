@@ -91,7 +91,6 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchCourses();
-    fetchReports();
   }, []);
 
   const fetchCourses = async () => {
@@ -1269,7 +1268,13 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filterReports(videoReports).map((report, idx) => (
+                  {filterReports(videoReports).length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-sm text-gray-500">
+                        {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
+                      </td>
+                    </tr>
+                  ) : filterReports(videoReports).map((report, idx) => (
                     <tr key={idx}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
@@ -1392,7 +1397,13 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filterReports(assessmentReports).map((report, idx) => (
+                  {filterReports(assessmentReports).length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">
+                        {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
+                      </td>
+                    </tr>
+                  ) : filterReports(assessmentReports).map((report, idx) => (
                     <tr key={idx}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
@@ -1523,7 +1534,13 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filterReports(finalReports).map((report, idx) => (
+                  {filterReports(finalReports).length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-12 text-center text-sm text-gray-500">
+                        {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
+                      </td>
+                    </tr>
+                  ) : filterReports(finalReports).map((report, idx) => (
                     <tr key={idx}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
