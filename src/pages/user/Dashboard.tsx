@@ -105,16 +105,35 @@ export default function UserDashboard() {
     navigate("/login");
   };
 
-  const captureLivePhoto = () => {
-    const imageSrc = webcamRef.current?.getScreenshot();
-    if (imageSrc) setLivePhoto(imageSrc);
+  const captureLivePhoto = async () => {
+    try {
+      // pass width and height to force smaller screenshot natively from react-webcam
+      const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
+      if (imageSrc) {
+        // Double check compression to be absolutely safe
+        const compressedSrc = await compressImage(imageSrc, 640, 480, 0.7);
+        setLivePhoto(compressedSrc);
+      }
+    } catch (e) {
+      console.error("Capture live photo error:", e);
+    }
   };
 
   const handleKtpUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setKtpPhoto(reader.result as string);
+      reader.onloadend = async () => {
+        try {
+          const result = reader.result as string;
+          // compress KTP before setting state to avoid memory crash
+          const compressedSrc = await compressImage(result, 800, 800, 0.7);
+          setKtpPhoto(compressedSrc);
+        } catch(e) {
+          console.error("KTP compression error:", e);
+          setKtpPhoto(reader.result as string);
+        }
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -239,7 +258,7 @@ export default function UserDashboard() {
                     ref={webcamRef}
                     screenshotFormat="image/jpeg"
                     className="w-full h-full object-cover"
-                    videoConstraints={{ facingMode: "user" }}
+                    videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
                   />
                 </div>
               ) : (
@@ -327,7 +346,7 @@ export default function UserDashboard() {
                   ref={webcamRef}
                   screenshotFormat="image/jpeg"
                   className="w-full h-full object-cover"
-                  videoConstraints={{ facingMode: "user" }}
+                  videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
                 />
               </div>
             ) : (

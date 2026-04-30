@@ -58,17 +58,31 @@ export default function AssessmentPreCheck() {
     }
   }, [user, courseId, navigate, attemptsInfo]);
 
-  const capture = useCallback(() => {
-    const imageSrc = webcamRef.current?.getScreenshot();
-    if (imageSrc) setLivePhoto(imageSrc);
+  const capture = useCallback(async () => {
+    try {
+      const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
+      if (imageSrc) {
+        const compressedSrc = await compressImage(imageSrc, 640, 480, 0.7);
+        setLivePhoto(compressedSrc);
+      }
+    } catch (e) {
+      console.error("Capture live photo error:", e);
+    }
   }, [webcamRef]);
 
   const handleKtpUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setKtpPhoto(reader.result as string);
+      reader.onloadend = async () => {
+        try {
+          const result = reader.result as string;
+          const compressedSrc = await compressImage(result, 800, 800, 0.7);
+          setKtpPhoto(compressedSrc);
+        } catch(e) {
+          console.error("KTP compression error:", e);
+          setKtpPhoto(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -229,6 +243,7 @@ export default function AssessmentPreCheck() {
                     ref={webcamRef}
                     screenshotFormat="image/jpeg"
                     className="w-full h-full object-cover"
+                    videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
                   />
                 )}
               </div>
