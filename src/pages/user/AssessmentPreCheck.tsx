@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabase";
 
 import { compressImage, compressImageFile } from "../../utils/imageCompression";
 
+import { ErrorBoundary } from "../../components/ErrorBoundary";
+
 export default function AssessmentPreCheck() {
   const { courseId, assessmentId } = useParams();
   const { user, checkAuth } = useAuthStore();
@@ -193,6 +195,7 @@ export default function AssessmentPreCheck() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
         <div className="bg-indigo-600 px-8 py-6 text-white">
@@ -230,17 +233,16 @@ export default function AssessmentPreCheck() {
                 <Camera className="w-5 h-5 text-indigo-600" /> 1. Live Photo
               </h3>
               <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden relative border-2 border-dashed border-gray-300">
-                {livePhoto ? (
-                  <img src={livePhoto} alt="Live capture" className="w-full h-full object-cover" />
-                ) : (
-                  <Webcam
-                    audio={false}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    screenshotQuality={0.8}
-                    className="w-full h-full object-cover"
-                    videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
-                  />
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  screenshotQuality={0.8}
+                  className={`w-full h-full object-cover ${livePhoto ? 'hidden' : 'block'}`}
+                  videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
+                />
+                {livePhoto && (
+                  <img src={livePhoto} alt="Live capture" className="w-full h-full object-cover absolute inset-0 z-10" />
                 )}
               </div>
               <button
@@ -301,5 +303,6 @@ export default function AssessmentPreCheck() {
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

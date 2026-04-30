@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabase";
 
 import { compressImage, compressImageFile } from "../../utils/imageCompression";
 
+import { ErrorBoundary } from "../../components/ErrorBoundary";
+
 export default function UserDashboard() {
   const { user, logout, checkAuth } = useAuthStore();
   const navigate = useNavigate();
@@ -229,6 +231,7 @@ export default function UserDashboard() {
 
   if (!isVerified && user?.role === 'user') {
     return (
+      <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
           <div className="text-center mb-8">
@@ -245,22 +248,19 @@ export default function UserDashboard() {
                 Ambil Foto Wajah (Live)
               </div>
               
-              {!livePhoto ? (
-                <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
-                  <Webcam
-                    audio={false}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    screenshotQuality={0.8}
-                    className="w-full h-full object-cover"
-                    videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
-                  />
-                </div>
-              ) : (
-                <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
-                  <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover" />
-                </div>
-              )}
+              <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  screenshotQuality={0.8}
+                  className={`w-full h-full object-cover ${livePhoto ? 'hidden' : 'block'}`}
+                  videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
+                />
+                {livePhoto && (
+                  <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover absolute inset-0 z-10" />
+                )}
+              </div>
 
               <div className="flex gap-3">
                 {!livePhoto ? (
@@ -319,11 +319,13 @@ export default function UserDashboard() {
           )}
         </div>
       </div>
+      </ErrorBoundary>
     );
   }
 
   if (isVerified && !hasSessionSelfie && user?.role === 'user') {
     return (
+      <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
           <div className="text-center mb-8">
@@ -334,22 +336,19 @@ export default function UserDashboard() {
           </div>
 
           <div className="space-y-6">
-            {!livePhoto ? (
-              <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
-                <Webcam
-                  audio={false}
-                  ref={webcamRef}
-                  screenshotFormat="image/jpeg"
-                  screenshotQuality={0.8}
-                  className="w-full h-full object-cover"
-                  videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
-                />
-              </div>
-            ) : (
-              <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
-                <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover" />
-              </div>
-            )}
+            <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
+              <Webcam
+                audio={false}
+                ref={webcamRef}
+                screenshotFormat="image/jpeg"
+                screenshotQuality={0.8}
+                className={`w-full h-full object-cover ${livePhoto ? 'hidden' : 'block'}`}
+                videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
+              />
+              {livePhoto && (
+                <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover absolute inset-0 z-10" />
+              )}
+            </div>
 
             <div className="flex gap-3">
               {!livePhoto ? (
@@ -370,6 +369,7 @@ export default function UserDashboard() {
           </div>
         </div>
       </div>
+      </ErrorBoundary>
     );
   }
 
