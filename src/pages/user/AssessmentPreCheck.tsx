@@ -5,7 +5,7 @@ import Webcam from "react-webcam";
 import { Camera, Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
-import { compressImage } from "../../utils/imageCompression";
+import { compressImage, compressImageFile } from "../../utils/imageCompression";
 
 export default function AssessmentPreCheck() {
   const { courseId, assessmentId } = useParams();
@@ -62,36 +62,31 @@ export default function AssessmentPreCheck() {
     try {
       const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
       if (imageSrc) {
-        const compressedSrc = await compressImage(imageSrc, 640, 480, 0.7);
-        setLivePhoto(compressedSrc);
+        setLivePhoto(imageSrc);
       }
     } catch (e) {
       console.error("Capture live photo error:", e);
     }
   }, [webcamRef]);
 
-  const handleKtpUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleKtpUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try {
-          const result = reader.result as string;
-          const compressedSrc = await compressImage(result, 800, 800, 0.7);
-          setKtpPhoto(compressedSrc);
-        } catch(e) {
-          console.error("KTP compression error:", e);
-          setKtpPhoto(reader.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedSrc = await compressImageFile(file, 800, 800, 0.7);
+        setKtpPhoto(compressedSrc);
+      } catch(e) {
+        console.error("KTP compression error:", e);
+        const reader = new FileReader();
+        reader.onloadend = () => setKtpPhoto(reader.result as string);
+        reader.readAsDataURL(file);
+      }
     }
   };
 
   async function uploadToSupabase(base64Data: string, userId: string, type: 'live' | 'ktp'): Promise<string | null> {
     try {
-      const compressedBase64 = await compressImage(base64Data);
-      const base64String = compressedBase64.split(',')[1];
+      const base64String = base64Data.split(',')[1];
       if (!base64String) return null;
 
       const byteCharacters = atob(base64String);
@@ -242,6 +237,7 @@ export default function AssessmentPreCheck() {
                     audio={false}
                     ref={webcamRef}
                     screenshotFormat="image/jpeg"
+                    screenshotQuality={0.8}
                     className="w-full h-full object-cover"
                     videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
                   />
