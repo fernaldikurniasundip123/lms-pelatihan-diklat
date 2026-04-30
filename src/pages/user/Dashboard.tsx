@@ -265,15 +265,15 @@ export default function UserDashboard() {
               <div className="flex gap-3">
                 {!livePhoto ? (
                   <button onClick={captureLivePhoto} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                    <Camera className="w-5 h-5" /> Ambil Foto
+                    <Camera className="w-5 h-5" /> <span>Ambil Foto</span>
                   </button>
                 ) : (
                   <>
                     <button onClick={() => setLivePhoto(null)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200">
-                      Ulangi
+                      <span>Ulangi</span>
                     </button>
                     <button onClick={() => setVerificationStep(2)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700">
-                      Lanjut
+                      <span>Lanjut</span>
                     </button>
                   </>
                 )}
@@ -303,7 +303,7 @@ export default function UserDashboard() {
 
               <div className="flex gap-3">
                 <button onClick={() => setVerificationStep(1)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200">
-                  Kembali
+                  <span>Kembali</span>
                 </button>
                 {ktpPhoto && (
                   <button 
@@ -311,7 +311,7 @@ export default function UserDashboard() {
                     disabled={isSubmitting}
                     className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-70"
                   >
-                    {isSubmitting ? "Menyimpan..." : <><CheckCircle className="w-5 h-5" /> Selesai</>}
+                    {isSubmitting ? <span>Menyimpan...</span> : <><CheckCircle className="w-5 h-5" /> <span>Selesai</span></>}
                   </button>
                 )}
               </div>
@@ -353,15 +353,15 @@ export default function UserDashboard() {
             <div className="flex gap-3">
               {!livePhoto ? (
                 <button onClick={captureLivePhoto} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                  <Camera className="w-5 h-5" /> Ambil Foto
+                  <Camera className="w-5 h-5" /> <span>Ambil Foto</span>
                 </button>
               ) : (
                 <>
                   <button onClick={() => setLivePhoto(null)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200">
-                    Ulangi
+                    <span>Ulangi</span>
                   </button>
                   <button onClick={submitSessionSelfie} disabled={isSubmitting} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-70">
-                    {isSubmitting ? "Menyimpan..." : <><CheckCircle className="w-5 h-5" /> Masuk</>}
+                    {isSubmitting ? <span>Menyimpan...</span> : <><CheckCircle className="w-5 h-5" /> <span>Masuk</span></>}
                   </button>
                 </>
               )}
@@ -449,7 +449,7 @@ export default function UserDashboard() {
                   className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
                 >
                   <PlayCircle className="w-5 h-5" />
-                  {course.progress > 0 ? "Continue Learning" : "Start Course"}
+                  <span>{course.progress > 0 ? "Continue Learning" : "Start Course"}</span>
                 </button>
               </div>
             </div>

@@ -458,7 +458,7 @@ export default function AssessmentView() {
               disabled={submitting}
               className="px-8 py-3 border border-transparent rounded-xl shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
             >
-              {submitting ? "Submitting..." : "Submit Assessment"}
+              <span>{submitting ? "Submitting..." : "Submit Assessment"}</span>
             </button>
           </div>
         </div>

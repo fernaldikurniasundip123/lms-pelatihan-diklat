@@ -309,7 +309,7 @@ export default function Login() {
 
             <div>
               <label htmlFor="className" className="block text-sm font-medium text-gray-700">
-                {isAdminLogin ? "Password Admin" : "Kelas"}
+                <span>{isAdminLogin ? "Password Admin" : "Kelas"}</span>
               </label>
               <div className="mt-1">
                 {isAdminLogin ? (
@@ -348,7 +348,7 @@ export default function Login() {
                   }}
                   className="text-xs text-indigo-600 hover:text-indigo-500"
                 >
-                  {isAdminLogin ? "Masuk sebagai Peserta?" : "Masuk sebagai Admin?"}
+                  <span>{isAdminLogin ? "Masuk sebagai Peserta?" : "Masuk sebagai Admin?"}</span>
                 </button>
               </div>
             </div>
