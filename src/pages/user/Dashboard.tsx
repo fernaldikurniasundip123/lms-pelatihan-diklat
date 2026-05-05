@@ -43,6 +43,8 @@ export default function UserDashboard() {
         .select(`
           course_id,
           category,
+          period_start,
+          period_end,
           courses (*)
         `)
         .eq('user_id', user.id);
@@ -74,13 +76,15 @@ export default function UserDashboard() {
           
         const completedCount = progressData?.filter(p => p.completed || (p.progress_percentage || 0) >= 90).length || 0;
 
-        // Fetch assessment result
+        // Fetch assessment result (order by created_at desc to get latest)
         const { data: assessmentResult } = await supabase
           .from('assessment_results')
-          .select('passed')
+          .select('passed, score')
           .eq('course_id', course.id)
           .eq('user_id', user.id)
-          .single();
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
         const totalItems = (videoCount || 0) + 1; // +1 for assessment
         let completedItems = completedCount || 0;
@@ -90,6 +94,10 @@ export default function UserDashboard() {
 
         return {
           ...course,
+          enrollment_category: enrollment.category,
+          period_start: enrollment.period_start,
+          period_end: enrollment.period_end,
+          score: assessmentResult?.score,
           videos: new Array(videoCount || 0).fill({}),
           progress,
           isCompleted: progress === 100
@@ -410,13 +418,33 @@ export default function UserDashboard() {
               <div className="p-6 flex-1">
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="text-lg font-bold text-gray-900 leading-tight">{course.name}</h3>
-                  {course.isCompleted && (
-                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
-                      Completed
-                    </span>
-                  )}
+                  <div className="flex flex-col items-end gap-1">
+                    {course.isCompleted && (
+                      <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
+                        Completed
+                      </span>
+                    )}
+                    {course.enrollment_category === 'REFRESING' && (
+                      <span className="bg-teal-100 text-teal-800 text-xs px-2 py-1 rounded-full font-medium border border-teal-200">
+                        REFRESING
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <p className="text-gray-600 text-sm mb-6 line-clamp-2">{course.description}</p>
+                <p className="text-gray-600 text-sm mb-4 line-clamp-2">{course.description}</p>
+                
+                {course.enrollment_category === 'REFRESING' && course.period_start && (
+                  <div className="bg-teal-50 border border-teal-100 rounded-lg p-3 mb-4">
+                    <p className="text-xs text-teal-800 font-medium mb-1">Periode Refresing:</p>
+                    <p className="text-sm text-teal-900 mb-2">
+                       {new Date(course.period_start).toLocaleDateString('id-ID')} - {new Date(course.period_end).toLocaleDateString('id-ID')}
+                    </p>
+                    <p className="text-xs text-teal-800 font-medium mb-1">Hasil Nilai Akhir:</p>
+                    <p className="text-sm text-teal-900 font-bold">
+                       {course.score !== undefined && course.score !== null ? `${Math.round(course.score)}/100` : "Belum Mengerjakan"}
+                    </p>
+                  </div>
+                )}
                 
                 <div className="space-y-3">
                   <div className="flex items-center text-sm text-gray-500 gap-2">

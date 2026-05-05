@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuthStore } from "../store/authStore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { BookOpen } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
@@ -18,8 +18,30 @@ export default function Login() {
   const [isAdminLogin, setIsAdminLogin] = useState(false);
   const { login } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const catParam = params.get('category');
+    const courseParam = params.get('course');
+    if (catParam) {
+      setSelectedCategory(catParam);
+    }
+    if (courseParam) {
+      setCourseId(courseParam);
+    }
+  }, [location.search]);
 
   const selectedCourse = courses.find(c => c.id === courseId);
+  const activeRefreshingPeriods = useMemo(() => {
+    if (!selectedCourse?.refreshing_periods) return [];
+    return selectedCourse.refreshing_periods.filter((p: any) => {
+      const endDate = new Date(p.end);
+      endDate.setHours(23, 59, 59, 999);
+      return endDate.getTime() >= Date.now();
+    });
+  }, [selectedCourse]);
+
   const isBstOrKonvensi = selectedCourse && (
     selectedCourse.name.trim().toUpperCase() === 'BST' || 
     selectedCourse.name.trim().toUpperCase() === 'KONVENSI INTERNATIONAL'
@@ -424,46 +446,86 @@ export default function Login() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
-                      Periode Diklat Mulai
-                    </label>
-                    <div className="mt-1">
-                      <input
-                        id="periodStart"
-                        name="periodStart"
-                        type="date"
-                        value={periodStart}
-                        onChange={(e) => setPeriodStart(e.target.value)}
-                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      />
+                {selectedCategory === "REFRESING" && selectedCourse ? (
+                  activeRefreshingPeriods.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label htmlFor="refreshingPeriod" className="block text-sm font-medium text-gray-700">
+                          Periode Refresing
+                        </label>
+                        <div className="mt-1">
+                          <select
+                            id="refreshingPeriod"
+                            value={`${periodStart}|${periodEnd}`}
+                            onChange={(e) => {
+                              if (e.target.value && e.target.value !== '|') {
+                                const [start, end] = e.target.value.split('|');
+                                setPeriodStart(start);
+                                setPeriodEnd(end);
+                              } else {
+                                setPeriodStart('');
+                                setPeriodEnd('');
+                              }
+                            }}
+                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          >
+                            <option value="|">-- Pilih Periode --</option>
+                            {activeRefreshingPeriods.map((p: any, idx: number) => (
+                              <option key={idx} value={`${p.start}|${p.end}`}>
+                                {new Date(p.start).toLocaleDateString('id-ID')} - {new Date(p.end).toLocaleDateString('id-ID')}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm">
+                      Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa.
+                    </div>
+                  )
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
+                        Periode Diklat Mulai
+                      </label>
+                      <div className="mt-1">
+                        <input
+                          id="periodStart"
+                          name="periodStart"
+                          type="date"
+                          value={periodStart}
+                          onChange={(e) => setPeriodStart(e.target.value)}
+                          className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
+                        Periode Diklat Selesai
+                      </label>
+                      <div className="mt-1">
+                        <input
+                          id="periodEnd"
+                          name="periodEnd"
+                          type="date"
+                          value={periodEnd}
+                          onChange={(e) => setPeriodEnd(e.target.value)}
+                          className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
-                      Periode Diklat Selesai
-                    </label>
-                    <div className="mt-1">
-                      <input
-                        id="periodEnd"
-                        name="periodEnd"
-                        type="date"
-                        value={periodEnd}
-                        onChange={(e) => setPeriodEnd(e.target.value)}
-                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      />
-                    </div>
-                  </div>
-                </div>
+                )}
               </>
             )}
 
             <div>
               <button
                 type="submit"
-                disabled={isLoading}
-                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${isLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                disabled={isLoading || (selectedCategory === "REFRESING" && activeRefreshingPeriods.length === 0)}
+                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${isLoading || (selectedCategory === "REFRESING" && activeRefreshingPeriods.length === 0) ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
               >
                 {isLoading ? 'Sedang memproses...' : 'Sign in'}
               </button>

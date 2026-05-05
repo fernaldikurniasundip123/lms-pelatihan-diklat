@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
@@ -36,6 +36,10 @@ export default function AdminDashboard() {
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [materialLink, setMaterialLink] = useState("");
   const [isSavingMaterial, setIsSavingMaterial] = useState(false);
+  const [refreshingPeriods, setRefreshingPeriods] = useState<any[]>([]);
+  const [newPeriodStart, setNewPeriodStart] = useState("");
+  const [newPeriodEnd, setNewPeriodEnd] = useState("");
+  const [isSavingPeriods, setIsSavingPeriods] = useState(false);
   const [assessmentQuestions, setAssessmentQuestions] = useState<any[]>([]);
   const [isViewingQuestions, setIsViewingQuestions] = useState(false);
   const [newVideoTitle, setNewVideoTitle] = useState("");
@@ -460,6 +464,7 @@ export default function AdminDashboard() {
   const openManageModal = async (course: any) => {
     setSelectedCourse(course);
     setMaterialLink(course.material_link || "");
+    setRefreshingPeriods(course.refreshing_periods || []);
     setIsManageModalOpen(true);
     setIsViewingQuestions(false);
     setAssessmentQuestions([]);
@@ -482,6 +487,49 @@ export default function AdminDashboard() {
       alert("Failed to save material link. Check if 'material_link' column exists in 'courses' table.");
     }
     setIsSavingMaterial(false);
+  };
+
+  const handleAddPeriod = async () => {
+    if (!newPeriodStart || !newPeriodEnd) return;
+    const newPeriods = [...refreshingPeriods, { start: newPeriodStart, end: newPeriodEnd }];
+    await saveRefreshingPeriods(newPeriods);
+    setNewPeriodStart("");
+    setNewPeriodEnd("");
+  };
+
+  const handleRemovePeriod = async (index: number) => {
+    const newPeriods = refreshingPeriods.filter((_, i) => i !== index);
+    await saveRefreshingPeriods(newPeriods);
+  };
+
+  const saveRefreshingPeriods = async (periods: any[]) => {
+    if (!selectedCourse) return;
+    setIsSavingPeriods(true);
+    const { error } = await supabase
+      .from('courses')
+      .update({ refreshing_periods: periods })
+      .eq('id', selectedCourse.id);
+      
+    if (!error) {
+      setRefreshingPeriods(periods);
+      fetchCourses();
+    } else {
+      console.error(error);
+      alert(`Gagal menyimpan periode. Pastikan kolom refreshing_periods (tipe jsonb) sudah ditambahkan di tabel courses. Error: ${error.message}`);
+    }
+    setIsSavingPeriods(false);
+  };
+
+  const handleCopyRefreshingLink = async () => {
+    if (!selectedCourse) return;
+    const url = `${window.location.origin}/login?category=REFRESING&course=${selectedCourse.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('Link pendaftaran khusus Refresing berhasil disalin!\n' + url);
+    } catch(err) {
+      console.error('Failed to copy', err);
+      alert('Gagal menyalin link: ' + url);
+    }
   };
 
   const handleAddVideo = async (e: React.FormEvent) => {
@@ -1807,6 +1855,50 @@ export default function AdminDashboard() {
             <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-8">
               {/* Left Column: Existing Videos & Material Link */}
               <div className="flex-1 space-y-8">
+                {/* Global Refreshing Config */}
+                <div className="p-4 bg-teal-50 border border-teal-200 rounded-lg">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-semibold text-teal-900">Pengaturan Periode Pendaftaran Refresing</h4>
+                    <button 
+                      onClick={handleCopyRefreshingLink}
+                      className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Salin Link Refresing
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3 mb-4">
+                    {refreshingPeriods.map((period, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-teal-100">
+                        <span className="text-sm font-medium text-teal-800">
+                          {new Date(period.start).toLocaleDateString('id-ID')} - {new Date(period.end).toLocaleDateString('id-ID')}
+                        </span>
+                        <button onClick={() => handleRemovePeriod(idx)} className="text-red-500 hover:text-red-700 p-1">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {refreshingPeriods.length === 0 && (
+                      <p className="text-sm text-teal-600 italic">Belum ada periode yang disetting untuk refresing. Peserta tidak dapat mendaftar kursus ini sebagai refresing.</p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 items-end mt-4">
+                    <div className="flex-1">
+                      <label className="block text-xs text-teal-700 font-medium mb-1">Mulai</label>
+                      <input type="date" value={newPeriodStart} onChange={e=>setNewPeriodStart(e.target.value)} className="w-full border-teal-200 rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-teal-700 font-medium mb-1">Selesai</label>
+                      <input type="date" value={newPeriodEnd} onChange={e=>setNewPeriodEnd(e.target.value)} className="w-full border-teal-200 rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <button onClick={handleAddPeriod} disabled={isSavingPeriods || !newPeriodStart || !newPeriodEnd} className="bg-teal-600 text-white rounded px-3 py-1.5 text-sm font-medium hover:bg-teal-700 disabled:opacity-50 h-[34px]">
+                      {isSavingPeriods ? '...' : 'Tambah'}
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <h4 className="text-lg font-semibold text-gray-900 mb-3 text-sm">Course Material Link (Google Drive, Dropbox, etc.)</h4>
                   <div className="flex gap-2">
