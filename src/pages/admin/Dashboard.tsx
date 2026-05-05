@@ -749,8 +749,8 @@ export default function AdminDashboard() {
     return reports.filter(r => {
       if (filterCourseId && r.course_id !== filterCourseId) return false;
       if (filterClassName && r.class_name !== filterClassName) return false;
-      if (filterPeriodStart && r.period_start && r.period_start < filterPeriodStart) return false;
-      if (filterPeriodEnd && r.period_end && r.period_end > filterPeriodEnd) return false;
+      if (filterPeriodStart && r.period_start && r.period_start.split('T')[0] < filterPeriodStart) return false;
+      if (filterPeriodEnd && r.period_end && r.period_end.split('T')[0] > filterPeriodEnd) return false;
       
       if (filterActivityStart || filterActivityEnd) {
         if (!r.activity_dates || r.activity_dates.length === 0) return false;
@@ -1278,14 +1278,43 @@ export default function AdminDashboard() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
-                <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
-                <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
-              </div>
+              {filterCategory === 'REFRESING' && filterCourseId ? (
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Periode Refresing</label>
+                  <select 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+                    value={filterPeriodStart && filterPeriodEnd ? `${filterPeriodStart}|${filterPeriodEnd}` : ""}
+                    onChange={(e) => {
+                      if (!e.target.value) {
+                         setFilterPeriodStart("");
+                         setFilterPeriodEnd("");
+                         return;
+                      }
+                      const [start, end] = e.target.value.split('|');
+                      setFilterPeriodStart(start);
+                      setFilterPeriodEnd(end);
+                    }}
+                  >
+                    <option value="">Semua Periode</option>
+                    {(courses.find(c => c.id === filterCourseId)?.refreshing_periods || []).map((p: any, idx: number) => (
+                      <option key={idx} value={`${p.start}|${p.end}`}>
+                        {new Date(p.start).toLocaleDateString('id-ID')} - {new Date(p.end).toLocaleDateString('id-ID')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
+                    <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
+                    <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full" />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
                 <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
@@ -1406,14 +1435,43 @@ export default function AdminDashboard() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
-                <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
-                <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
-              </div>
+              {filterCategory === 'REFRESING' && filterCourseId ? (
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Periode Refresing</label>
+                  <select 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+                    value={filterPeriodStart && filterPeriodEnd ? `${filterPeriodStart}|${filterPeriodEnd}` : ""}
+                    onChange={(e) => {
+                      if (!e.target.value) {
+                         setFilterPeriodStart("");
+                         setFilterPeriodEnd("");
+                         return;
+                      }
+                      const [start, end] = e.target.value.split('|');
+                      setFilterPeriodStart(start);
+                      setFilterPeriodEnd(end);
+                    }}
+                  >
+                    <option value="">Semua Periode</option>
+                    {(courses.find(c => c.id === filterCourseId)?.refreshing_periods || []).map((p: any, idx: number) => (
+                      <option key={idx} value={`${p.start}|${p.end}`}>
+                        {new Date(p.start).toLocaleDateString('id-ID')} - {new Date(p.end).toLocaleDateString('id-ID')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
+                    <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
+                    <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full" />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
                 <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
@@ -1541,14 +1599,43 @@ export default function AdminDashboard() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
-                <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
-                <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />
-              </div>
+              {filterCategory === 'REFRESING' && filterCourseId ? (
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Periode Refresing</label>
+                  <select 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+                    value={filterPeriodStart && filterPeriodEnd ? `${filterPeriodStart}|${filterPeriodEnd}` : ""}
+                    onChange={(e) => {
+                      if (!e.target.value) {
+                         setFilterPeriodStart("");
+                         setFilterPeriodEnd("");
+                         return;
+                      }
+                      const [start, end] = e.target.value.split('|');
+                      setFilterPeriodStart(start);
+                      setFilterPeriodEnd(end);
+                    }}
+                  >
+                    <option value="">Semua Periode</option>
+                    {(courses.find(c => c.id === filterCourseId)?.refreshing_periods || []).map((p: any, idx: number) => (
+                      <option key={idx} value={`${p.start}|${p.end}`}>
+                        {new Date(p.start).toLocaleDateString('id-ID')} - {new Date(p.end).toLocaleDateString('id-ID')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Mulai</label>
+                    <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat Selesai</label>
+                    <input type="date" value={filterPeriodEnd} onChange={e => setFilterPeriodEnd(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full" />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
                 <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm" />

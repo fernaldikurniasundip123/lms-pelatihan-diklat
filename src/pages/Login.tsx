@@ -53,7 +53,7 @@ export default function Login() {
     selectedCourse.name.trim().toUpperCase() === 'BST' || 
     selectedCourse.name.trim().toUpperCase() === 'KONVENSI INTERNATIONAL'
   );
-  const requiresSeafarerCode = courseId && !isBstOrKonvensi;
+  const requiresSeafarerCode = (courseId && !isBstOrKonvensi) || selectedCategory === 'REFRESING';
 
   useEffect(() => {
     // Clear session selfie when visiting login page
@@ -342,37 +342,41 @@ export default function Login() {
             </div>
 
             <div>
-              <label htmlFor="className" className="block text-sm font-medium text-gray-700">
-                <span>{isAdminLogin ? "Password Admin" : "Kelas"}</span>
-              </label>
-              <div className="mt-1">
-                {isAdminLogin ? (
-                  <input
-                    id="className"
-                    name="className"
-                    type="password"
-                    required
-                    placeholder="Masukkan Password Admin"
-                    value={className}
-                    onChange={(e) => setClassName(e.target.value)}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                ) : (
-                  <select
-                    id="className"
-                    name="className"
-                    required
-                    value={className}
-                    onChange={(e) => setClassName(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  >
-                    <option value="" disabled>Pilih Kelas</option>
-                    {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
-                      <option key={letter} value={letter}>Kelas {letter}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
+              {!(selectedCategory === 'REFRESING' && !isAdminLogin) && (
+                <>
+                  <label htmlFor="className" className="block text-sm font-medium text-gray-700">
+                    <span>{isAdminLogin ? "Password Admin" : "Kelas"}</span>
+                  </label>
+                  <div className="mt-1">
+                    {isAdminLogin ? (
+                      <input
+                        id="className"
+                        name="className"
+                        type="password"
+                        required
+                        placeholder="Masukkan Password Admin"
+                        value={className}
+                        onChange={(e) => setClassName(e.target.value)}
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      />
+                    ) : (
+                      <select
+                        id="className"
+                        name="className"
+                        required
+                        value={className}
+                        onChange={(e) => setClassName(e.target.value)}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      >
+                        <option value="" disabled>Pilih Kelas</option>
+                        {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                          <option key={letter} value={letter}>Kelas {letter}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </>
+              )}
               <div className="mt-2 text-right">
                 <button
                   type="button"
