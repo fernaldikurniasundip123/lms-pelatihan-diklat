@@ -520,9 +520,12 @@ export default function AdminDashboard() {
     setIsSavingPeriods(false);
   };
 
-  const handleCopyRefreshingLink = async () => {
+  const handleCopyRefreshingLink = async (period?: any) => {
     if (!selectedCourse) return;
-    const url = `${window.location.origin}/login?category=REFRESING&course=${selectedCourse.id}`;
+    let url = `${window.location.origin}/login?category=REFRESING&course=${selectedCourse.id}`;
+    if (period) {
+      url += `&periodStart=${period.start}&periodEnd=${period.end}`;
+    }
     try {
       await navigator.clipboard.writeText(url);
       alert('Link pendaftaran khusus Refresing berhasil disalin!\n' + url);
@@ -1871,12 +1874,21 @@ export default function AdminDashboard() {
                   <div className="space-y-3 mb-4">
                     {refreshingPeriods.map((period, idx) => (
                       <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-teal-100">
-                        <span className="text-sm font-medium text-teal-800">
+                        <span className="text-sm font-medium text-teal-800 flex-1">
                           {new Date(period.start).toLocaleDateString('id-ID')} - {new Date(period.end).toLocaleDateString('id-ID')}
                         </span>
-                        <button onClick={() => handleRemovePeriod(idx)} className="text-red-500 hover:text-red-700 p-1">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => handleCopyRefreshingLink(period)} 
+                            className="bg-teal-100 text-teal-700 hover:bg-teal-200 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                            title="Salin Link untuk periode ini"
+                          >
+                            <Copy className="w-3 h-3" /> Salin Link
+                          </button>
+                          <button onClick={() => handleRemovePeriod(idx)} className="text-red-500 hover:text-red-700 p-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {refreshingPeriods.length === 0 && (

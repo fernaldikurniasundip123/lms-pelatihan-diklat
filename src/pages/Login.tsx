@@ -24,11 +24,18 @@ export default function Login() {
     const params = new URLSearchParams(location.search);
     const catParam = params.get('category');
     const courseParam = params.get('course');
+    const periodStartParam = params.get('periodStart');
+    const periodEndParam = params.get('periodEnd');
+    
     if (catParam) {
       setSelectedCategory(catParam);
     }
     if (courseParam) {
       setCourseId(courseParam);
+    }
+    if (periodStartParam && periodEndParam) {
+      setPeriodStart(periodStartParam);
+      setPeriodEnd(periodEndParam);
     }
   }, [location.search]);
 
@@ -290,6 +297,12 @@ export default function Login() {
     return courses.filter(c => c.category === selectedCategory);
   }, [selectedCategory, courses]);
 
+  const isSelectedPeriodActive = useMemo(() => {
+    return activeRefreshingPeriods.some((p: any) => p.start === periodStart && p.end === periodEnd);
+  }, [activeRefreshingPeriods, periodStart, periodEnd]);
+  
+  const isSignInDisabled = isLoading || (selectedCategory === "REFRESING" && !isSelectedPeriodActive);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -524,8 +537,8 @@ export default function Login() {
             <div>
               <button
                 type="submit"
-                disabled={isLoading || (selectedCategory === "REFRESING" && activeRefreshingPeriods.length === 0)}
-                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${isLoading || (selectedCategory === "REFRESING" && activeRefreshingPeriods.length === 0) ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                disabled={isSignInDisabled}
+                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${isSignInDisabled ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
               >
                 {isLoading ? 'Sedang memproses...' : 'Sign in'}
               </button>
