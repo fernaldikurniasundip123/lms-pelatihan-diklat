@@ -1267,7 +1267,7 @@ export default function AdminDashboard() {
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                   <option value="">Semua Sub Pelatihan</option>
                   {courses
-                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && c.category === 'DIKLAT KETRAMPILAN (SHORT COURSE)') : true)
+                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing))) : true)
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -1395,7 +1395,7 @@ export default function AdminDashboard() {
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                   <option value="">Semua Sub Pelatihan</option>
                   {courses
-                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && c.category === 'DIKLAT KETRAMPILAN (SHORT COURSE)') : true)
+                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing))) : true)
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -1530,7 +1530,7 @@ export default function AdminDashboard() {
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                   <option value="">Semua Sub Pelatihan</option>
                   {courses
-                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && c.category === 'DIKLAT KETRAMPILAN (SHORT COURSE)') : true)
+                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing))) : true)
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>

@@ -288,7 +288,6 @@ export default function Login() {
     if (!selectedCategory) return courses;
     if (selectedCategory === "REFRESING") {
       return courses.filter(c => {
-        if (c.category !== "DIKLAT KETRAMPILAN (SHORT COURSE)") return false;
         const hasRefreshingVideo = c.videos?.some((v: any) => v.is_refreshing);
         const hasRefreshingAssessment = c.assessments?.some((a: any) => a.is_refreshing);
         return c.is_refreshing || hasRefreshingVideo || hasRefreshingAssessment;
