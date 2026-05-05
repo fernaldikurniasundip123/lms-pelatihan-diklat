@@ -144,16 +144,14 @@ export default function AdminDashboard() {
     }
     
     if (filterCategory) {
-      let targetCategory = filterCategory === 'REFRESING' ? 'DIKLAT KETRAMPILAN (SHORT COURSE)' : filterCategory;
-      vpQuery = vpQuery.eq('courses.category', targetCategory);
-      arQuery = arQuery.eq('courses.category', targetCategory);
-      enrollQuery = enrollQuery.eq('courses.category', targetCategory);
-      
-      // For refreshing, we also narrow enrollments by their enrollment category
       if (filterCategory === 'REFRESING') {
         enrollQuery = enrollQuery.eq('category', 'REFRESING');
-        // We also need to filter video/assessment progress by the fact that the user enrolled as 'REFRESING'?
-        // Wait, video_progress doesn't have enrollment_id. But enrollQuery acts as the master list.
+        // We do NOT filter vpQuery/arQuery by courses.category here since REFRESING can apply to any course's items.
+        // We will rely on enrollQuery as the master list.
+      } else {
+        vpQuery = vpQuery.eq('courses.category', filterCategory);
+        arQuery = arQuery.eq('courses.category', filterCategory);
+        enrollQuery = enrollQuery.eq('courses.category', filterCategory);
       }
     }
     
