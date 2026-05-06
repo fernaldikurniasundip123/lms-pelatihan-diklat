@@ -397,7 +397,7 @@ export default function CourseView() {
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex flex-col lg:flex-row gap-8">
         {/* Left Column - Video Player */}
         <div className="flex-1 flex flex-col gap-6">
-          {activeVideo ? (
+          {(!isRefreshing && activeVideo) ? (
             <div className="bg-black rounded-2xl aspect-video shadow-xl overflow-hidden relative">
               <YouTubePlayer 
                 videoId={activeVideo.youtube_id} 
@@ -406,13 +406,48 @@ export default function CourseView() {
                 onComplete={handleComplete}
               />
             </div>
+          ) : isRefreshing ? (
+            <div className="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col" style={{ minHeight: '600px' }}>
+              <div className="p-4 border-b border-gray-200">
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-indigo-600" />
+                  Materi Refresing
+                </h3>
+              </div>
+              <div className="flex-1 w-full bg-gray-100">
+                {assessments.find(a => !a.video_id)?.refreshing_material_link ? (
+                  <iframe 
+                    src={(assessments.find(a => !a.video_id)?.refreshing_material_link || '').replace('/view', '/preview').replace('usp=sharing', '')} 
+                    className="w-full h-full border-0"
+                    title="Materi Refresing"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-500 flex-col gap-2 p-8 text-center">
+                    <p>Materi belum tersedia</p>
+                  </div>
+                )}
+              </div>
+              {assessments.find(a => !a.video_id)?.refreshing_material_link && (
+                <div className="p-3 bg-gray-50 border-t border-gray-200 text-center">
+                  <a 
+                    href={assessments.find(a => !a.video_id)?.refreshing_material_link} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-xs text-indigo-600 font-medium hover:underline"
+                  >
+                    Buka di tab baru (jika PDF tidak muncul)
+                  </a>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="bg-gray-200 rounded-2xl aspect-video flex items-center justify-center text-gray-500">
               No video selected
             </div>
           )}
 
-          {activeVideo && (
+          {!isRefreshing && activeVideo && (
             <div className="flex flex-col gap-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">{activeVideo.title}</h2>
@@ -425,18 +460,20 @@ export default function CourseView() {
         {/* Right Column - Course Content & AI Chat */}
         <div className="w-full lg:w-96 flex flex-col gap-6 h-[calc(100vh-6rem)] lg:sticky lg:top-24">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-[300px]">
-            <div className="p-6 border-b border-gray-200 bg-gray-50">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Course Content</h3>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${course.progress || 0}%` }}></div>
+            {!isRefreshing && (
+              <div className="p-6 border-b border-gray-200 bg-gray-50">
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Course Content</h3>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${course.progress || 0}%` }}></div>
+                  </div>
+                  <span className="font-medium">{Math.round(course.progress || 0)}%</span>
                 </div>
-                <span className="font-medium">{Math.round(course.progress || 0)}%</span>
               </div>
-            </div>
+            )}
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {course.videos?.map((video: any, idx: number) => {
+              {!isRefreshing && course.videos?.map((video: any, idx: number) => {
                 const isActive = activeVideo?.id === video.id;
                 const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
                 const videoAssessment = assessments.find(a => a.video_id === video.id);
@@ -509,7 +546,7 @@ export default function CourseView() {
 
               <div className="pt-4 mt-4 border-t border-gray-200 flex flex-col gap-4">
                 {/* Download Materi Section */}
-                {course.material_link && (
+                {!isRefreshing && course.material_link && (
                   <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                     <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
                       <Download className="w-4 h-4 text-indigo-600" />
@@ -549,7 +586,8 @@ export default function CourseView() {
                 )}
 
                 {/* Link Tugas Section */}
-                <div className="bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
+                {!isRefreshing && (
+                  <div className="bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
                   <div className="p-4 border-b border-indigo-100 flex items-center gap-2">
                     <LinkIcon className="w-4 h-4 text-indigo-900" />
                     <h4 className="text-sm font-bold text-indigo-900">Lampirkan Tugas</h4>
@@ -613,6 +651,7 @@ export default function CourseView() {
                     </div>
                   </div>
                 </div>
+                )}
               </div>
             </div>
           </div>
