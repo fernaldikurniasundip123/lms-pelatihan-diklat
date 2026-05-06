@@ -126,6 +126,7 @@ export default function CourseView() {
   const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false);
   const [assignmentSaved, setAssignmentSaved] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const savePromiseRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
@@ -155,7 +156,8 @@ export default function CourseView() {
         .eq('course_id', courseId)
         .maybeSingle();
 
-      const isRefreshing = enrollmentData?.category === 'REFRESING';
+      const refreshingStatus = enrollmentData?.category === 'REFRESING';
+      setIsRefreshing(refreshingStatus);
 
       if (enrollmentData?.assignment_link) {
         setAssignmentLink(enrollmentData.assignment_link);
@@ -169,7 +171,7 @@ export default function CourseView() {
         .eq('course_id', courseId)
         .order('order_num', { ascending: true });
         
-      if (isRefreshing) {
+      if (refreshingStatus) {
         videosQuery = videosQuery.eq('is_refreshing', true);
       }
       
@@ -188,7 +190,7 @@ export default function CourseView() {
         .select('*')
         .eq('course_id', courseId);
         
-      if (isRefreshing) {
+      if (refreshingStatus) {
         assessmentsQuery = assessmentsQuery.eq('is_refreshing', true);
       }
       
