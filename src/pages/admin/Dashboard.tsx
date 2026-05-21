@@ -47,6 +47,7 @@ export default function AdminDashboard() {
   const [newVideoDesc, setNewVideoDesc] = useState("");
   const [newVideoYoutubeId, setNewVideoYoutubeId] = useState("");
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
+  const [editingVideoMataKuliah, setEditingVideoMataKuliah] = useState<Record<string, string>>({});
 
   // Assessment State
   const [isCreatingAssessment, setIsCreatingAssessment] = useState(false);
@@ -613,6 +614,25 @@ export default function AdminDashboard() {
     } else {
       console.error(error);
       alert(`Gagal memperbarui status refresing video. Pastikan kolom is_refreshing sudah ditambahkan di tabel videos. Error: ${error.message}`);
+    }
+  };
+
+  const handleUpdateVideoMataKuliah = async (videoId: string, val: string) => {
+    const { error } = await supabase
+      .from('videos')
+      .update({ mata_kuliah: val || null })
+      .eq('id', videoId);
+    
+    if (!error) {
+      fetchCourses();
+      setSelectedCourse((prev: any) => ({
+        ...prev,
+        videos: prev.videos.map((v: any) => v.id === videoId ? { ...v, mata_kuliah: val || null } : v)
+      }));
+      alert("Mata kuliah berhasil diperbarui!");
+    } else {
+      console.error(error);
+      alert(`Gagal memperbarui Mata Kuliah video. Error: ${error.message}`);
     }
   };
 
@@ -2071,6 +2091,26 @@ export default function AdminDashboard() {
                                 />
                                 <label htmlFor={`refreshing-video-${video.id}`} className="text-xs font-medium text-gray-700">Tersedia untuk Refresing</label>
                               </div>
+                              {selectedCourse?.category === 'DIKLAT PENINGKATAN (PASIS)' && (
+                                <div className="mt-3 bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex flex-col gap-1.5 shadow-sm">
+                                  <label className="text-xs font-semibold text-gray-700 block">Mata Kuliah:</label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Nama Mata Kuliah (e.g. MANOUVERING)"
+                                      value={editingVideoMataKuliah[video.id] !== undefined ? editingVideoMataKuliah[video.id] : (video.mata_kuliah || "")}
+                                      onChange={(e) => setEditingVideoMataKuliah(prev => ({ ...prev, [video.id]: e.target.value }))}
+                                      className="flex-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white shadow-sm"
+                                    />
+                                    <button
+                                      onClick={() => handleUpdateVideoMataKuliah(video.id, editingVideoMataKuliah[video.id] !== undefined ? editingVideoMataKuliah[video.id] : (video.mata_kuliah || ""))}
+                                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-medium transition-colors shadow-sm"
+                                    >
+                                      Simpan
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <button 
                               onClick={() => {
