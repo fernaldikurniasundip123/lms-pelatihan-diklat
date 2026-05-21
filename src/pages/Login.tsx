@@ -9,6 +9,7 @@ export default function Login() {
   const [className, setClassName] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [courseId, setCourseId] = useState("");
+  const [selectedMataKuliah, setSelectedMataKuliah] = useState("");
   const [seafarerCode, setSeafarerCode] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -235,15 +236,20 @@ export default function Login() {
               course_id: courseId,
               period_start: new Date(periodStart).toISOString(),
               period_end: new Date(periodEnd).toISOString(),
-              category: selectedCategory
+              category: selectedCategory,
+              mata_kuliah: selectedCategory === 'DIKLAT PENINGKATAN (PASIS)' ? selectedMataKuliah : null
             }]);
             
           if (enrollError) throw new Error("Gagal mendaftar pelatihan");
         } else {
           // Update the category if they login again with a different category
+          const updateData: any = { category: selectedCategory };
+          if (selectedCategory === 'DIKLAT PENINGKATAN (PASIS)' && selectedMataKuliah) {
+             updateData.mata_kuliah = selectedMataKuliah;
+          }
           await supabase
             .from('enrollments')
-            .update({ category: selectedCategory })
+            .update(updateData)
             .eq('id', existingEnrollment.id);
         }
       }
@@ -434,6 +440,33 @@ export default function Login() {
                           <option value="">-- Pilih Sub Pelatihan --</option>
                           {filteredCourses.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedCategory === 'DIKLAT PENINGKATAN (PASIS)' && courseId && (
+                    <div>
+                      <label htmlFor="mataKuliah" className="block text-sm font-medium text-gray-700">
+                        Mata Kuliah
+                      </label>
+                      <div className="mt-1">
+                        <select
+                          id="mataKuliah"
+                          name="mataKuliah"
+                          required
+                          value={selectedMataKuliah}
+                          onChange={(e) => setSelectedMataKuliah(e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        >
+                          <option value="">-- Pilih Mata Kuliah --</option>
+                          {Array.from(new Set(
+                            (selectedCourse?.videos || [])
+                              .map((v: any) => v.mata_kuliah)
+                              .filter(Boolean)
+                          )).map((mk: any) => (
+                            <option key={mk} value={mk}>{mk}</option>
                           ))}
                         </select>
                       </div>

@@ -151,12 +151,13 @@ export default function CourseView() {
       // Fetch enrollment to get assignment link and category
       const { data: enrollmentData } = await supabase
         .from('enrollments')
-        .select('assignment_link, category')
+        .select('assignment_link, category, mata_kuliah')
         .eq('user_id', user.id)
         .eq('course_id', courseId)
         .maybeSingle();
 
       const refreshingStatus = enrollmentData?.category === 'REFRESING';
+      const userMataKuliah = enrollmentData?.mata_kuliah;
       setIsRefreshing(refreshingStatus);
 
       if (enrollmentData?.assignment_link) {
@@ -173,6 +174,9 @@ export default function CourseView() {
         
       if (refreshingStatus) {
         videosQuery = videosQuery.eq('is_refreshing', true);
+      }
+      if (userMataKuliah) {
+        videosQuery = videosQuery.eq('mata_kuliah', userMataKuliah);
       }
       
       const { data: videosData } = await videosQuery;

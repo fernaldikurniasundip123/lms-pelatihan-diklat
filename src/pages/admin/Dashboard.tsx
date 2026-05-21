@@ -43,6 +43,7 @@ export default function AdminDashboard() {
   const [assessmentQuestions, setAssessmentQuestions] = useState<any[]>([]);
   const [isViewingQuestions, setIsViewingQuestions] = useState(false);
   const [newVideoTitle, setNewVideoTitle] = useState("");
+  const [newVideoMataKuliah, setNewVideoMataKuliah] = useState("");
   const [newVideoDesc, setNewVideoDesc] = useState("");
   const [newVideoYoutubeId, setNewVideoYoutubeId] = useState("");
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
@@ -551,6 +552,7 @@ export default function AdminDashboard() {
       .insert([{
         course_id: selectedCourse.id,
         title: newVideoTitle,
+        mata_kuliah: selectedCourse.category === 'DIKLAT PENINGKATAN (PASIS)' ? newVideoMataKuliah : null,
         description: newVideoDesc,
         youtube_id: youtubeId,
         order_num: (selectedCourse.videos?.length || 0) + 1
@@ -558,6 +560,7 @@ export default function AdminDashboard() {
 
     if (!error) {
       setNewVideoTitle("");
+      setNewVideoMataKuliah("");
       setNewVideoDesc("");
       setNewVideoYoutubeId("");
       fetchCourses();
@@ -2402,6 +2405,19 @@ export default function AdminDashboard() {
                       placeholder="e.g. Chapter 1: Introduction"
                     />
                   </div>
+                  {selectedCourse?.category === 'DIKLAT PENINGKATAN (PASIS)' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Mata Kuliah</label>
+                      <input
+                        type="text"
+                        required
+                        value={newVideoMataKuliah}
+                        onChange={(e) => setNewVideoMataKuliah(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                        placeholder="e.g. MANOUVERING"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">YouTube URL or ID</label>
                     <input
