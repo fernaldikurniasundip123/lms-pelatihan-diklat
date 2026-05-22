@@ -62,7 +62,7 @@ export default function AssessmentPreCheck() {
   // If user is already verified globally, they can just proceed (unless blocked by attempts)
   useEffect(() => {
     if (user?.is_verified && attemptsInfo !== null) {
-      const maxAttempts = isAssessmentRefreshing ? 5 : 3;
+      const maxAttempts = 5;
       if (attemptsInfo.passed || attemptsInfo.count >= maxAttempts) {
         // Stay here to show the message
       } else {
@@ -187,7 +187,7 @@ export default function AssessmentPreCheck() {
           </div>
         );
       }
-      const maxAttempts = isAssessmentRefreshing ? 5 : 3;
+      const maxAttempts = 5;
       if (attemptsInfo.count >= maxAttempts) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">

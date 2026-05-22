@@ -227,8 +227,10 @@ export default function CourseView() {
       let completedItems = videosWithProgress.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
       
       if (finalAssessment) {
-        const finalResult = resultsData?.find((r: any) => r.assessment_id === finalAssessment.id);
-        if (finalResult?.passed) completedItems += 1;
+        const finalAttempts = resultsData?.filter((r: any) => r.assessment_id === finalAssessment.id) || [];
+        const hasPassedFinal = finalAttempts.some((r: any) => r.passed);
+        const reachedMaxFinal = finalAttempts.length >= 5;
+        if (hasPassedFinal || reachedMaxFinal) completedItems += 1;
       }
 
       const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -329,8 +331,10 @@ export default function CourseView() {
             let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
             
             if (finalAssessment) {
-              const finalResult = assessmentResults?.find((r: any) => r.assessment_id === finalAssessment.id);
-              if (finalResult?.passed) completedItems += 1;
+              const finalAttempts = assessmentResults?.filter((r: any) => r.assessment_id === finalAssessment.id) || [];
+              const hasPassedFinal = finalAttempts.some((r: any) => r.passed);
+              const reachedMaxFinal = finalAttempts.length >= 5;
+              if (hasPassedFinal || reachedMaxFinal) completedItems += 1;
             }
             
             const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -481,17 +485,21 @@ export default function CourseView() {
                 const isActive = activeVideo?.id === video.id;
                 const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
                 const videoAssessment = assessments.find(a => a.video_id === video.id);
-                const assessmentResult = videoAssessment ? assessmentResults.find(r => r.assessment_id === videoAssessment.id) : null;
-                const isAssessmentPassed = assessmentResult?.passed;
+                const videoAttempts = videoAssessment ? assessmentResults.filter(r => r.assessment_id === videoAssessment.id) : [];
+                const hasPassed = videoAttempts.some(r => r.passed);
+                const reachedMax = videoAttempts.length >= 5;
+                const isAssessmentPassed = hasPassed || reachedMax;
                 
-                // Check if previous video's mandatory assessment is passed
+                // Check if previous video's mandatory assessment is passed or max attempts reached
                 let isLocked = false;
                 if (idx > 0) {
                   const prevVideo = course.videos[idx - 1];
                   const prevAssessment = assessments.find(a => a.video_id === prevVideo.id);
                   if (prevAssessment?.is_mandatory) {
-                    const prevResult = assessmentResults.find(r => r.assessment_id === prevAssessment.id);
-                    if (!prevResult?.passed) {
+                    const prevAttempts = assessmentResults.filter(r => r.assessment_id === prevAssessment.id);
+                    const prevPassed = prevAttempts.some(r => r.passed);
+                    const prevReachedMax = prevAttempts.length >= 5;
+                    if (!prevPassed && !prevReachedMax) {
                       isLocked = true;
                     }
                   }
@@ -528,17 +536,21 @@ export default function CourseView() {
                           navigate(`/course/${course.id}/assessment/${videoAssessment.id}/precheck`);
                         }}
                         className={`ml-12 mr-4 p-3 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
-                          isAssessmentPassed 
+                          hasPassed 
                             ? 'bg-green-50 text-green-700 border border-green-200' 
-                            : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                            : reachedMax
+                              ? 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                              : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <FileText className="w-4 h-4" />
                           <span>Assessment: {video.title}</span>
                         </div>
-                        {isAssessmentPassed ? (
-                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">Lulus</span>
+                        {hasPassed ? (
+                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-semibold">Lulus</span>
+                        ) : reachedMax ? (
+                          <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full font-semibold">Selesai ({videoAttempts.length}x)</span>
                         ) : (
                           <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full">{videoAssessment.is_mandatory ? 'Wajib' : 'Opsional'}</span>
                         )}

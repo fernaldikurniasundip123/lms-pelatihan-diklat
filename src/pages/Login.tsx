@@ -66,7 +66,7 @@ export default function Login() {
         .from('courses')
         .select(`
           *,
-          videos (id, is_refreshing),
+          videos (id, is_refreshing, mata_kuliah),
           assessments (id, is_refreshing)
         `)
         .eq('status', 'active');
