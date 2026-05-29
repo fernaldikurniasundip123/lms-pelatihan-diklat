@@ -132,6 +132,8 @@ export default function Login() {
 
       let users = uniqueUsers.filter(u => {
         if (u.role === 'admin' || u.role === 'admin2') return true;
+        // Jika Kode Pelaut cocok, anggap ini pengguna yang sama meskipun ejaan nama sedikit berbeda (typo)
+        if (requiresSeafarerCode && seafarerCode && u.identity_number === seafarerCode) return true;
         return normalizeName(u.full_name) === normalizedInputName;
       });
 
@@ -188,6 +190,17 @@ export default function Login() {
             const { data: updatedUser } = await supabase
               .from('users')
               .update({ identity_number: seafarerCode })
+              .eq('id', user.id)
+              .select()
+              .single();
+            if (updatedUser) user = updatedUser;
+          }
+
+          // Update full_name jika nama yang diinput berbeda (untuk memperbaiki typo/salah ejaan)
+          if (fullName && user.full_name !== fullName) {
+            const { data: updatedUser } = await supabase
+              .from('users')
+              .update({ full_name: fullName })
               .eq('id', user.id)
               .select()
               .single();

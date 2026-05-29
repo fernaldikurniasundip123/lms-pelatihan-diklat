@@ -205,7 +205,7 @@ export default function AdminDashboard() {
     ]);
     
     // Fetch total videos per course to calculate accurate percentage
-    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true }).limit(10000);
+    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num, mata_kuliah').order('order_num', { ascending: true }).limit(10000);
     const videoCountByCourse: Record<string, number> = {};
     if (allVideos) {
       allVideos.forEach(v => {
@@ -290,7 +290,11 @@ export default function AdminDashboard() {
         });
         const uniqueUserVp = Array.from(uniqueUserVpMap.values());
 
-        const courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
+        const isPasis = en.courses?.category === 'DIKLAT PENINGKATAN (PASIS)';
+        const courseVideos = allVideos?.filter(v => 
+          v.course_id === en.course_id && 
+          (!isPasis || !en.mata_kuliah || v.mata_kuliah === en.mata_kuliah)
+        ) || [];
         const videoBreakdown = courseVideos.map(v => {
           const vp = uniqueUserVpMap.get(v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
@@ -327,6 +331,7 @@ export default function AdminDashboard() {
           identity_number: en.users?.identity_number,
           class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
+          mata_kuliah: en.mata_kuliah,
           course_id: en.course_id,
           user_id: en.user_id, // Important to keep for async matching
           period_start: en.period_start,
@@ -841,7 +846,7 @@ export default function AdminDashboard() {
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
-            r.course_name,
+            r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown,
             `${Math.round(r.avg_video_progress)}%`,
@@ -855,7 +860,7 @@ export default function AdminDashboard() {
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
-            r.course_name,
+            r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.detailed_scores || (r.final_score !== null ? Math.round(r.final_score).toString() : '-'),
             r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || 'BELUM MENGERJAKAN'),
@@ -883,7 +888,7 @@ export default function AdminDashboard() {
           bodyData.push([
             r.full_name + '\n' + r.identity_number,
             r.class_name || '-',
-            r.course_name,
+            r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.detailed_scores || (r.final_score != null ? Math.round(r.final_score).toString() : '-'),
@@ -1019,7 +1024,7 @@ export default function AdminDashboard() {
             name: r.full_name,
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            course: r.course_name,
+            course: r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             progress: `${Math.round(r.avg_video_progress || 0)}%`,
             status: r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
@@ -1030,7 +1035,7 @@ export default function AdminDashboard() {
             name: r.full_name,
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            course: r.course_name,
+            course: r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
             status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || 'BELUM MENGERJAKAN'),
             attempt: r.final_score != null ? '#1' : '#0'
@@ -1042,7 +1047,7 @@ export default function AdminDashboard() {
             nik: r.identity_number,
             kelas: r.class_name,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            course: r.course_name,
+            course: r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
@@ -1405,7 +1410,12 @@ export default function AdminDashboard() {
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div>{report.course_name}</div>
+                        {report.mata_kuliah && (
+                          <div className="text-xs text-indigo-600 font-medium font-mono mt-0.5">({report.mata_kuliah})</div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate whitespace-pre-wrap">{report.video_breakdown}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -1563,7 +1573,12 @@ export default function AdminDashboard() {
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div>{report.course_name}</div>
+                        {report.mata_kuliah && (
+                          <div className="text-xs text-indigo-600 font-medium font-mono mt-0.5">({report.mata_kuliah})</div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {report.detailed_statuses ? (
@@ -1730,7 +1745,12 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.class_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div>{report.course_name}</div>
+                        {report.mata_kuliah && (
+                          <div className="text-xs text-indigo-600 font-medium font-mono mt-0.5">({report.mata_kuliah})</div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-600">
                         {report.video_breakdown}
                       </td>
