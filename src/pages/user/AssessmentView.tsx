@@ -496,7 +496,7 @@ export default function AssessmentView() {
                     <div className="flex justify-between pt-8">
                       <button
                         onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-                        disabled={currentQuestionIndex === 0}
+                        disabled={currentQuestionIndex === 0 || courseCategory === "LATIHAN UJIAN"}
                         className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                       >
                         Sebelumnya
