@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
-import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, Download, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, Download, MessageSquare, ChevronDown, ChevronUp, Book } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import AIChat from "../../components/AIChat";
 
@@ -129,7 +129,9 @@ export default function CourseView() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUjianOrLatihan, setIsUjianOrLatihan] = useState(false);
   const [enrolledCategory, setEnrolledCategory] = useState("");
-  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState(() => {
+    return localStorage.getItem("selected_mata_kuliah") || "";
+  });
   const savePromiseRef = useRef<Promise<void>>(Promise.resolve());
 
   const subjects = useMemo(() => {
@@ -650,83 +652,109 @@ export default function CourseView() {
                     );
                   })}
                 </div>
-              ) : !isRefreshing && filteredVideos?.map((video: any, idx: number) => {
-                const isActive = activeVideo?.id === video.id;
-                const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
-                const videoAssessment = assessments.find(a => a.video_id === video.id);
-                const assessmentResult = videoAssessment ? assessmentResults.find(r => r.assessment_id === videoAssessment.id) : null;
-                const isAssessmentPassed = assessmentResult?.passed;
-                
-                // Check if previous video's mandatory assessment is passed
-                let isLocked = false;
-                if (idx > 0) {
-                  const prevVideo = filteredVideos[idx - 1];
-                  const prevAssessment = assessments.find(a => a.video_id === prevVideo.id);
-                  if (prevAssessment?.is_mandatory) {
-                    const prevResult = assessmentResults.find(r => r.assessment_id === prevAssessment.id);
-                    if (!prevResult?.passed) {
-                      isLocked = true;
+              ) : !isRefreshing ? (
+                (() => {
+                  // Group videos by mata_kuliah (maintaining original order of filteredVideos)
+                  const groupedMap = new Map<string, any[]>();
+                  filteredVideos.forEach((video: any) => {
+                    const mkKey = (video.mata_kuliah || "UMUM").toUpperCase().trim();
+                    if (!groupedMap.has(mkKey)) {
+                      groupedMap.set(mkKey, []);
                     }
-                  }
-                }
-                
-                return (
-                  <div key={video.id} className="flex flex-col gap-2">
-                    <button
-                      onClick={() => {
-                        if (isLocked) {
-                          alert("Anda harus menyelesaikan assessment pada video sebelumnya terlebih dahulu.");
-                          return;
-                        }
-                        setActiveVideo(video);
-                      }}
-                      className={`w-full flex items-start gap-4 p-4 rounded-xl text-left transition-all ${isActive ? 'bg-indigo-50 border border-indigo-200 shadow-sm' : 'hover:bg-gray-50 border border-transparent'} ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <div className={`mt-0.5 ${isCompleted ? 'text-green-500' : isActive ? 'text-indigo-600' : 'text-gray-400'}`}>
-                        {isCompleted ? <CheckCircle className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-medium line-clamp-2 ${isActive ? 'text-indigo-900' : 'text-gray-900'}`}>
-                          {idx + 1}. {video.title} {isLocked && "(Terkunci)"}
-                        </p>
-                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                          <p className="text-xs text-gray-500">
-                            Video {video.progress_percentage > 0 && `- ${Math.round(video.progress_percentage)}%`}
-                          </p>
-                          {video.mata_kuliah && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase tracking-wider leading-none">
-                              {video.mata_kuliah}
-                            </span>
-                          )}
+                    groupedMap.get(mkKey)!.push(video);
+                  });
+
+                  return Array.from(groupedMap.entries()).map(([mkName, mkVideos]) => {
+                    const isUmum = mkName === "UMUM";
+                    return (
+                      <div key={mkName} className="space-y-2 mb-6">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50/70 border border-indigo-100/50 rounded-lg text-xs font-extrabold text-indigo-900 uppercase tracking-widest leading-none mb-3">
+                          <Book className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Mata Kuliah: {isUmum ? "Materi Umum" : mkName}</span>
                         </div>
+                        {mkVideos.map((video: any) => {
+                          const idxRef = filteredVideos.findIndex((v: any) => v.id === video.id);
+                          const isActive = activeVideo?.id === video.id;
+                          const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
+                          const videoAssessment = assessments.find(a => a.video_id === video.id);
+                          const assessmentResult = videoAssessment ? assessmentResults.find(r => r.assessment_id === videoAssessment.id) : null;
+                          const isAssessmentPassed = assessmentResult?.passed;
+                          
+                          // Check if previous video's mandatory assessment is passed
+                          let isLocked = false;
+                          if (idxRef > 0) {
+                            const prevVideo = filteredVideos[idxRef - 1];
+                            const prevAssessment = assessments.find(a => a.video_id === prevVideo.id);
+                            if (prevAssessment?.is_mandatory) {
+                              const prevResult = assessmentResults.find(r => r.assessment_id === prevAssessment.id);
+                              if (!prevResult?.passed) {
+                                isLocked = true;
+                              }
+                            }
+                          }
+
+                          return (
+                            <div key={video.id} className="flex flex-col gap-2">
+                              <button
+                                onClick={() => {
+                                  if (isLocked) {
+                                    alert("Anda harus menyelesaikan assessment pada video sebelumnya terlebih dahulu.");
+                                    return;
+                                  }
+                                  setActiveVideo(video);
+                                }}
+                                className={`w-full flex items-start gap-4 p-4 rounded-xl text-left transition-all ${isActive ? 'bg-indigo-50 border border-indigo-200 shadow-sm' : 'hover:bg-gray-50 border border-transparent'} ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                <div className={`mt-0.5 ${isCompleted ? 'text-green-500' : isActive ? 'text-indigo-600' : 'text-gray-400'}`}>
+                                  {isCompleted ? <CheckCircle className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-sm font-medium line-clamp-2 ${isActive ? 'text-indigo-900' : 'text-gray-900'}`}>
+                                    {idxRef + 1}. {video.title} {isLocked && "(Terkunci)"}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                    <p className="text-xs text-gray-500">
+                                      Video {video.progress_percentage > 0 && `- ${Math.round(video.progress_percentage)}%`}
+                                    </p>
+                                    {video.mata_kuliah && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase tracking-wider leading-none">
+                                        {video.mata_kuliah}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                              
+                              {videoAssessment && (
+                                <button
+                                  onClick={() => {
+                                    navigate(`/course/${course.id}/assessment/${videoAssessment.id}/precheck`);
+                                  }}
+                                  className={`ml-12 mr-4 p-3 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
+                                    isAssessmentPassed 
+                                      ? 'bg-green-50 text-green-700 border border-green-200' 
+                                      : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <FileText className="w-4 h-4" />
+                                    <span>Assessment: {video.title}</span>
+                                  </div>
+                                  {isAssessmentPassed ? (
+                                    <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">Lulus</span>
+                                  ) : (
+                                    <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full">{videoAssessment.is_mandatory ? 'Wajib' : 'Opsional'}</span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    </button>
-                    
-                    {videoAssessment && (
-                      <button
-                        onClick={() => {
-                          navigate(`/course/${course.id}/assessment/${videoAssessment.id}/precheck`);
-                        }}
-                        className={`ml-12 mr-4 p-3 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
-                          isAssessmentPassed 
-                            ? 'bg-green-50 text-green-700 border border-green-200' 
-                            : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4" />
-                          <span>Assessment: {video.title}</span>
-                        </div>
-                        {isAssessmentPassed ? (
-                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">Lulus</span>
-                        ) : (
-                          <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full">{videoAssessment.is_mandatory ? 'Wajib' : 'Opsional'}</span>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  });
+                })()
+              ) : null}
 
               <div className="pt-4 mt-4 border-t border-gray-200 flex flex-col gap-4">
                 {/* Download Materi Section */}

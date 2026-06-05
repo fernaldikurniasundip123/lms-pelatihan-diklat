@@ -457,6 +457,8 @@ export default function AdminDashboard() {
           identity_number: en.users?.identity_number,
           class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
+          course_category: en.courses?.category,
+          mata_kuliah: en.mata_kuliah || '-',
           course_id: en.course_id,
           user_id: en.user_id, // Important to keep for async matching
           period_start: en.period_start,
@@ -1001,11 +1003,12 @@ export default function AdminDashboard() {
       if (type === 'video') {
         autoTable(doc, {
           startY: 40,
-          head: [['Name', 'Kode Pelaut', 'Course', 'Periode Diklat', 'Video Progress', 'Progress', 'Status']],
+          head: [['Name', 'Kode Pelaut', 'Course', 'Mata Kuliah', 'Periode Diklat', 'Video Progress', 'Progress', 'Status']],
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
             r.course_name,
+            r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown,
             `${Math.round(r.avg_video_progress)}%`,
@@ -1015,11 +1018,12 @@ export default function AdminDashboard() {
       } else if (type === 'assessment') {
         autoTable(doc, {
           startY: 40,
-          head: [['Name', 'Kode Pelaut', 'Course', 'Periode Diklat', 'Score', 'Status', 'Attempt']],
+          head: [['Name', 'Kode Pelaut', 'Course', 'Mata Kuliah', 'Periode Diklat', 'Score', 'Status', 'Attempt']],
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
             r.course_name,
+            r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.detailed_scores || (r.final_score !== null ? Math.round(r.final_score).toString() : '-'),
             r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || 'BELUM MENGERJAKAN'),
@@ -1048,6 +1052,7 @@ export default function AdminDashboard() {
             r.full_name + '\n' + r.identity_number,
             r.class_name || '-',
             r.course_name,
+            r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.detailed_scores || (r.final_score != null ? Math.round(r.final_score).toString() : '-'),
@@ -1059,24 +1064,24 @@ export default function AdminDashboard() {
 
         autoTable(doc, {
           startY: 40,
-          head: [['User', 'Kelas', 'Course', 'Periode', 'Video', 'Score', 'Status\n(Foto Awal)', 'Live Photo\n(Terbaru)', 'KTP']],
+          head: [['User', 'Kelas', 'Course', 'Mata Kuliah', 'Periode', 'Video', 'Score', 'Status\n(Foto Awal)', 'Live Photo\n(Terbaru)', 'KTP']],
           body: bodyData,
           styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 25 },
           columnStyles: {
-            6: { cellWidth: 25 }, // Status (Initial Photo)
-            7: { cellWidth: 25 }, // Live Photo (Latest Photo)
-            8: { cellWidth: 35 }  // KTP
+            7: { cellWidth: 25 }, // Status (Initial Photo)
+            8: { cellWidth: 25 }, // Live Photo (Latest Photo)
+            9: { cellWidth: 35 }  // KTP
           },
           didDrawCell: (data) => {
             if (data.section === 'body') {
               const imgs = imagesMap.get(data.row.index);
-              if (data.column.index === 6 && imgs?.initial) {
+              if (data.column.index === 7 && imgs?.initial) {
                 doc.addImage(imgs.initial, 'JPEG', data.cell.x + 2, data.cell.y + 8, 20, 16);
               }
-              if (data.column.index === 7 && imgs?.live) {
+              if (data.column.index === 8 && imgs?.live) {
                 doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
               }
-              if (data.column.index === 8 && imgs?.ktp) {
+              if (data.column.index === 9 && imgs?.ktp) {
                 doc.addImage(imgs.ktp, 'JPEG', data.cell.x + 2, data.cell.y + 2, 30, 16);
               }
             }
@@ -1127,6 +1132,7 @@ export default function AdminDashboard() {
           { header: 'Kode Pelaut', key: 'nik', width: 20 },
           { header: 'Periode Diklat', key: 'period', width: 25 },
           { header: 'Pelatihan', key: 'course', width: 25 },
+          { header: 'Mata Kuliah', key: 'mata_kuliah', width: 25 },
           { header: 'Video Progress', key: 'video', width: 40 },
           { header: 'Progress (%)', key: 'progress', width: 15 },
           { header: 'Status', key: 'status', width: 15 }
@@ -1138,6 +1144,7 @@ export default function AdminDashboard() {
           { header: 'Kode Pelaut', key: 'nik', width: 20 },
           { header: 'Periode Diklat', key: 'period', width: 25 },
           { header: 'Pelatihan', key: 'course', width: 25 },
+          { header: 'Mata Kuliah', key: 'mata_kuliah', width: 25 },
           { header: 'Nilai Assessment', key: 'score', width: 15 },
           { header: 'Status', key: 'status', width: 15 },
           { header: 'Attempt', key: 'attempt', width: 10 },
@@ -1155,6 +1162,7 @@ export default function AdminDashboard() {
           { header: 'Kelas', key: 'kelas', width: 15 },
           { header: 'Periode Diklat', key: 'period', width: 25 },
           { header: 'Pelatihan', key: 'course', width: 25 },
+          { header: 'Mata Kuliah', key: 'mata_kuliah', width: 25 },
           { header: 'Video Progress', key: 'video', width: 40 },
           { header: 'Link Tugas', key: 'assignment_link', width: 30 },
           { header: 'Nilai Assessment', key: 'score', width: 15 },
@@ -1184,6 +1192,7 @@ export default function AdminDashboard() {
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
+            mata_kuliah: r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             progress: `${Math.round(r.avg_video_progress || 0)}%`,
             status: r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
@@ -1195,6 +1204,7 @@ export default function AdminDashboard() {
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
+            mata_kuliah: r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
             status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || 'BELUM MENGERJAKAN'),
             attempt: r.final_score != null ? '#1' : '#0'
@@ -1207,6 +1217,7 @@ export default function AdminDashboard() {
             kelas: r.class_name,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
+            mata_kuliah: r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
@@ -1237,7 +1248,7 @@ export default function AdminDashboard() {
                   extension: 'jpeg',
                 });
                 worksheet.addImage(imageId, {
-                  tl: { col: 9, row: i + 1 }, // Column 10 (0-indexed 9) is Status / Foto Awal
+                  tl: { col: 10, row: i + 1 }, // Column 11 (0-indexed 10) is Status / Foto Awal
                   ext: { width: 100, height: 80 }
                 });
               }
@@ -1255,7 +1266,7 @@ export default function AdminDashboard() {
                   base64: base64Data,
                   extension: 'jpeg',
                 });
-                const colIndex = type === 'assessment' ? 8 : 10; // Column 11 (0-indexed 10) is Foto Live
+                const colIndex = type === 'assessment' ? 9 : 11; // Column 12 (0-indexed 11) is Foto Live
                 worksheet.addImage(imageId, {
                   tl: { col: colIndex, row: i + 1 },
                   ext: { width: 100, height: 80 }
@@ -1275,7 +1286,7 @@ export default function AdminDashboard() {
                   base64: base64Data,
                   extension: 'jpeg',
                 });
-                const colIndex = type === 'assessment' ? 9 : 11; // Column 12 (0-indexed 11) is Foto KTP
+                const colIndex = type === 'assessment' ? 10 : 12; // Column 13 (0-indexed 12) is Foto KTP
                 worksheet.addImage(imageId, {
                   tl: { col: colIndex, row: i + 1 },
                   ext: { width: 150, height: 80 }
@@ -1296,7 +1307,7 @@ export default function AdminDashboard() {
                     base64: base64Data,
                     extension: 'jpeg',
                   });
-                  const colIndex = type === 'assessment' ? 8 + j : 11 + j;
+                  const colIndex = type === 'assessment' ? 11 + j : 13 + j;
                   worksheet.addImage(imageId, {
                     tl: { col: colIndex, row: i + 1 },
                     ext: { width: 100, height: 80 }
@@ -1841,6 +1852,7 @@ export default function AdminDashboard() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mata Kuliah</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -1849,7 +1861,7 @@ export default function AdminDashboard() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filterReports(videoReports).length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
@@ -1860,6 +1872,9 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {report.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (report.mata_kuliah || '-') : '-'}
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate whitespace-pre-wrap">{report.video_breakdown}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -1998,6 +2013,7 @@ export default function AdminDashboard() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mata Kuliah</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attempt</th>
@@ -2007,7 +2023,7 @@ export default function AdminDashboard() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filterReports(assessmentReports).length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
@@ -2018,6 +2034,9 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {report.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (report.mata_kuliah || '-') : '-'}
+                      </td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {report.detailed_statuses ? (
@@ -2163,6 +2182,7 @@ export default function AdminDashboard() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kelas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mata Kuliah</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video Progress</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Link Tugas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Score</th>
@@ -2173,7 +2193,7 @@ export default function AdminDashboard() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filterReports(finalReports).length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-500">
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
@@ -2185,6 +2205,9 @@ export default function AdminDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.class_name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {report.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (report.mata_kuliah || '-') : '-'}
+                      </td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-600">
                         {report.video_breakdown}
                       </td>

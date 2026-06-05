@@ -9,6 +9,7 @@ export default function Login() {
   const [className, setClassName] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [courseId, setCourseId] = useState("");
+  const [loginMataKuliah, setLoginMataKuliah] = useState("");
   const [seafarerCode, setSeafarerCode] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -40,6 +41,17 @@ export default function Login() {
   }, [location.search]);
 
   const selectedCourse = courses.find(c => c.id === courseId);
+
+  const availableMataKuliahs = useMemo(() => {
+    if (!selectedCourse?.videos) return [];
+    const set = new Set<string>();
+    selectedCourse.videos.forEach((v: any) => {
+      if (v.mata_kuliah) {
+        set.add(v.mata_kuliah.toUpperCase().trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [selectedCourse]);
   const activeRefreshingPeriods = useMemo(() => {
     if (!selectedCourse?.refreshing_periods) return [];
     return selectedCourse.refreshing_periods.filter((p: any) => {
@@ -65,7 +77,7 @@ export default function Login() {
         .from('courses')
         .select(`
           *,
-          videos (id, is_refreshing),
+          videos (id, is_refreshing, mata_kuliah),
           assessments (id, is_refreshing)
         `)
         .eq('status', 'active');
@@ -235,7 +247,8 @@ export default function Login() {
               course_id: courseId,
               period_start: new Date(periodStart).toISOString(),
               period_end: new Date(periodEnd).toISOString(),
-              category: selectedCategory
+              category: selectedCategory,
+              mata_kuliah: selectedCategory === "DIKLAT PENINGKATAN (PASIS)" ? loginMataKuliah : null
             }]);
             
           if (enrollError) throw new Error("Gagal mendaftar pelatihan");
@@ -243,7 +256,10 @@ export default function Login() {
           // Update the category if they login again with a different category
           await supabase
             .from('enrollments')
-            .update({ category: selectedCategory })
+            .update({ 
+              category: selectedCategory,
+              mata_kuliah: selectedCategory === "DIKLAT PENINGKATAN (PASIS)" ? loginMataKuliah : null
+            })
             .eq('id', existingEnrollment.id);
         }
       }
@@ -264,6 +280,11 @@ export default function Login() {
 
       // 5. Set auth state (using a dummy token since we're serverless without true auth)
       const dummyToken = `supabase-auth-${user.id}-${Date.now()}`;
+      if (selectedCategory === "DIKLAT PENINGKATAN (PASIS)") {
+        localStorage.setItem("selected_mata_kuliah", loginMataKuliah);
+      } else {
+        localStorage.removeItem("selected_mata_kuliah");
+      }
       login(dummyToken, {
         id: user.id,
         name: user.full_name,
@@ -406,6 +427,7 @@ export default function Login() {
                         onChange={(e) => {
                           setSelectedCategory(e.target.value);
                           setCourseId(""); // reset course selection when category changes
+                          setLoginMataKuliah("");
                         }}
                         className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                       >
@@ -430,7 +452,10 @@ export default function Login() {
                           id="courseId"
                           name="courseId"
                           value={courseId}
-                          onChange={(e) => setCourseId(e.target.value)}
+                          onChange={(e) => {
+                            setCourseId(e.target.value);
+                            setLoginMataKuliah("");
+                          }}
                           className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         >
                           <option value="">
@@ -438,6 +463,28 @@ export default function Login() {
                           </option>
                           {filteredCourses.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedCategory === "DIKLAT PENINGKATAN (PASIS)" && courseId && (
+                    <div>
+                      <label htmlFor="loginMataKuliah" className="block text-sm font-medium text-gray-700">
+                        Mata Kuliah
+                      </label>
+                      <div className="mt-1">
+                        <select
+                          id="loginMataKuliah"
+                          name="loginMataKuliah"
+                          value={loginMataKuliah}
+                          onChange={(e) => setLoginMataKuliah(e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm uppercase font-semibold text-indigo-950"
+                        >
+                          <option value="">-- Semua Mata Kuliah --</option>
+                          {availableMataKuliahs.map(mk => (
+                            <option key={mk} value={mk}>{mk}</option>
                           ))}
                         </select>
                       </div>
