@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, Download, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
@@ -128,7 +128,35 @@ export default function CourseView() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUjianOrLatihan, setIsUjianOrLatihan] = useState(false);
+  const [enrolledCategory, setEnrolledCategory] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
   const savePromiseRef = useRef<Promise<void>>(Promise.resolve());
+
+  const subjects = useMemo(() => {
+    if (!course?.videos) return [];
+    const set = new Set<string>();
+    course.videos.forEach((v: any) => {
+      if (v.mata_kuliah) {
+        set.add(v.mata_kuliah.toUpperCase().trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [course?.videos]);
+
+  const filteredVideos = useMemo(() => {
+    if (!course?.videos) return [];
+    if (!selectedSubject) return course.videos;
+    return course.videos.filter((v: any) => v.mata_kuliah?.toUpperCase().trim() === selectedSubject.toUpperCase().trim());
+  }, [course?.videos, selectedSubject]);
+
+  useEffect(() => {
+    if (filteredVideos && filteredVideos.length > 0) {
+      const isStillInList = filteredVideos.some((v: any) => v.id === activeVideo?.id);
+      if (!isStillInList) {
+        setActiveVideo(filteredVideos[0]);
+      }
+    }
+  }, [selectedSubject, filteredVideos]);
 
   useEffect(() => {
     if (user && courseId) {
@@ -159,6 +187,9 @@ export default function CourseView() {
 
       const refreshingStatus = enrollmentData?.category === 'REFRESING';
       setIsRefreshing(refreshingStatus);
+
+      const categoryValue = enrollmentData?.category || courseData?.category || "";
+      setEnrolledCategory(categoryValue);
 
       const examStatus = enrollmentData?.category === 'UJIAN UAD' || enrollmentData?.category === 'LATIHAN UJIAN' || courseData?.category === 'UJIAN UAD' || courseData?.category === 'LATIHAN UJIAN';
       setIsUjianOrLatihan(examStatus);
@@ -562,6 +593,25 @@ export default function CourseView() {
               </div>
             )}
 
+            {!isRefreshing && !isUjianOrLatihan && subjects.length > 0 && (
+              <div className="px-6 py-4 border-b border-gray-200 bg-indigo-50/50 text-left">
+                <label htmlFor="subject-select" className="block text-xs font-bold text-indigo-900 uppercase tracking-widest mb-1.5">
+                  Mata Kuliah
+                </label>
+                <select
+                  id="subject-select"
+                  value={selectedSubject}
+                  onChange={(e) => setSelectedSubject(e.target.value)}
+                  className="block w-full px-3 py-2 border border-indigo-200 bg-white rounded-lg text-sm font-semibold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm transition-all"
+                >
+                  <option value="">-- Semua Mata Kuliah --</option>
+                  {subjects.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {isUjianOrLatihan ? (
                 <div className="p-2 space-y-4">
@@ -600,7 +650,7 @@ export default function CourseView() {
                     );
                   })}
                 </div>
-              ) : !isRefreshing && course.videos?.map((video: any, idx: number) => {
+              ) : !isRefreshing && filteredVideos?.map((video: any, idx: number) => {
                 const isActive = activeVideo?.id === video.id;
                 const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
                 const videoAssessment = assessments.find(a => a.video_id === video.id);
@@ -610,7 +660,7 @@ export default function CourseView() {
                 // Check if previous video's mandatory assessment is passed
                 let isLocked = false;
                 if (idx > 0) {
-                  const prevVideo = course.videos[idx - 1];
+                  const prevVideo = filteredVideos[idx - 1];
                   const prevAssessment = assessments.find(a => a.video_id === prevVideo.id);
                   if (prevAssessment?.is_mandatory) {
                     const prevResult = assessmentResults.find(r => r.assessment_id === prevAssessment.id);
@@ -639,9 +689,16 @@ export default function CourseView() {
                         <p className={`text-sm font-medium line-clamp-2 ${isActive ? 'text-indigo-900' : 'text-gray-900'}`}>
                           {idx + 1}. {video.title} {isLocked && "(Terkunci)"}
                         </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Video {video.progress_percentage > 0 && `- ${Math.round(video.progress_percentage)}%`}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                          <p className="text-xs text-gray-500">
+                            Video {video.progress_percentage > 0 && `- ${Math.round(video.progress_percentage)}%`}
+                          </p>
+                          {video.mata_kuliah && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase tracking-wider leading-none">
+                              {video.mata_kuliah}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </button>
                     

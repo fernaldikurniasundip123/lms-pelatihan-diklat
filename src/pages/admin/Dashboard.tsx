@@ -57,6 +57,7 @@ export default function AdminDashboard() {
   const [newVideoTitle, setNewVideoTitle] = useState("");
   const [newVideoDesc, setNewVideoDesc] = useState("");
   const [newVideoYoutubeId, setNewVideoYoutubeId] = useState("");
+  const [newVideoMataKuliah, setNewVideoMataKuliah] = useState("");
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
 
   // Assessment State
@@ -684,6 +685,7 @@ export default function AdminDashboard() {
         title: newVideoTitle,
         description: newVideoDesc,
         youtube_id: youtubeId,
+        mata_kuliah: newVideoMataKuliah.trim() ? newVideoMataKuliah.trim().toUpperCase() : null,
         order_num: (selectedCourse.videos?.length || 0) + 1
       }]);
 
@@ -691,19 +693,25 @@ export default function AdminDashboard() {
       setNewVideoTitle("");
       setNewVideoDesc("");
       setNewVideoYoutubeId("");
+      setNewVideoMataKuliah("");
       fetchCourses();
       
       const { data } = await supabase
-        .from('courses')
-        .select('*, videos(*), assessments(*)')
-        .eq('id', selectedCourse.id)
-        .single();
-        
+         .from('courses')
+         .select('*, videos(*), assessments(*)')
+         .eq('id', selectedCourse.id)
+         .single();
+         
       if (data) {
         setSelectedCourse({ ...data, assessments: data.assessments || [] });
       }
     } else {
-      alert("Failed to add video");
+      console.error("Failed to add video:", error);
+      if (error.message && error.message.includes('column "mata_kuliah" of relation "videos" does not exist')) {
+        alert("Kolom 'mata_kuliah' belum dibuat di tabel 'videos' Supabase Anda.\n\nHarap buka tab SQL Editor di dashboard Supabase Anda lalu jalankan perintah ini:\n\nALTER TABLE public.videos ADD COLUMN IF NOT EXISTS mata_kuliah text;");
+      } else {
+        alert("Failed to add video: " + error.message);
+      }
     }
   };
 
@@ -848,7 +856,31 @@ export default function AdminDashboard() {
         setSelectedCourse({ ...data, assessments: data.assessments || [] });
       }
     } else {
-      alert("Failed to create assessment");
+      console.error("Failed to create assessment:", error);
+      
+      const missingFields: string[] = [];
+      if (error.message) {
+        if (error.message.includes('is_strict_mode')) missingFields.push('is_strict_mode');
+        if (error.message.includes('is_randomized')) missingFields.push('is_randomized');
+        if (error.message.includes('show_one_by_one')) missingFields.push('show_one_by_one');
+        if (error.message.includes('prevent_copypaste')) missingFields.push('prevent_copypaste');
+        if (error.message.includes('prevent_split_screen')) missingFields.push('prevent_split_screen');
+      }
+
+      if (missingFields.length > 0) {
+        alert(
+          `Gagal membuat ujian/assessment karena beberapa kolom belum dibuat di tabel 'assessments' Supabase Anda.\n\n` +
+          `Harap buka SQL Editor di dashboard Supabase Anda dan jalankan perintah ini:\n\n` +
+          `ALTER TABLE public.assessments \n` +
+          `ADD COLUMN IF NOT EXISTS is_strict_mode boolean DEFAULT false,\n` +
+          `ADD COLUMN IF NOT EXISTS is_randomized boolean DEFAULT false,\n` +
+          `ADD COLUMN IF NOT EXISTS show_one_by_one boolean DEFAULT false,\n` +
+          `ADD COLUMN IF NOT EXISTS prevent_copypaste boolean DEFAULT false,\n` +
+          `ADD COLUMN IF NOT EXISTS prevent_split_screen boolean DEFAULT false;`
+        );
+      } else {
+        alert("Failed to create assessment: " + error.message);
+      }
     }
   };
 
@@ -2401,8 +2433,8 @@ export default function AdminDashboard() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">Manage Content: {selectedCourse.name}</h3>
-                <p className="text-sm text-gray-500 mt-1">Add videos and set up the assessment for this course.</p>
+                <h3 className="text-xl font-bold text-gray-900">Kelola Konten: {selectedCourse.name}</h3>
+                <p className="text-sm text-gray-500 mt-1">Tambahkan video baru dan atur ujian/penilaian untuk sub pelatihan ini.</p>
               </div>
               <button onClick={() => setIsManageModalOpen(false)} className="text-gray-400 hover:text-gray-500 p-2">
                 <X className="w-6 h-6" />
@@ -2480,14 +2512,14 @@ export default function AdminDashboard() {
                       disabled={isSavingMaterial}
                       className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                     >
-                      {isSavingMaterial ? 'Saving...' : 'Save'}
+                      {isSavingMaterial ? 'Menyimpan...' : 'Simpan'}
                     </button>
                   </div>
                 </div>
 
                 <div>
                   <h4 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-                    <Video className="w-5 h-5 text-indigo-600" /> Existing Videos
+                    <Video className="w-5 h-5 text-indigo-600" /> Daftar Video
                   </h4>
                   
                   {selectedCourse.videos && selectedCourse.videos.length > 0 ? (
@@ -2501,8 +2533,15 @@ export default function AdminDashboard() {
                               {idx + 1}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h5 className="font-medium text-gray-900 truncate">{video.title}</h5>
-                              <p className="text-xs text-gray-500 mt-1 truncate">ID: {video.youtube_id}</p>
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <h5 className="font-medium text-gray-900">{video.title}</h5>
+                                {video.mata_kuliah && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-100 text-indigo-850 border border-indigo-200 uppercase tracking-wider">
+                                    Mata Kuliah: {video.mata_kuliah}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500 truncate">ID: {video.youtube_id}</p>
                               <div className="mt-2 flex items-center gap-2">
                                 <input
                                   type="checkbox"
@@ -3014,46 +3053,57 @@ export default function AdminDashboard() {
 
               {/* Right Column: Add New Video Form */}
               <div className="w-full lg:w-96 bg-gray-50 p-6 rounded-xl border border-gray-200 h-fit">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Add New Video</h4>
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">Tambah Video Baru</h4>
                 <form onSubmit={handleAddVideo} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Video Title</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nama Mata Kuliah</label>
+                    <input
+                      type="text"
+                      value={newVideoMataKuliah}
+                      onChange={(e) => setNewVideoMataKuliah(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                      placeholder="Contoh: DINAS JAGA, METEOROLOGI"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Kosongkan jika bukan merupakan bagian dari mata kuliah spesifik (misal: ANT III Umum).</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Judul Video</label>
                     <input
                       type="text"
                       required
                       value={newVideoTitle}
                       onChange={(e) => setNewVideoTitle(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                      placeholder="e.g. Chapter 1: Introduction"
+                      placeholder="Contoh: DINAS JAGA PART 1"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">YouTube URL or ID</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">URL atau ID YouTube</label>
                     <input
                       type="text"
                       required
                       value={newVideoYoutubeId}
                       onChange={(e) => setNewVideoYoutubeId(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                      placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                      placeholder="Contoh: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Paste the full URL or just the video ID.</p>
+                    <p className="text-xs text-gray-500 mt-1">Tempelkan link/alamat lengkap video YouTube atau cukup masukkan ID videonya saja.</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi (Opsional)</label>
                     <textarea
                       rows={3}
                       value={newVideoDesc}
                       onChange={(e) => setNewVideoDesc(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                      placeholder="Video description..."
+                      placeholder="Deskripsi video..."
                     />
                   </div>
                   <button
                     type="submit"
                     className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
                   >
-                    Add Video
+                    Tambah Video
                   </button>
                 </form>
               </div>
