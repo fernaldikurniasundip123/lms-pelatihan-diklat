@@ -4,14 +4,28 @@ import { useAuthStore } from "../../store/authStore";
 import { Clock, AlertTriangle, CheckCircle, Headphones, ExternalLink } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
+function parseQuestionText(rawText: string) {
+  if (!rawText) return { text: "", imageUrl: null };
+  const match = rawText.match(/^\[QUESTION_IMAGE:(data:image\/[^;]+;base64,[^\]]+)\](.*)$/s);
+  if (match) {
+    return {
+      imageUrl: match[1],
+      text: match[2],
+    };
+  }
+  return { text: rawText, imageUrl: null };
+}
+
 export default function AssessmentView() {
   const { courseId, assessmentId } = useParams();
   const { user } = useAuthStore();
   const navigate = useNavigate();
   
   const [assessment, setAssessment] = useState<any>(null);
+  const [courseCategory, setCourseCategory] = useState<string>("");
   const [questions, setQuestions] = useState<any[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [lockedQuestions, setLockedQuestions] = useState<Record<string, boolean>>({});
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [result, setResult] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +66,17 @@ export default function AssessmentView() {
         return;
       }
 
+      // Fetch course category
+      const { data: courseData } = await supabase
+        .from('courses')
+        .select('category')
+        .eq('id', courseId)
+        .single();
+
+      if (courseData) {
+        setCourseCategory(courseData.category || "");
+      }
+
       // Fetch questions
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
@@ -80,7 +105,13 @@ export default function AssessmentView() {
   };
 
   const handleAnswer = (questionId: string, answer: string) => {
-    setAnswers(prev => ({ ...prev, [questionId]: answer }));
+    if (courseCategory === "LATIHAN UJIAN") {
+      if (lockedQuestions[questionId]) return; // already locked
+      setAnswers(prev => ({ ...prev, [questionId]: answer }));
+      setLockedQuestions(prev => ({ ...prev, [questionId]: true }));
+    } else {
+      setAnswers(prev => ({ ...prev, [questionId]: answer }));
+    }
   };
 
   const handleSubmit = useCallback(async () => {
@@ -371,83 +402,159 @@ export default function AssessmentView() {
           )}
           
           <div className="p-8 space-y-12">
-            {assessment?.show_one_by_one ? (
-              questions.length > 0 && (
-                <div 
-                  className={`space-y-4 ${assessment?.prevent_copypaste ? 'select-none' : ''}`}
-                  onCopy={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
-                  onContextMenu={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
-                >
-                  <h3 className="text-lg font-medium text-gray-900 flex gap-4">
-                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
-                      {currentQuestionIndex + 1}
-                    </span>
-                    <span className="mt-1">{questions[currentQuestionIndex].question_text}</span>
-                  </h3>
-                  <div className="pl-12 space-y-3">
-                    {questions[currentQuestionIndex].options.map((opt: string, oIdx: number) => (
-                      <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[questions[currentQuestionIndex].id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
-                        <input
-                          type="radio"
-                          name={`question-${questions[currentQuestionIndex].id}`}
-                          value={opt}
-                          checked={answers[questions[currentQuestionIndex].id] === opt}
-                          onChange={() => handleAnswer(questions[currentQuestionIndex].id, opt)}
-                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+            {(assessment?.show_one_by_one || courseCategory === "LATIHAN UJIAN") ? (
+              questions.length > 0 && (() => {
+                const currentQuestion = questions[currentQuestionIndex];
+                const parsed = parseQuestionText(currentQuestion.question_text);
+                const isQuestionLocked = lockedQuestions[currentQuestion.id] || false;
+                const isCurrentQuestionAnswered = !!answers[currentQuestion.id];
+
+                return (
+                  <div 
+                    className={`space-y-4 ${assessment?.prevent_copypaste ? 'select-none' : ''}`}
+                    onCopy={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
+                    onContextMenu={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
+                  >
+                    <h3 className="text-lg font-medium text-gray-900 flex gap-4">
+                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                        {currentQuestionIndex + 1}
+                      </span>
+                      <span className="mt-1">{parsed.text}</span>
+                    </h3>
+                    {parsed.imageUrl && (
+                      <div className="pl-12 my-3">
+                        <img 
+                          src={parsed.imageUrl} 
+                          alt={`Soal ${currentQuestionIndex + 1}`} 
+                          className="max-h-64 object-contain rounded-lg border p-1 bg-white shadow-sm" 
                         />
-                        <span className="ml-3 text-gray-700">{opt}</span>
-                      </label>
-                    ))}
+                      </div>
+                    )}
+                    <div className="pl-12 space-y-3">
+                      {currentQuestion.options.map((opt: string, oIdx: number) => {
+                        const isThisOptCorrect = oIdx === currentQuestion.correct_option_index;
+                        const isThisOptSelected = answers[currentQuestion.id] === opt;
+
+                        let optionStyle = "border-gray-200 hover:bg-gray-50";
+                        if (courseCategory === "LATIHAN UJIAN" && isQuestionLocked) {
+                          if (isThisOptCorrect) {
+                            optionStyle = "border-green-600 bg-green-50 shadow-sm text-green-900 font-semibold";
+                          } else if (isThisOptSelected && !isThisOptCorrect) {
+                            optionStyle = "border-red-600 bg-red-50 shadow-sm text-red-900 font-semibold";
+                          } else {
+                            optionStyle = "border-gray-200 opacity-60";
+                          }
+                        } else {
+                          if (isThisOptSelected) {
+                            optionStyle = "border-indigo-600 bg-indigo-50 shadow-sm";
+                          }
+                        }
+
+                        return (
+                          <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${optionStyle}`}>
+                            <input
+                              type="radio"
+                              name={`question-${currentQuestion.id}`}
+                              value={opt}
+                              disabled={courseCategory === "LATIHAN UJIAN" && isQuestionLocked}
+                              checked={isThisOptSelected}
+                              onChange={() => handleAnswer(currentQuestion.id, opt)}
+                              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                            />
+                            <span className="ml-3 text-gray-700">
+                              {String.fromCharCode(65 + oIdx)}. {opt}
+                            </span>
+                            {courseCategory === "LATIHAN UJIAN" && isQuestionLocked && isThisOptCorrect && (
+                              <span className="ml-auto text-xs bg-green-200 text-green-800 px-2.5 py-1 rounded font-bold">Jawaban Benar ✓</span>
+                            )}
+                            {courseCategory === "LATIHAN UJIAN" && isQuestionLocked && isThisOptSelected && !isThisOptCorrect && (
+                              <span className="ml-auto text-xs bg-red-200 text-red-800 px-2.5 py-1 rounded font-bold">Salah ✗</span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {courseCategory === "LATIHAN UJIAN" && isQuestionLocked && (
+                      <div className="pl-12 mt-4 p-4 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 animate-fadeIn">
+                        <p className="text-sm font-bold flex items-center gap-1.5 mb-1 text-indigo-900">
+                          Kunci Jawaban & Pembahasan:
+                        </p>
+                        {answers[currentQuestion.id] === currentQuestion.options[currentQuestion.correct_option_index] ? (
+                          <p className="text-sm text-green-800 font-semibold">✓ Luar Biasa! Jawaban Anda Benar.</p>
+                        ) : (
+                          <p className="text-sm text-red-800 font-semibold">
+                            ✗ Salah. Jawaban Anda: <span className="underline">{answers[currentQuestion.id]}</span>. Jawabannya yang benar: <span className="font-bold">{currentQuestion.options[currentQuestion.correct_option_index]}</span>.
+                          </p>
+                        )}
+                        <p className="text-xs text-indigo-700 mt-2">
+                          Jawaban Anda sekarang telah dikunci dan tidak dapat diubah lagi. Silakan klik tombol <strong>Selanjutnya</strong> untuk lanjut.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between pt-8">
+                      <button
+                        onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
+                        disabled={currentQuestionIndex === 0}
+                        className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Sebelumnya
+                      </button>
+                      <button
+                        onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
+                        disabled={currentQuestionIndex === questions.length - 1 || (courseCategory === "LATIHAN UJIAN" && !isCurrentQuestionAnswered)}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium transition-colors"
+                      >
+                        Selanjutnya
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex justify-between pt-8">
-                    <button
-                      onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-                      disabled={currentQuestionIndex === 0}
-                      className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Sebelumnya
-                    </button>
-                    <button
-                      onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
-                      disabled={currentQuestionIndex === questions.length - 1}
-                      className="px-6 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:opacity-50"
-                    >
-                      Selanjutnya
-                    </button>
-                  </div>
-                </div>
-              )
+                );
+              })()
             ) : (
               <div 
                 className={`space-y-12 ${assessment?.prevent_copypaste ? 'select-none' : ''}`}
                 onCopy={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
                 onContextMenu={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
               >
-                {questions.map((q, idx) => (
-                  <div key={q.id} className="space-y-4">
-                    <h3 className="text-lg font-medium text-gray-900 flex gap-4">
-                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
-                        {idx + 1}
-                      </span>
-                      <span className="mt-1">{q.question_text}</span>
-                    </h3>
-                    <div className="pl-12 space-y-3">
-                      {q.options.map((opt: string, oIdx: number) => (
-                        <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[q.id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
-                          <input
-                            type="radio"
-                            name={`question-${q.id}`}
-                            value={opt}
-                            checked={answers[q.id] === opt}
-                            onChange={() => handleAnswer(q.id, opt)}
-                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                {questions.map((q, idx) => {
+                  const parsed = parseQuestionText(q.question_text);
+                  return (
+                    <div key={q.id} className="space-y-4">
+                      <h3 className="text-lg font-medium text-gray-900 flex gap-4">
+                        <span className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                          {idx + 1}
+                        </span>
+                        <span className="mt-1">{parsed.text}</span>
+                      </h3>
+                      {parsed.imageUrl && (
+                        <div className="pl-12 my-3">
+                          <img 
+                            src={parsed.imageUrl} 
+                            alt={`Soal ${idx + 1}`} 
+                            className="max-h-64 object-contain rounded-lg border p-1 bg-white shadow-sm" 
                           />
-                          <span className="ml-3 text-gray-700">{opt}</span>
-                        </label>
-                      ))}
+                        </div>
+                      )}
+                      <div className="pl-12 space-y-3">
+                        {q.options.map((opt: string, oIdx: number) => (
+                          <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${answers[q.id] === opt ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-gray-200 hover:bg-gray-50'}`}>
+                            <input
+                              type="radio"
+                              name={`question-${q.id}`}
+                              value={opt}
+                              checked={answers[q.id] === opt}
+                              onChange={() => handleAnswer(q.id, opt)}
+                              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                            />
+                            <span className="ml-3 text-gray-700">{opt}</span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -127,6 +127,7 @@ export default function CourseView() {
   const [assignmentSaved, setAssignmentSaved] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isUjianOrLatihan, setIsUjianOrLatihan] = useState(false);
   const savePromiseRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
@@ -151,14 +152,16 @@ export default function CourseView() {
       // Fetch enrollment to get assignment link and category
       const { data: enrollmentData } = await supabase
         .from('enrollments')
-        .select('assignment_link, category, mata_kuliah')
+        .select('assignment_link, category')
         .eq('user_id', user.id)
         .eq('course_id', courseId)
         .maybeSingle();
 
       const refreshingStatus = enrollmentData?.category === 'REFRESING';
-      const userMataKuliah = enrollmentData?.mata_kuliah;
       setIsRefreshing(refreshingStatus);
+
+      const examStatus = enrollmentData?.category === 'UJIAN UAD' || enrollmentData?.category === 'LATIHAN UJIAN' || courseData?.category === 'UJIAN UAD' || courseData?.category === 'LATIHAN UJIAN';
+      setIsUjianOrLatihan(examStatus);
 
       if (enrollmentData?.assignment_link) {
         setAssignmentLink(enrollmentData.assignment_link);
@@ -174,9 +177,6 @@ export default function CourseView() {
         
       if (refreshingStatus) {
         videosQuery = videosQuery.eq('is_refreshing', true);
-      }
-      if (userMataKuliah) {
-        videosQuery = videosQuery.eq('mata_kuliah', userMataKuliah);
       }
       
       const { data: videosData } = await videosQuery;
@@ -227,10 +227,8 @@ export default function CourseView() {
       let completedItems = videosWithProgress.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
       
       if (finalAssessment) {
-        const finalAttempts = resultsData?.filter((r: any) => r.assessment_id === finalAssessment.id) || [];
-        const hasPassedFinal = finalAttempts.some((r: any) => r.passed);
-        const reachedMaxFinal = finalAttempts.length >= 5;
-        if (hasPassedFinal || reachedMaxFinal) completedItems += 1;
+        const finalResult = resultsData?.find((r: any) => r.assessment_id === finalAssessment.id);
+        if (finalResult?.passed) completedItems += 1;
       }
 
       const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -331,10 +329,8 @@ export default function CourseView() {
             let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
             
             if (finalAssessment) {
-              const finalAttempts = assessmentResults?.filter((r: any) => r.assessment_id === finalAssessment.id) || [];
-              const hasPassedFinal = finalAttempts.some((r: any) => r.passed);
-              const reachedMaxFinal = finalAttempts.length >= 5;
-              if (hasPassedFinal || reachedMaxFinal) completedItems += 1;
+              const finalResult = assessmentResults?.find((r: any) => r.assessment_id === finalAssessment.id);
+              if (finalResult?.passed) completedItems += 1;
             }
             
             const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -405,7 +401,83 @@ export default function CourseView() {
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex flex-col lg:flex-row gap-8">
         {/* Left Column - Video Player */}
         <div className="flex-1 flex flex-col gap-6">
-          {(!isRefreshing && activeVideo) ? (
+          {isUjianOrLatihan ? (() => {
+            const finalAssessment = assessments.find(a => !a.video_id);
+            const pastResult = finalAssessment ? assessmentResults.find(r => r.assessment_id === finalAssessment.id) : null;
+            const categoryLabel = course?.category === 'LATIHAN UJIAN' ? 'Latihan Mandiri' : 'Ujian Online Resmi';
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 flex flex-col gap-6 min-h-[500px] justify-center">
+                <div className="flex flex-col items-center text-center max-w-xl mx-auto gap-4">
+                  <div className="bg-indigo-50 p-4 rounded-full text-indigo-600">
+                    <FileText className="w-12 h-12" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">
+                      Portal {course?.category}
+                    </span>
+                    <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-900 mt-3 tracking-tight">
+                      {course?.name}
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Kategori {categoryLabel}
+                    </p>
+                  </div>
+
+                  <hr className="w-full border-gray-100 my-2" />
+
+                  <div className="w-full text-left bg-gray-50 border border-gray-100 rounded-xl p-5 space-y-3">
+                    <h3 className="text-sm font-bold text-gray-800">Petunjuk Pelaksanaan:</h3>
+                    <ul className="text-xs text-gray-600 space-y-2 list-disc pl-4">
+                      {course?.category === 'LATIHAN UJIAN' ? (
+                        <>
+                          <li>Soal disajikan <strong>satu per satu</strong> secara berurutan.</li>
+                          <li><strong className="text-indigo-600">Pembahasan & Jawaban Benar</strong> akan langsung ditampilkan setelah Anda mengunci pilihan pada setiap nomor.</li>
+                          <li>Setelah dikunci, jawaban <strong>tidak dapat diperbaiki atau diubah kembali</strong>.</li>
+                          <li>Latihan ini sangat cocok sebagai persiapan menghadapi ujian resmi. Kerjakan dengan teliti!</li>
+                        </>
+                      ) : (
+                        <>
+                          <li>Ujian ini dirancang dengan standar kelulusan minimal <strong>{finalAssessment?.passing_score || 70}%</strong>.</li>
+                          <li>Sistem ujian dilengkapi <strong>Anti-Split Screen</strong> dan <strong>Anti-Copy Paste</strong> yang ketat. Berpindah tab/aplikasi lebih dari batas toleransi akan mematikan ujian secara otomatis.</li>
+                          <li>Pastikan koneksi internet Anda stabil hingga seluruh soal terselesaikan.</li>
+                          <li>Jawaban Anda akan langsung diakumulasi untuk menentukan kelulusan di akhir ujian.</li>
+                        </>
+                      )}
+                      {finalAssessment?.duration_minutes && (
+                        <li>Durasi pengerjaan: <strong>{finalAssessment.duration_minutes} menit</strong>.</li>
+                      )}
+                    </ul>
+                  </div>
+
+                  {pastResult && (
+                    <div className={`w-full p-4 rounded-xl border flex items-center justify-between text-left ${pastResult.passed ? 'bg-green-50 border-green-200 text-green-900' : 'bg-red-50 border-red-200 text-red-900'}`}>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider">Hasil Terakhir Anda:</p>
+                        <p className="text-lg font-extrabold">Skor: {Math.round(pastResult.score)}%</p>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${pastResult.passed ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
+                        {pastResult.passed ? 'LULUS ✓' : 'TIDAK LULUS ✗'}
+                      </span>
+                    </div>
+                  )}
+
+                  {finalAssessment ? (
+                    <button
+                      onClick={() => navigate(`/course/${course.id}/assessment/${finalAssessment.id}/precheck`)}
+                      className="w-full sm:w-auto px-10 py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 shadow-md transition-all transform hover:-translate-y-0.5 flex items-center justify-center gap-2 text-base self-stretch sm:self-center mt-2"
+                    >
+                      <CheckCircle className="w-5 h-5" />
+                      <span>{pastResult ? 'Coba Lagi / Mulai Kembali' : `Mulai ${course?.category === 'LATIHAN UJIAN' ? 'Latihan' : 'Ujian'}`}</span>
+                    </button>
+                  ) : (
+                    <div className="text-amber-600 bg-amber-50 p-4 rounded-xl border border-amber-200 text-sm font-medium w-full mt-2">
+                       Sesi lembar soal belum dipersiapkan oleh instruktur di panel admin.
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })() : (!isRefreshing && activeVideo) ? (
             <div className="bg-black rounded-2xl aspect-video shadow-xl overflow-hidden relative">
               <YouTubePlayer 
                 videoId={activeVideo.youtube_id} 
@@ -470,36 +542,79 @@ export default function CourseView() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-[300px]">
             {!isRefreshing && (
               <div className="p-6 border-b border-gray-200 bg-gray-50">
-                <h3 className="text-lg font-bold text-gray-900 mb-2">Course Content</h3>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${course.progress || 0}%` }}></div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">
+                  {isUjianOrLatihan ? "Informasi Peserta" : "Course Content"}
+                </h3>
+                {isUjianOrLatihan ? (
+                  <div className="text-xs text-gray-600 space-y-1.5">
+                    <p><strong>Nama:</strong> {user?.name}</p>
+                    <p><strong>Identity:</strong> {user?.identity}</p>
+                    <p><strong>Tipe Sesi:</strong> {course?.category}</p>
                   </div>
-                  <span className="font-medium">{Math.round(course.progress || 0)}%</span>
-                </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${course.progress || 0}%` }}></div>
+                    </div>
+                    <span className="font-medium">{Math.round(course.progress || 0)}%</span>
+                  </div>
+                )}
               </div>
             )}
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {!isRefreshing && course.videos?.map((video: any, idx: number) => {
+              {isUjianOrLatihan ? (
+                <div className="p-2 space-y-4">
+                  <div className="text-xs bg-indigo-50 text-indigo-800 p-4 rounded-xl border border-indigo-100 flex flex-col gap-2">
+                    <p className="font-bold">Informasi Kelas</p>
+                    <p>Anda terdaftar dalam kelas <strong>{course?.name}</strong>.</p>
+                    <p>Sesi ini tidak memerlukan materi presentasi video dan berjalan mandiri sesuai instruksi yang diberikan.</p>
+                  </div>
+                  {assessments.filter(a => !a.video_id).map((assess, index) => {
+                    const resultObj = assessmentResults.find(r => r.assessment_id === assess.id);
+                    return (
+                      <div key={assess.id} className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-gray-900">{assess.title || "Lembar Soal"}</span>
+                          {resultObj ? (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${resultObj.passed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                              {resultObj.passed ? "LULUS" : "TIDAK LULUS"}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800">Ready</span>
+                          )}
+                        </div>
+                        {resultObj && (
+                          <div className="text-xs text-gray-600">
+                            <p>Skor: <strong>{Math.round(resultObj.score)}%</strong></p>
+                            <p>Waktu: {new Date(resultObj.created_at).toLocaleString('id-ID')}</p>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => navigate(`/course/${course.id}/assessment/${assess.id}/precheck`)}
+                          className={`w-full py-2 rounded-lg text-xs font-semibold text-center transition-all ${resultObj ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                        >
+                          {resultObj ? "Ulangi Lembar Soal" : "Mulai Mengerjakan"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : !isRefreshing && course.videos?.map((video: any, idx: number) => {
                 const isActive = activeVideo?.id === video.id;
                 const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
                 const videoAssessment = assessments.find(a => a.video_id === video.id);
-                const videoAttempts = videoAssessment ? assessmentResults.filter(r => r.assessment_id === videoAssessment.id) : [];
-                const hasPassed = videoAttempts.some(r => r.passed);
-                const reachedMax = videoAttempts.length >= 5;
-                const isAssessmentPassed = hasPassed || reachedMax;
+                const assessmentResult = videoAssessment ? assessmentResults.find(r => r.assessment_id === videoAssessment.id) : null;
+                const isAssessmentPassed = assessmentResult?.passed;
                 
-                // Check if previous video's mandatory assessment is passed or max attempts reached
+                // Check if previous video's mandatory assessment is passed
                 let isLocked = false;
                 if (idx > 0) {
                   const prevVideo = course.videos[idx - 1];
                   const prevAssessment = assessments.find(a => a.video_id === prevVideo.id);
                   if (prevAssessment?.is_mandatory) {
-                    const prevAttempts = assessmentResults.filter(r => r.assessment_id === prevAssessment.id);
-                    const prevPassed = prevAttempts.some(r => r.passed);
-                    const prevReachedMax = prevAttempts.length >= 5;
-                    if (!prevPassed && !prevReachedMax) {
+                    const prevResult = assessmentResults.find(r => r.assessment_id === prevAssessment.id);
+                    if (!prevResult?.passed) {
                       isLocked = true;
                     }
                   }
@@ -536,21 +651,17 @@ export default function CourseView() {
                           navigate(`/course/${course.id}/assessment/${videoAssessment.id}/precheck`);
                         }}
                         className={`ml-12 mr-4 p-3 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
-                          hasPassed 
+                          isAssessmentPassed 
                             ? 'bg-green-50 text-green-700 border border-green-200' 
-                            : reachedMax
-                              ? 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
-                              : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                            : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <FileText className="w-4 h-4" />
                           <span>Assessment: {video.title}</span>
                         </div>
-                        {hasPassed ? (
-                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-semibold">Lulus</span>
-                        ) : reachedMax ? (
-                          <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full font-semibold">Selesai ({videoAttempts.length}x)</span>
+                        {isAssessmentPassed ? (
+                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">Lulus</span>
                         ) : (
                           <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full">{videoAssessment.is_mandatory ? 'Wajib' : 'Opsional'}</span>
                         )}

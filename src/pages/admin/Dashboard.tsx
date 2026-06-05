@@ -7,6 +7,18 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../../lib/supabase";
 
+export function parseQuestionText(rawText: string) {
+  if (!rawText) return { text: "", imageUrl: null };
+  const match = rawText.match(/^\[QUESTION_IMAGE:(data:image\/[^;]+;base64,[^\]]+)\](.*)$/s);
+  if (match) {
+    return {
+      imageUrl: match[1],
+      text: match[2],
+    };
+  }
+  return { text: rawText, imageUrl: null };
+}
+
 export default function AdminDashboard() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
@@ -43,11 +55,9 @@ export default function AdminDashboard() {
   const [assessmentQuestions, setAssessmentQuestions] = useState<any[]>([]);
   const [isViewingQuestions, setIsViewingQuestions] = useState(false);
   const [newVideoTitle, setNewVideoTitle] = useState("");
-  const [newVideoMataKuliah, setNewVideoMataKuliah] = useState("");
   const [newVideoDesc, setNewVideoDesc] = useState("");
   const [newVideoYoutubeId, setNewVideoYoutubeId] = useState("");
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
-  const [editingVideoMataKuliah, setEditingVideoMataKuliah] = useState<Record<string, string>>({});
 
   // Assessment State
   const [isCreatingAssessment, setIsCreatingAssessment] = useState(false);
@@ -60,6 +70,124 @@ export default function AdminDashboard() {
   const [preventSplitScreen, setPreventSplitScreen] = useState(false);
   const [uploadingAssessmentId, setUploadingAssessmentId] = useState<string | null>(null);
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
+
+  // Manual Question & Image State
+  const [manualQuestionText, setManualQuestionText] = useState("");
+  const [manualOptionA, setManualOptionA] = useState("");
+  const [manualOptionB, setManualOptionB] = useState("");
+  const [manualOptionC, setManualOptionC] = useState("");
+  const [manualOptionD, setManualOptionD] = useState("");
+  const [manualCorrectOptionIndex, setManualCorrectOptionIndex] = useState(0);
+  const [manualImageBase64, setManualImageBase64] = useState("");
+  
+  const [targetQuestionIdxForImage, setTargetQuestionIdxForImage] = useState<number>(-1);
+  const [attachmentImageBase64, setAttachmentImageBase64] = useState("");
+
+  const handleAddManualQuestion = async (assessmentId: string) => {
+    if (!manualQuestionText.trim()) {
+      alert("Teks soal tidak boleh kosong!");
+      return;
+    }
+    if (!manualOptionA.trim() || !manualOptionB.trim() || !manualOptionC.trim() || !manualOptionD.trim()) {
+      alert("Semua pilihan jawaban (A, B, C, D) harus diisi!");
+      return;
+    }
+
+    const nextOrderNum = assessmentQuestions.length + 1;
+    const finalQuestionText = manualImageBase64 
+      ? `[QUESTION_IMAGE:${manualImageBase64}]${manualQuestionText.trim()}`
+      : manualQuestionText.trim();
+
+    const options = [manualOptionA.trim(), manualOptionB.trim(), manualOptionC.trim(), manualOptionD.trim()];
+
+    const { error } = await supabase
+      .from('questions')
+      .insert({
+        assessment_id: assessmentId,
+        question_text: finalQuestionText,
+        options: options,
+        correct_option_index: manualCorrectOptionIndex,
+        order_num: nextOrderNum
+      });
+
+    if (!error) {
+      alert("Soal berhasil ditambahkan!");
+      setManualQuestionText("");
+      setManualOptionA("");
+      setManualOptionB("");
+      setManualOptionC("");
+      setManualOptionD("");
+      setManualCorrectOptionIndex(0);
+      setManualImageBase64("");
+
+      const { data } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('assessment_id', assessmentId)
+        .order('order_num', { ascending: true });
+      setAssessmentQuestions(data || []);
+    } else {
+      alert("Gagal menambahkan soal: " + error.message);
+    }
+  };
+
+  const handleAttachImageToExisting = async (assessmentId: string) => {
+    if (targetQuestionIdxForImage < 0 || targetQuestionIdxForImage >= assessmentQuestions.length) {
+      alert("Silakan pilih nomor soal terlebih dahulu!");
+      return;
+    }
+    if (!attachmentImageBase64) {
+      alert("Silakan tempel atau pilih gambar terlebih dahulu!");
+      return;
+    }
+
+    const questionToUpdate = assessmentQuestions[targetQuestionIdxForImage];
+    const { text: cleanText } = parseQuestionText(questionToUpdate.question_text);
+    const updatedRawText = `[QUESTION_IMAGE:${attachmentImageBase64}]${cleanText}`;
+
+    const { error } = await supabase
+      .from('questions')
+      .update({ question_text: updatedRawText })
+      .eq('id', questionToUpdate.id);
+
+    if (!error) {
+      alert("Gambar berhasil ditambahkan ke soal nomor " + (targetQuestionIdxForImage + 1) + "!");
+      setAttachmentImageBase64("");
+      setTargetQuestionIdxForImage(-1);
+
+      const { data } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('assessment_id', assessmentId)
+        .order('order_num', { ascending: true });
+      setAssessmentQuestions(data || []);
+    } else {
+      alert("Gagal melampirkan gambar: " + error.message);
+    }
+  };
+
+  const handleRemoveImageFromExisting = async (assessmentId: string, questionObj: any, index: number) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus gambar dari soal nomor " + (index + 1) + "?")) return;
+    const { text: cleanText } = parseQuestionText(questionObj.question_text);
+
+    const { error } = await supabase
+      .from('questions')
+      .update({ question_text: cleanText })
+      .eq('id', questionObj.id);
+
+    if (!error) {
+      alert("Gambar soal nomor " + (index + 1) + " berhasil dihapus!");
+      
+      const { data } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('assessment_id', assessmentId)
+        .order('order_num', { ascending: true });
+      setAssessmentQuestions(data || []);
+    } else {
+      alert("Gagal menghapus gambar: " + error.message);
+    }
+  };
   const [refreshingMaterialLinks, setRefreshingMaterialLinks] = useState<Record<string, string>>({});
   const [isSavingRefreshingMaterial, setIsSavingRefreshingMaterial] = useState<Record<string, boolean>>({});
   const [passingGrade, setPassingGrade] = useState(70);
@@ -205,7 +333,7 @@ export default function AdminDashboard() {
     ]);
     
     // Fetch total videos per course to calculate accurate percentage
-    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num, mata_kuliah').order('order_num', { ascending: true }).limit(10000);
+    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true }).limit(10000);
     const videoCountByCourse: Record<string, number> = {};
     if (allVideos) {
       allVideos.forEach(v => {
@@ -290,11 +418,7 @@ export default function AdminDashboard() {
         });
         const uniqueUserVp = Array.from(uniqueUserVpMap.values());
 
-        const isPasis = en.courses?.category === 'DIKLAT PENINGKATAN (PASIS)';
-        const courseVideos = allVideos?.filter(v => 
-          v.course_id === en.course_id && 
-          (!isPasis || !en.mata_kuliah || v.mata_kuliah === en.mata_kuliah)
-        ) || [];
+        const courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
         const videoBreakdown = courseVideos.map(v => {
           const vp = uniqueUserVpMap.get(v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
@@ -331,7 +455,6 @@ export default function AdminDashboard() {
           identity_number: en.users?.identity_number,
           class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
-          mata_kuliah: en.mata_kuliah,
           course_id: en.course_id,
           user_id: en.user_id, // Important to keep for async matching
           period_start: en.period_start,
@@ -558,7 +681,6 @@ export default function AdminDashboard() {
       .insert([{
         course_id: selectedCourse.id,
         title: newVideoTitle,
-        mata_kuliah: selectedCourse.category === 'DIKLAT PENINGKATAN (PASIS)' ? newVideoMataKuliah : null,
         description: newVideoDesc,
         youtube_id: youtubeId,
         order_num: (selectedCourse.videos?.length || 0) + 1
@@ -566,7 +688,6 @@ export default function AdminDashboard() {
 
     if (!error) {
       setNewVideoTitle("");
-      setNewVideoMataKuliah("");
       setNewVideoDesc("");
       setNewVideoYoutubeId("");
       fetchCourses();
@@ -619,25 +740,6 @@ export default function AdminDashboard() {
     } else {
       console.error(error);
       alert(`Gagal memperbarui status refresing video. Pastikan kolom is_refreshing sudah ditambahkan di tabel videos. Error: ${error.message}`);
-    }
-  };
-
-  const handleUpdateVideoMataKuliah = async (videoId: string, val: string) => {
-    const { error } = await supabase
-      .from('videos')
-      .update({ mata_kuliah: val || null })
-      .eq('id', videoId);
-    
-    if (!error) {
-      fetchCourses();
-      setSelectedCourse((prev: any) => ({
-        ...prev,
-        videos: prev.videos.map((v: any) => v.id === videoId ? { ...v, mata_kuliah: val || null } : v)
-      }));
-      alert("Mata kuliah berhasil diperbarui!");
-    } else {
-      console.error(error);
-      alert(`Gagal memperbarui Mata Kuliah video. Error: ${error.message}`);
     }
   };
 
@@ -846,7 +948,7 @@ export default function AdminDashboard() {
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
-            r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
+            r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown,
             `${Math.round(r.avg_video_progress)}%`,
@@ -860,7 +962,7 @@ export default function AdminDashboard() {
           body: filtered.map(r => [
             r.full_name,
             r.identity_number,
-            r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
+            r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.detailed_scores || (r.final_score !== null ? Math.round(r.final_score).toString() : '-'),
             r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || 'BELUM MENGERJAKAN'),
@@ -888,7 +990,7 @@ export default function AdminDashboard() {
           bodyData.push([
             r.full_name + '\n' + r.identity_number,
             r.class_name || '-',
-            r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
+            r.course_name,
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.detailed_scores || (r.final_score != null ? Math.round(r.final_score).toString() : '-'),
@@ -1024,7 +1126,7 @@ export default function AdminDashboard() {
             name: r.full_name,
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            course: r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
+            course: r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             progress: `${Math.round(r.avg_video_progress || 0)}%`,
             status: r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
@@ -1035,7 +1137,7 @@ export default function AdminDashboard() {
             name: r.full_name,
             nik: r.identity_number,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            course: r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
+            course: r.course_name,
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
             status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || 'BELUM MENGERJAKAN'),
             attempt: r.final_score != null ? '#1' : '#0'
@@ -1047,7 +1149,7 @@ export default function AdminDashboard() {
             nik: r.identity_number,
             kelas: r.class_name,
             period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
-            course: r.mata_kuliah ? `${r.course_name} (${r.mata_kuliah})` : r.course_name,
+            course: r.course_name,
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
@@ -1162,6 +1264,296 @@ export default function AdminDashboard() {
     } finally {
       setIsGeneratingPDF(false);
     }
+  };
+
+  const renderQuestionsEditor = (assessmentId: string) => {
+    return (
+      <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-6 text-gray-800">
+        {/* Section 1: Tambah Soal Manual */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+          <h5 className="font-bold text-sm text-indigo-900 border-b pb-2 mb-4 flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Input Soal Baru (Manual)
+          </h5>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Pertanyaan / Soal</label>
+              <textarea 
+                value={manualQuestionText}
+                onChange={e => setManualQuestionText(e.target.value)}
+                placeholder="Tuliskan pertanyaan di sini..."
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+
+            {/* Paste/Upload Gambar Soal Baru */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Gambar Soal (Optional - Klik & Ctrl+V untuk Tempel / Paste)</label>
+              <div 
+                onPaste={(e) => {
+                  const items = e.clipboardData?.items;
+                  if (!items) return;
+                  for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf("image") !== -1) {
+                      const blob = items[i].getAsFile();
+                      if (blob) {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          if (ev.target?.result) setManualImageBase64(ev.target.result as string);
+                        };
+                        reader.readAsDataURL(blob);
+                      }
+                    }
+                  }
+                }}
+                className="border-2 border-dashed border-gray-300 hover:border-indigo-500 rounded-lg p-4 text-center bg-gray-50 cursor-pointer text-xs"
+              >
+                {manualImageBase64 ? (
+                  <div className="space-y-2">
+                    <img src={manualImageBase64} alt="Preview" className="max-h-24 object-contain mx-auto rounded" />
+                    <button 
+                      type="button" 
+                      onClick={() => setManualImageBase64("")}
+                      className="text-red-500 hover:underline"
+                    >
+                      Hapus Gambar
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-gray-600 font-medium">Klik di sini, lalu tekan <kbd className="bg-white px-1.5 py-0.5 border rounded text-xs font-mono shadow-sm">Ctrl+V</kbd> untuk menempelkan gambar</p>
+                    <p className="text-gray-400 mt-1">Atau pilih file lewat tombol di bawah</p>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            if (ev.target?.result) setManualImageBase64(ev.target.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="mt-2 text-xs text-gray-500 mx-auto block"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Pilihan A</label>
+                <input 
+                  type="text" 
+                  value={manualOptionA}
+                  onChange={e => setManualOptionA(e.target.value)}
+                  placeholder="Jawaban A"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Pilihan B</label>
+                <input 
+                  type="text" 
+                  value={manualOptionB}
+                  onChange={e => setManualOptionB(e.target.value)}
+                  placeholder="Jawaban B"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Pilihan C</label>
+                <input 
+                  type="text" 
+                  value={manualOptionC}
+                  onChange={e => setManualOptionC(e.target.value)}
+                  placeholder="Jawaban C"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Pilihan D</label>
+                <input 
+                  type="text" 
+                  value={manualOptionD}
+                  onChange={e => setManualOptionD(e.target.value)}
+                  placeholder="Jawaban D"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Kunci Jawaban yang Benar</label>
+              <select 
+                value={manualCorrectOptionIndex}
+                onChange={e => setManualCorrectOptionIndex(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value={0}>A</option>
+                <option value={1}>B</option>
+                <option value={2}>C</option>
+                <option value={3}>D</option>
+              </select>
+            </div>
+
+            <button 
+              type="button"
+              onClick={() => handleAddManualQuestion(assessmentId)}
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition-all shadow-sm"
+            >
+              Simpan Soal Baru
+            </button>
+          </div>
+        </div>
+
+        {/* Section 2: Tempel Gambar ke Soal Terpilih */}
+        {assessmentQuestions.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <h5 className="font-bold text-sm text-emerald-950 border-b pb-2 mb-4 flex items-center gap-1.5">
+              <Plus className="w-4 h-4 text-emerald-600" /> Tempel / Ganti Gambar Soal (Pilih Nomor Soal)
+            </h5>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Pilih Nomor Soal</label>
+                <select 
+                  value={targetQuestionIdxForImage}
+                  onChange={e => setTargetQuestionIdxForImage(Number(e.target.value))}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value={-1}>-- Pilih Nomor Soal --</option>
+                  {assessmentQuestions.map((_q, index) => (
+                    <option key={index} value={index}>Soal Nomor {index + 1}</option>
+                  ))}
+                </select>
+              </div>
+
+              {targetQuestionIdxForImage >= 0 && targetQuestionIdxForImage < assessmentQuestions.length && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                  <span className="font-semibold">Isi Soal saat ini:</span>{" "}
+                  {parseQuestionText(assessmentQuestions[targetQuestionIdxForImage].question_text).text}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Gambar Soal (Klik & Paste / Ctrl+V di bawah)</label>
+                <div 
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    for (let i = 0; i < items.length; i++) {
+                      if (items[i].type.indexOf("image") !== -1) {
+                        const blob = items[i].getAsFile();
+                        if (blob) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            if (ev.target?.result) setAttachmentImageBase64(ev.target.result as string);
+                          };
+                          reader.readAsDataURL(blob);
+                        }
+                      }
+                    }
+                  }}
+                  className="border-2 border-dashed border-gray-300 hover:border-emerald-500 rounded-lg p-4 text-center bg-gray-50 cursor-pointer text-xs"
+                >
+                  {attachmentImageBase64 ? (
+                    <div className="space-y-2">
+                      <img src={attachmentImageBase64} alt="Attachment Preview" className="max-h-24 object-contain mx-auto rounded" />
+                      <button 
+                        type="button" 
+                        onClick={() => setAttachmentImageBase64("")}
+                        className="text-red-500 hover:underline"
+                      >
+                        Hapus Gambar
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-gray-600 font-medium">Klik di sini, lalu tekan <kbd className="bg-white px-1.5 py-0.5 border rounded text-xs font-mono shadow-sm">Ctrl+V</kbd> untuk menempelkan gambar</p>
+                      <p className="text-gray-400 mt-1">Or choose a file via the button below</p>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              if (ev.target?.result) setAttachmentImageBase64(ev.target.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="mt-2 text-xs text-gray-500 mx-auto block"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button 
+                type="button"
+                onClick={() => handleAttachImageToExisting(assessmentId)}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition-all shadow-sm"
+              >
+                Terapkan Gambar ke Soal Terpilih
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Section 3: Daftar Soal */}
+        <div className="space-y-3">
+          <h5 className="font-bold text-sm text-gray-900 border-b pb-2 mb-2">Daftar Soal ({assessmentQuestions.length})</h5>
+          {assessmentQuestions.length === 0 ? (
+            <p className="text-xs text-gray-500 italic">Belum ada soal dalam assessment ini. Silakan import CSV atau masukkan manual.</p>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+              {assessmentQuestions.map((q, idx) => {
+                const parsed = parseQuestionText(q.question_text);
+                return (
+                  <div key={q.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm relative">
+                    <button 
+                      onClick={() => handleDeleteQuestion(q.id)}
+                      className="absolute top-3 right-3 text-red-500 hover:text-red-700 p-1 bg-red-50 rounded-md"
+                      title="Hapus soal"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <p className="font-medium text-gray-900 text-xs pr-8 mb-2">
+                      {idx + 1}. {parsed.text}
+                    </p>
+                    {parsed.imageUrl && (
+                      <div className="my-2 border rounded-md p-1 bg-gray-50 inline-block relative max-w-full">
+                        <img src={parsed.imageUrl} alt={`Gambar Soal ${idx + 1}`} className="max-h-28 object-contain rounded" />
+                        <button 
+                          onClick={() => handleRemoveImageFromExisting(assessmentId, q, idx)}
+                          className="absolute -top-1.5 -right-1.5 bg-red-600 text-white hover:bg-red-800 rounded-full p-0.5 shadow-md flex items-center justify-center text-xs w-5 h-5 font-bold"
+                          title="Hapus gambar dari soal ini"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      {q.options.map((opt: string, oIdx: number) => (
+                        <div key={oIdx} className={`text-xs p-1 px-2 rounded border ${oIdx === q.correct_option_index ? 'bg-green-50 border-green-200 text-green-800 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                          {String.fromCharCode(65 + oIdx)}. {opt}
+                          {oIdx === q.correct_option_index && ' (Correct Key)'}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1310,6 +1702,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
                   <option value="REFRESING">REFRESING</option>
+                  <option value="UJIAN UAD">UJIAN UAD</option>
+                  <option value="LATIHAN UJIAN">LATIHAN UJIAN</option>
                 </select>
               </div>
               <div>
@@ -1410,12 +1804,7 @@ export default function AdminDashboard() {
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div>{report.course_name}</div>
-                        {report.mata_kuliah && (
-                          <div className="text-xs text-indigo-600 font-medium font-mono mt-0.5">({report.mata_kuliah})</div>
-                        )}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
                       <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate whitespace-pre-wrap">{report.video_breakdown}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -1472,6 +1861,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
                   <option value="REFRESING">REFRESING</option>
+                  <option value="UJIAN UAD">UJIAN UAD</option>
+                  <option value="LATIHAN UJIAN">LATIHAN UJIAN</option>
                 </select>
               </div>
               <div>
@@ -1573,12 +1964,7 @@ export default function AdminDashboard() {
                         <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div>{report.course_name}</div>
-                        {report.mata_kuliah && (
-                          <div className="text-xs text-indigo-600 font-medium font-mono mt-0.5">({report.mata_kuliah})</div>
-                        )}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {report.detailed_statuses ? (
@@ -1641,6 +2027,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
                   <option value="REFRESING">REFRESING</option>
+                  <option value="UJIAN UAD">UJIAN UAD</option>
+                  <option value="LATIHAN UJIAN">LATIHAN UJIAN</option>
                 </select>
               </div>
               <div>
@@ -1745,12 +2133,7 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-500">{report.identity_number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.class_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div>{report.course_name}</div>
-                        {report.mata_kuliah && (
-                          <div className="text-xs text-indigo-600 font-medium font-mono mt-0.5">({report.mata_kuliah})</div>
-                        )}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-600">
                         {report.video_breakdown}
                       </td>
@@ -1900,6 +2283,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="UJIAN UAD">UJIAN UAD</option>
+                  <option value="LATIHAN UJIAN">LATIHAN UJIAN</option>
                 </select>
               </div>
               <div className="pt-4 flex justify-end gap-3">
@@ -1971,6 +2356,8 @@ export default function AdminDashboard() {
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                  <option value="UJIAN UAD">UJIAN UAD</option>
+                  <option value="LATIHAN UJIAN">LATIHAN UJIAN</option>
                 </select>
               </div>
               <div className="pt-4 flex justify-end gap-3">
@@ -2111,26 +2498,6 @@ export default function AdminDashboard() {
                                 />
                                 <label htmlFor={`refreshing-video-${video.id}`} className="text-xs font-medium text-gray-700">Tersedia untuk Refresing</label>
                               </div>
-                              {selectedCourse?.category === 'DIKLAT PENINGKATAN (PASIS)' && (
-                                <div className="mt-3 bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex flex-col gap-1.5 shadow-sm">
-                                  <label className="text-xs font-semibold text-gray-700 block">Mata Kuliah:</label>
-                                  <div className="flex gap-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Nama Mata Kuliah (e.g. MANOUVERING)"
-                                      value={editingVideoMataKuliah[video.id] !== undefined ? editingVideoMataKuliah[video.id] : (video.mata_kuliah || "")}
-                                      onChange={(e) => setEditingVideoMataKuliah(prev => ({ ...prev, [video.id]: e.target.value }))}
-                                      className="flex-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white shadow-sm"
-                                    />
-                                    <button
-                                      onClick={() => handleUpdateVideoMataKuliah(video.id, editingVideoMataKuliah[video.id] !== undefined ? editingVideoMataKuliah[video.id] : (video.mata_kuliah || ""))}
-                                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-medium transition-colors shadow-sm"
-                                    >
-                                      Simpan
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
                             </div>
                             <button 
                               onClick={() => {
@@ -2203,27 +2570,8 @@ export default function AdminDashboard() {
                                   </button>
                                 </div>
                                 
-                                {viewingQuestionsForAssessmentId === videoAssessment.id && assessmentQuestions.length > 0 && (
-                                  <div className="space-y-2 mt-3 max-h-64 overflow-y-auto pr-2">
-                                    {assessmentQuestions.map((q, qIdx) => (
-                                      <div key={q.id} className="bg-white border border-gray-200 rounded p-2 shadow-sm relative text-xs text-gray-800">
-                                        <button 
-                                          onClick={() => handleDeleteQuestion(q.id)}
-                                          className="absolute top-1 right-1 text-red-500 hover:text-red-700 p-0.5"
-                                        >
-                                          <X className="w-3 h-3" />
-                                        </button>
-                                        <p className="font-medium pr-6 mb-1">{qIdx + 1}. {q.question_text}</p>
-                                        <div className="space-y-1">
-                                          {q.options.map((opt: string, oIdx: number) => (
-                                            <div key={oIdx} className={`p-1 rounded border ${oIdx === q.correct_option_index ? 'bg-green-50 border-green-200 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
-                                              {String.fromCharCode(65 + oIdx)}. {opt}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
+                                {viewingQuestionsForAssessmentId === videoAssessment.id && (
+                                  renderQuestionsEditor(videoAssessment.id)
                                 )}
                               </div>
                             ) : isCreatingAssessment && creatingAssessmentForVideoId === video.id ? (
@@ -2372,29 +2720,8 @@ export default function AdminDashboard() {
                           </button>
                         </div>
 
-                        {viewingQuestionsForAssessmentId === finalAssessment.id && assessmentQuestions.length > 0 && (
-                          <div className="space-y-3 mt-2 max-h-96 overflow-y-auto pr-2">
-                            {assessmentQuestions.map((q, idx) => (
-                              <div key={q.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm relative">
-                                <button 
-                                  onClick={() => handleDeleteQuestion(q.id)}
-                                  className="absolute top-3 right-3 text-red-500 hover:text-red-700 p-1 bg-red-50 rounded-md"
-                                  title="Delete question"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                                <p className="font-medium text-gray-900 text-sm pr-8 mb-3">{idx + 1}. {q.question_text}</p>
-                                <div className="space-y-2">
-                                  {q.options.map((opt: string, oIdx: number) => (
-                                    <div key={oIdx} className={`text-xs p-2 rounded border ${oIdx === q.correct_option_index ? 'bg-green-50 border-green-200 text-green-800 font-medium' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
-                                      {String.fromCharCode(65 + oIdx)}. {opt}
-                                      {oIdx === q.correct_option_index && ' (Correct)'}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                        {viewingQuestionsForAssessmentId === finalAssessment.id && (
+                          renderQuestionsEditor(finalAssessment.id)
                         )}
                       </div>
                     ) : isCreatingAssessment && creatingAssessmentForVideoId === null ? (
@@ -2465,19 +2792,6 @@ export default function AdminDashboard() {
                       placeholder="e.g. Chapter 1: Introduction"
                     />
                   </div>
-                  {selectedCourse?.category === 'DIKLAT PENINGKATAN (PASIS)' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Mata Kuliah</label>
-                      <input
-                        type="text"
-                        required
-                        value={newVideoMataKuliah}
-                        onChange={(e) => setNewVideoMataKuliah(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                        placeholder="e.g. MANOUVERING"
-                      />
-                    </div>
-                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">YouTube URL or ID</label>
                     <input

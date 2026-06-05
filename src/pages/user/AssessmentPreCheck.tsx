@@ -20,7 +20,6 @@ export default function AssessmentPreCheck() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [attemptsInfo, setAttemptsInfo] = useState<{ count: number, passed: boolean } | null>(null);
-  const [isAssessmentRefreshing, setIsAssessmentRefreshing] = useState(false);
 
   useEffect(() => {
     if (user && courseId) {
@@ -31,15 +30,6 @@ export default function AssessmentPreCheck() {
   const checkPreviousAttempts = async () => {
     if (!user || !courseId) return;
     try {
-      const { data: assessmentData } = await supabase
-        .from('assessments')
-        .select('is_refreshing')
-        .eq('id', assessmentId)
-        .maybeSingle();
-
-      const isRef = assessmentData?.is_refreshing || false;
-      setIsAssessmentRefreshing(isRef);
-
       const { data: results } = await supabase
         .from('assessment_results')
         .select('passed')
@@ -62,14 +52,13 @@ export default function AssessmentPreCheck() {
   // If user is already verified globally, they can just proceed (unless blocked by attempts)
   useEffect(() => {
     if (user?.is_verified && attemptsInfo !== null) {
-      const maxAttempts = 5;
-      if (attemptsInfo.passed || attemptsInfo.count >= maxAttempts) {
+      if (attemptsInfo.passed || attemptsInfo.count >= 3) {
         // Stay here to show the message
       } else {
         navigate(`/course/${courseId}/assessment/${assessmentId}`);
       }
     }
-  }, [user, courseId, navigate, attemptsInfo, isAssessmentRefreshing, assessmentId]);
+  }, [user, courseId, navigate, attemptsInfo]);
 
   const capture = useCallback(async () => {
     try {
@@ -187,14 +176,13 @@ export default function AssessmentPreCheck() {
           </div>
         );
       }
-      const maxAttempts = 5;
-      if (attemptsInfo.count >= maxAttempts) {
+      if (attemptsInfo.count >= 3) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
             <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
               <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Maximum Attempts Reached</h2>
-              <p className="text-gray-600 mb-6">You have reached the maximum number of attempts ({maxAttempts}) for this assessment.</p>
+              <p className="text-gray-600 mb-6">You have reached the maximum number of attempts (3) for this assessment.</p>
               <button onClick={() => navigate(`/course/${courseId}`)} className="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">
                 Back to Course
               </button>
