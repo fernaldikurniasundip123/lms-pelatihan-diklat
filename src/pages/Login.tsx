@@ -8,6 +8,7 @@ export default function Login() {
   const [fullName, setFullName] = useState("");
   const [className, setClassName] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedTingkat, setSelectedTingkat] = useState("");
   const [courseId, setCourseId] = useState("");
   const [loginMataKuliah, setLoginMataKuliah] = useState("");
   const [seafarerCode, setSeafarerCode] = useState("");
@@ -52,6 +53,19 @@ export default function Login() {
     });
     return Array.from(set).sort();
   }, [selectedCourse]);
+
+  const availableTingkatOptions = useMemo(() => {
+    if (!selectedCategory) return [];
+    if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN") return [];
+    
+    const set = new Set<string>();
+    courses.forEach((c: any) => {
+      if (c.category === selectedCategory && c.description) {
+        set.add(c.description.trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [selectedCategory, courses]);
   const activeRefreshingPeriods = useMemo(() => {
     if (!selectedCourse?.refreshing_periods) return [];
     return selectedCourse.refreshing_periods.filter((p: any) => {
@@ -317,6 +331,14 @@ export default function Login() {
     return courses.filter(c => c.category === selectedCategory);
   }, [selectedCategory, courses]);
 
+  const filteredCoursesForTingkat = useMemo(() => {
+    if (!selectedCategory) return [];
+    if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN") {
+      return filteredCourses;
+    }
+    return courses.filter(c => c.category === selectedCategory && c.description === selectedTingkat);
+  }, [selectedCategory, selectedTingkat, courses, filteredCourses]);
+
   const isSelectedPeriodActive = useMemo(() => {
     return activeRefreshingPeriods.some((p: any) => p.start === periodStart && p.end === periodEnd);
   }, [activeRefreshingPeriods, periodStart, periodEnd]);
@@ -426,6 +448,7 @@ export default function Login() {
                         value={selectedCategory}
                         onChange={(e) => {
                           setSelectedCategory(e.target.value);
+                          setSelectedTingkat("");
                           setCourseId(""); // reset course selection when category changes
                           setLoginMataKuliah("");
                         }}
@@ -442,10 +465,68 @@ export default function Login() {
                     </div>
                   </div>
 
-                  {selectedCategory && (
+                  {selectedCategory && (selectedCategory === "UJIAN UAD" || selectedCategory === "LATIHAN UJIAN") && (
+                    <>
+                      <div>
+                        <label htmlFor="selectedTingkat" className="block text-sm font-medium text-gray-700">
+                          {selectedCategory === "UJIAN UAD" ? "Tingkat Ujian" : "Tingkat Latihan"}
+                        </label>
+                        <div className="mt-1">
+                          <select
+                            id="selectedTingkat"
+                            name="selectedTingkat"
+                            required
+                            value={selectedTingkat}
+                            onChange={(e) => {
+                              setSelectedTingkat(e.target.value);
+                              setCourseId("");
+                            }}
+                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          >
+                            <option value="">
+                              {selectedCategory === "UJIAN UAD" ? "-- Pilih Tingkat Ujian --" : "-- Pilih Tingkat Latihan --"}
+                            </option>
+                            {availableTingkatOptions.map(t => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {selectedTingkat && (
+                        <div>
+                          <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
+                            {selectedCategory === "UJIAN UAD" ? "Mata Ujian" : "Mata Latihan"}
+                          </label>
+                          <div className="mt-1">
+                            <select
+                              id="courseId"
+                              name="courseId"
+                              required
+                              value={courseId}
+                              onChange={(e) => {
+                                setCourseId(e.target.value);
+                                setLoginMataKuliah("");
+                              }}
+                              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            >
+                              <option value="">
+                                {selectedCategory === "UJIAN UAD" ? "-- Pilih Mata Ujian --" : "-- Pilih Mata Latihan --"}
+                              </option>
+                              {filteredCoursesForTingkat.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {selectedCategory && selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN" && (
                     <div>
                       <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
-                        {(selectedCategory === "UJIAN UAD" || selectedCategory === "LATIHAN UJIAN") ? "Mata Ujian" : "Sub Pelatihan"}
+                        Sub Pelatihan
                       </label>
                       <div className="mt-1">
                         <select
@@ -459,7 +540,7 @@ export default function Login() {
                           className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         >
                           <option value="">
-                            {(selectedCategory === "UJIAN UAD" || selectedCategory === "LATIHAN UJIAN") ? "-- Pilih Mata Ujian --" : "-- Pilih Sub Pelatihan --"}
+                            -- Pilih Sub Pelatihan --
                           </option>
                           {filteredCourses.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>

@@ -20,6 +20,26 @@ export default function AssessmentPreCheck() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [attemptsInfo, setAttemptsInfo] = useState<{ count: number, passed: boolean } | null>(null);
+  const [courseCategory, setCourseCategory] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadCourseCategory() {
+      if (!courseId) return;
+      try {
+        const { data } = await supabase
+          .from('courses')
+          .select('category')
+          .eq('id', courseId)
+          .single();
+        if (data) {
+          setCourseCategory(data.category);
+        }
+      } catch (err) {
+        console.error("Failed to load course category:", err);
+      }
+    }
+    loadCourseCategory();
+  }, [courseId]);
 
   useEffect(() => {
     if (user && courseId) {
@@ -49,16 +69,17 @@ export default function AssessmentPreCheck() {
     }
   };
 
-  // If user is already verified globally, they can just proceed (unless blocked by attempts)
+  // If user is already verified globally or it is a practice exam, they can just proceed (unless blocked by attempts)
   useEffect(() => {
-    if (user?.is_verified && attemptsInfo !== null) {
+    const isPractice = courseCategory === 'LATIHAN UJIAN';
+    if ((user?.is_verified || isPractice) && attemptsInfo !== null) {
       if (attemptsInfo.passed || attemptsInfo.count >= 3) {
         // Stay here to show the message
       } else {
         navigate(`/course/${courseId}/assessment/${assessmentId}`);
       }
     }
-  }, [user, courseId, navigate, attemptsInfo]);
+  }, [user, courseId, navigate, attemptsInfo, courseCategory]);
 
   const capture = useCallback(async () => {
     try {
@@ -160,7 +181,9 @@ export default function AssessmentPreCheck() {
     }
   };
 
-  if (user?.is_verified) {
+  const isPractice = courseCategory === 'LATIHAN UUAN' || courseCategory === 'LATIHAN UJIAN';
+
+  if (user?.is_verified || isPractice) {
     if (attemptsInfo !== null) {
       if (attemptsInfo.passed) {
         return (

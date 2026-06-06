@@ -445,17 +445,43 @@ export default function UserDashboard() {
                     </p>
                   </div>
                 )}
+
+                {(course.enrollment_category === 'UJIAN UAD' || course.enrollment_category === 'LATIHAN UJIAN') && (
+                  <div className={`border rounded-lg p-3 mb-4 ${course.enrollment_category === 'UJIAN UAD' ? 'bg-indigo-50 border-indigo-100' : 'bg-amber-50 border-amber-100'}`}>
+                    <p className={`text-xs font-semibold mb-1 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-800' : 'text-amber-800'}`}>Periode Pelaksanaan:</p>
+                    <p className="text-sm text-gray-950 mb-2 font-semibold">
+                       {course.period_start ? `${new Date(course.period_start).toLocaleDateString('id-ID')} - ${new Date(course.period_end).toLocaleDateString('id-ID')}` : "Tidak Terbatas"}
+                    </p>
+                    <p className={`text-xs font-semibold mb-1 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-800' : 'text-amber-800'}`}>Hasil Nilai:</p>
+                    {course.score !== undefined && course.score !== null ? (
+                      <p className={`text-lg font-bold ${course.score >= 70 ? 'text-green-600' : 'text-red-600'}`}>
+                         {Math.round(course.score)}/100 <span className="text-xs font-semibold">({course.score >= 70 ? 'LULUS' : 'GAGAL'})</span>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-600 font-medium">Belum Mengerjakan</p>
+                    )}
+                  </div>
+                )}
                 
-                <div className="space-y-3">
-                  <div className="flex items-center text-sm text-gray-500 gap-2">
-                    <Video className="w-4 h-4 text-indigo-500" />
-                    <span>{course.videos?.length || 0} Videos</span>
+                {course.enrollment_category !== 'UJIAN UAD' && course.enrollment_category !== 'LATIHAN UJIAN' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center text-sm text-gray-500 gap-2">
+                      <Video className="w-4 h-4 text-indigo-500" />
+                      <span>{course.videos?.length || 0} Videos</span>
+                    </div>
+                    <div className="flex items-center text-sm text-gray-500 gap-2">
+                      <FileText className="w-4 h-4 text-indigo-500" />
+                      <span>1 Final Assessment</span>
+                    </div>
                   </div>
-                  <div className="flex items-center text-sm text-gray-500 gap-2">
-                    <FileText className="w-4 h-4 text-indigo-500" />
-                    <span>1 Final Assessment</span>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center text-sm text-gray-500 gap-2">
+                      <FileText className={`w-4 h-4 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-500' : 'text-amber-500'}`} />
+                      <span>1 {course.enrollment_category}</span>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
               
               <div className="px-6 pb-6 mt-auto">
@@ -466,7 +492,7 @@ export default function UserDashboard() {
                   </div>
                   <div className="w-full bg-gray-100 rounded-full h-2">
                     <div 
-                      className="bg-indigo-600 h-2 rounded-full transition-all duration-500" 
+                      className={`h-2 rounded-full transition-all duration-500 ${course.enrollment_category === 'LATIHAN UJIAN' ? 'bg-amber-600' : 'bg-indigo-600'}`}
                       style={{ width: `${course.progress || 0}%` }}
                     ></div>
                   </div>
@@ -474,10 +500,24 @@ export default function UserDashboard() {
                 
                 <button
                   onClick={() => navigate(`/course/${course.id}`)}
-                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
+                  className={`w-full flex items-center justify-center gap-2 text-white py-2.5 rounded-xl font-medium transition-colors ${
+                    course.enrollment_category === 'UJIAN UAD'
+                      ? 'bg-indigo-600 hover:bg-indigo-700'
+                      : course.enrollment_category === 'LATIHAN UJIAN'
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
                 >
                   <PlayCircle className="w-5 h-5" />
-                  <span>{course.progress > 0 ? "Continue Learning" : "Start Course"}</span>
+                  <span>
+                    {course.enrollment_category === 'UJIAN UAD'
+                      ? "Mulai Ujian"
+                      : course.enrollment_category === 'LATIHAN UJIAN'
+                      ? "Mulai Latihan"
+                      : course.progress > 0 
+                      ? "Continue Learning" 
+                      : "Start Course"}
+                  </span>
                 </button>
               </div>
             </div>

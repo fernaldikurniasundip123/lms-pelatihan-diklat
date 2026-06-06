@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
@@ -199,6 +199,7 @@ export default function AdminDashboard() {
 
   // Filters
   const [filterCategory, setFilterCategory] = useState("");
+  const [filterTingkat, setFilterTingkat] = useState("");
   const [filterCourseId, setFilterCourseId] = useState("");
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd] = useState("");
@@ -257,17 +258,17 @@ export default function AdminDashboard() {
       // Build queries with filters
       let vpQuery = supabase
         .from('video_progress')
-        .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name, category), videos(title)`)
+        .select(`*, users!inner(full_name, identity_number, class_name), courses!inner(name, category, description), videos(title)`)
         .order('created_at', { ascending: false });
       
     let arQuery = supabase
       .from('assessment_results')
-      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(name, category)`)
+      .select(`*, users!inner(full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(name, category, description)`)
       .order('created_at', { ascending: false });
       
     let enrollQuery = supabase
       .from('enrollments')
-      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name, category)`)
+      .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name, category, description)`)
       .order('created_at', { ascending: false });
 
     // Apply filters
@@ -381,7 +382,7 @@ export default function AdminDashboard() {
               const video = allVideos?.find(v => v.id === assessment.video_id);
               label = video ? `Ass. Part ${video.order_num}` : 'Video Assessment';
             } else {
-              label = 'Final Ass.';
+              label = assessment.title || 'Final Ass.';
             }
           }
 
@@ -458,6 +459,7 @@ export default function AdminDashboard() {
           class_name: en.users?.class_name || '-',
           course_name: en.courses?.name,
           course_category: en.courses?.category,
+          course_description: en.courses?.description,
           mata_kuliah: en.mata_kuliah || '-',
           course_id: en.course_id,
           user_id: en.user_id, // Important to keep for async matching
@@ -544,7 +546,7 @@ export default function AdminDashboard() {
 
   const handleAddCourse = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { error } = await supabase
+    const { data: courseData, error } = await supabase
       .from('courses')
       .insert([{ 
         name: newCourseName, 
@@ -552,9 +554,29 @@ export default function AdminDashboard() {
         material_link: newCourseMaterialLink,
         category: newCourseCategory,
         status: 'active' 
-      }]);
+      }])
+      .select()
+      .single();
 
     if (!error) {
+      if (courseData && (newCourseCategory === "UJIAN UAD" || newCourseCategory === "LATIHAN UJIAN")) {
+        // Auto create final assessment for UJIAN UAD or LATIHAN UJIAN
+        await supabase
+          .from('assessments')
+          .insert([{
+            course_id: courseData.id,
+            video_id: null,
+            title: newCourseCategory,
+            passing_score: 70,
+            duration_minutes: 60,
+            is_mandatory: false,
+            is_strict_mode: false,
+            is_randomized: false,
+            show_one_by_one: false,
+            prevent_copypaste: false,
+            prevent_split_screen: false
+          }]);
+      }
       setIsAddModalOpen(false);
       setNewCourseName("");
       setNewCourseDesc("");
@@ -569,7 +591,11 @@ export default function AdminDashboard() {
   const openEditModal = (course: any) => {
     setEditCourseId(course.id);
     setEditCourseName(course.name);
-    setEditCourseDesc(course.description || "");
+    let desc = course.description || "";
+    if (!desc && (course.category === "UJIAN UAD" || course.category === "LATIHAN UJIAN")) {
+      desc = "ANT I";
+    }
+    setEditCourseDesc(desc);
     setEditCourseMaterialLink(course.material_link || "");
     setEditCourseCategory(course.category || "DIKLAT KETRAMPILAN (SHORT COURSE)");
     setIsEditModalOpen(true);
@@ -962,6 +988,9 @@ export default function AdminDashboard() {
     return reports.filter(r => {
       if (filterCourseId && r.course_id !== filterCourseId) return false;
       if (filterClassName && r.class_name !== filterClassName) return false;
+      if ((filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && filterTingkat) {
+        if (r.course_description !== filterTingkat) return false;
+      }
       if (filterPeriodStart && r.period_start && r.period_start.split('T')[0] < filterPeriodStart) return false;
       if (filterPeriodEnd && r.period_end && r.period_end.split('T')[0] > filterPeriodEnd) return false;
       
@@ -1635,12 +1664,26 @@ export default function AdminDashboard() {
         </div>
         <nav className="flex-1 p-4 space-y-2">
           {user?.role !== "admin2" && (
-            <button
-              onClick={() => setActiveTab("courses")}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "courses" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-            >
-              <Book className="w-5 h-5" /> Courses
-            </button>
+            <>
+              <button
+                onClick={() => setActiveTab("courses")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "courses" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Book className="w-5 h-5" /> Courses
+              </button>
+              <button
+                onClick={() => setActiveTab("examinations")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "examinations" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Examination
+              </button>
+              <button
+                onClick={() => setActiveTab("training_examinations")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "training_examinations" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <ClipboardList className="w-5 h-5" /> Training Examination
+              </button>
+            </>
           )}
           <button
             onClick={() => setActiveTab("reports-video")}
@@ -1690,7 +1733,7 @@ export default function AdminDashboard() {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {courses.map(course => (
+              {courses.filter(c => c.category !== "UJIAN UAD" && c.category !== "LATIHAN UJIAN").map(course => (
                 <div key={course.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="text-lg font-bold text-gray-900">{course.name}</h3>
@@ -1738,6 +1781,120 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {activeTab === "examinations" && (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">Manage Examination</h2>
+              <button 
+                onClick={() => {
+                  setNewCourseCategory("UJIAN UAD");
+                  setNewCourseDesc("ANT I");
+                  setIsAddModalOpen(true);
+                }}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700"
+              >
+                <Plus className="w-5 h-5" /> Add Examination
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.filter(c => c.category === "UJIAN UAD").map(course => (
+                <div key={course.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="text-lg font-bold text-gray-900">{course.name}</h3>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`px-2 py-1 text-xs rounded-full ${course.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {course.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <span className="inline-block px-2 py-1 text-[10px] font-semibold tracking-wider text-indigo-800 bg-indigo-400/10 rounded-full">
+                      Tingkat: {course.description || '-'}
+                    </span>
+                  </div>
+                  <p className="text-gray-500 text-sm mb-4">Kategori Pelatihan: UJIAN UAD</p>
+                  
+                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-6">
+                    <div className="flex items-center gap-1">
+                      <FileText className="w-4 h-4" /> {course.assessments?.flatMap(a => a.questions || []).length || 0} Questions
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button onClick={() => openEditModal(course)} className="flex-1 bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 border border-gray-200">
+                      Edit
+                    </button>
+                    <button 
+                      onClick={() => openManageModal(course)}
+                      className="flex-1 bg-indigo-50 text-indigo-700 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 border border-indigo-200"
+                    >
+                      Manage Questions
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "training_examinations" && (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">Manage Training Examination</h2>
+              <button 
+                onClick={() => {
+                  setNewCourseCategory("LATIHAN UJIAN");
+                  setNewCourseDesc("ANT I");
+                  setIsAddModalOpen(true);
+                }}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700"
+              >
+                <Plus className="w-5 h-5" /> Add Training Examination
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.filter(c => c.category === "LATIHAN UJIAN").map(course => (
+                <div key={course.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="text-lg font-bold text-gray-900">{course.name}</h3>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`px-2 py-1 text-xs rounded-full ${course.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {course.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <span className="inline-block px-2 py-1 text-[10px] font-semibold tracking-wider text-amber-800 bg-amber-400/10 rounded-full">
+                      Tingkat: {course.description || '-'}
+                    </span>
+                  </div>
+                  <p className="text-gray-500 text-sm mb-4">Kategori Pelatihan: LATIHAN UJIAN</p>
+                  
+                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-6">
+                    <div className="flex items-center gap-1">
+                      <FileText className="w-4 h-4" /> {course.assessments?.flatMap(a => a.questions || []).length || 0} Questions
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button onClick={() => openEditModal(course)} className="flex-1 bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 border border-gray-200">
+                      Edit
+                    </button>
+                    <button 
+                      onClick={() => openManageModal(course)}
+                      className="flex-1 bg-indigo-50 text-indigo-700 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 border border-indigo-200"
+                    >
+                      Manage Questions
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === "reports-video" && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -1764,20 +1921,79 @@ export default function AdminDashboard() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
-                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                <select 
+                  value={filterCategory} 
+                  onChange={e => {
+                    setFilterCategory(e.target.value);
+                    setFilterTingkat("");
+                    setFilterCourseId("");
+                  }} 
+                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                >
                   <option value="">Semua Jenis Pelatihan</option>
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
                   <option value="REFRESING">REFRESING</option>
+                  <option value="UJIAN UAD">Examination (UJIAN UAD)</option>
+                  <option value="LATIHAN UJIAN">Training Examination (LATIHAN UJIAN)</option>
                 </select>
               </div>
+              {(filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    {filterCategory === 'UJIAN UAD' ? 'Tingkat Ujian' : 'Tingkat Latihan'}
+                  </label>
+                  <select 
+                    value={filterTingkat} 
+                    onChange={e => {
+                      setFilterTingkat(e.target.value);
+                      setFilterCourseId("");
+                    }} 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Semua Tingkat</option>
+                    <option value="ANT I">ANT I</option>
+                    <option value="ATT I">ATT I</option>
+                    <option value="ANT II">ANT II</option>
+                    <option value="ATT II">ATT II</option>
+                    <option value="ANT III">ANT III</option>
+                    <option value="ATT III">ATT III</option>
+                    <option value="ANT IV">ANT IV</option>
+                    <option value="ATT IV">ATT IV</option>
+                    <option value="ANT V">ANT V</option>
+                    <option value="ATT V">ATT V</option>
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Sub Pelatihan</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  {filterCategory === 'UJIAN UAD' 
+                    ? 'Mata Ujian' 
+                    : filterCategory === 'LATIHAN UJIAN' 
+                    ? 'Mata Latihan' 
+                    : 'Sub Pelatihan'}
+                </label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                  <option value="">Semua Sub Pelatihan</option>
+                  <option value="">
+                    {filterCategory === 'UJIAN UAD' 
+                      ? 'Semua Mata Ujian' 
+                      : filterCategory === 'LATIHAN UJIAN' 
+                      ? 'Semua Mata Latihan' 
+                      : 'Semua Sub Pelatihan'}
+                  </option>
                   {courses
-                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing))) : true)
+                    .filter(c => {
+                      if (filterCategory) {
+                        const matchesCat = c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing)));
+                        if (!matchesCat) return false;
+                        if ((filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && filterTingkat) {
+                          return c.description === filterTingkat;
+                        }
+                        return true;
+                      }
+                      return true;
+                    })
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -1925,20 +2141,79 @@ export default function AdminDashboard() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
-                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                <select 
+                  value={filterCategory} 
+                  onChange={e => {
+                    setFilterCategory(e.target.value);
+                    setFilterTingkat("");
+                    setFilterCourseId("");
+                  }} 
+                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                >
                   <option value="">Semua Jenis Pelatihan</option>
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
                   <option value="REFRESING">REFRESING</option>
+                  <option value="UJIAN UAD">Examination (UJIAN UAD)</option>
+                  <option value="LATIHAN UJIAN">Training Examination (LATIHAN UJIAN)</option>
                 </select>
               </div>
+              {(filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    {filterCategory === 'UJIAN UAD' ? 'Tingkat Ujian' : 'Tingkat Latihan'}
+                  </label>
+                  <select 
+                    value={filterTingkat} 
+                    onChange={e => {
+                      setFilterTingkat(e.target.value);
+                      setFilterCourseId("");
+                    }} 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Semua Tingkat</option>
+                    <option value="ANT I">ANT I</option>
+                    <option value="ATT I">ATT I</option>
+                    <option value="ANT II">ANT II</option>
+                    <option value="ATT II">ATT II</option>
+                    <option value="ANT III">ANT III</option>
+                    <option value="ATT III">ATT III</option>
+                    <option value="ANT IV">ANT IV</option>
+                    <option value="ATT IV">ATT IV</option>
+                    <option value="ANT V">ANT V</option>
+                    <option value="ATT V">ATT V</option>
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Sub Pelatihan</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  {filterCategory === 'UJIAN UAD' 
+                    ? 'Mata Ujian' 
+                    : filterCategory === 'LATIHAN UJIAN' 
+                    ? 'Mata Latihan' 
+                    : 'Sub Pelatihan'}
+                </label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                  <option value="">Semua Sub Pelatihan</option>
+                  <option value="">
+                    {filterCategory === 'UJIAN UAD' 
+                      ? 'Semua Mata Ujian' 
+                      : filterCategory === 'LATIHAN UJIAN' 
+                      ? 'Semua Mata Latihan' 
+                      : 'Semua Sub Pelatihan'}
+                  </option>
                   {courses
-                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing))) : true)
+                    .filter(c => {
+                      if (filterCategory) {
+                        const matchesCat = c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing)));
+                        if (!matchesCat) return false;
+                        if ((filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && filterTingkat) {
+                          return c.description === filterTingkat;
+                        }
+                        return true;
+                      }
+                      return true;
+                    })
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -2093,20 +2368,79 @@ export default function AdminDashboard() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Jenis Pelatihan</label>
-                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                <select 
+                  value={filterCategory} 
+                  onChange={e => {
+                    setFilterCategory(e.target.value);
+                    setFilterTingkat("");
+                    setFilterCourseId("");
+                  }} 
+                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                >
                   <option value="">Semua Jenis Pelatihan</option>
                   <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
                   <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
                   <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
                   <option value="REFRESING">REFRESING</option>
+                  <option value="UJIAN UAD">Examination (UJIAN UAD)</option>
+                  <option value="LATIHAN UJIAN">Training Examination (LATIHAN UJIAN)</option>
                 </select>
               </div>
+              {(filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    {filterCategory === 'UJIAN UAD' ? 'Tingkat Ujian' : 'Tingkat Latihan'}
+                  </label>
+                  <select 
+                    value={filterTingkat} 
+                    onChange={e => {
+                      setFilterTingkat(e.target.value);
+                      setFilterCourseId("");
+                    }} 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Semua Tingkat</option>
+                    <option value="ANT I">ANT I</option>
+                    <option value="ATT I">ATT I</option>
+                    <option value="ANT II">ANT II</option>
+                    <option value="ATT II">ATT II</option>
+                    <option value="ANT III">ANT III</option>
+                    <option value="ATT III">ATT III</option>
+                    <option value="ANT IV">ANT IV</option>
+                    <option value="ATT IV">ATT IV</option>
+                    <option value="ANT V">ANT V</option>
+                    <option value="ATT V">ATT V</option>
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Sub Pelatihan</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  {filterCategory === 'UJIAN UAD' 
+                    ? 'Mata Ujian' 
+                    : filterCategory === 'LATIHAN UJIAN' 
+                    ? 'Mata Latihan' 
+                    : 'Sub Pelatihan'}
+                </label>
                 <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                  <option value="">Semua Sub Pelatihan</option>
+                  <option value="">
+                    {filterCategory === 'UJIAN UAD' 
+                      ? 'Semua Mata Ujian' 
+                      : filterCategory === 'LATIHAN UJIAN' 
+                      ? 'Semua Mata Latihan' 
+                      : 'Semua Sub Pelatihan'}
+                  </option>
                   {courses
-                    .filter(c => filterCategory ? c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing))) : true)
+                    .filter(c => {
+                      if (filterCategory) {
+                        const matchesCat = c.category === filterCategory || (filterCategory === 'REFRESING' && (c.is_refreshing || c.videos?.some((v: any) => v.is_refreshing) || c.assessments?.some((a: any) => a.is_refreshing)));
+                        if (!matchesCat) return false;
+                        if ((filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && filterTingkat) {
+                          return c.description === filterTingkat;
+                        }
+                        return true;
+                      }
+                      return true;
+                    })
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -2303,62 +2637,109 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
-
       {/* Add Course Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Add New Course</h3>
+              <h3 className="text-lg font-bold text-gray-900">
+                {newCourseCategory === "UJIAN UAD"
+                  ? "Add New Examination"
+                  : newCourseCategory === "LATIHAN UJIAN"
+                  ? "Add New Training Examination"
+                  : "Add New Course"}
+              </h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400 hover:text-gray-500">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleAddCourse} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Course Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {newCourseCategory === "UJIAN UAD"
+                    ? "Mata Ujian"
+                    : newCourseCategory === "LATIHAN UJIAN"
+                    ? "Mata Latihan"
+                    : "Course Name"}
+                </label>
                 <input
                   type="text"
                   required
                   value={newCourseName}
                   onChange={(e) => setNewCourseName(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="e.g. Introduction to React"
+                  placeholder={
+                    newCourseCategory === "UJIAN UAD"
+                      ? "Contoh: ILMU PELAYARAN, METEOROLOGI"
+                      : newCourseCategory === "LATIHAN UJIAN"
+                      ? "Contoh: DINAS JAGA, RADIOTELEFONI"
+                      : "e.g. Introduction to React"
+                  }
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
-                  required
-                  rows={3}
-                  value={newCourseDesc}
-                  onChange={(e) => setNewCourseDesc(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Course description..."
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {newCourseCategory === "UJIAN UAD"
+                    ? "Tingkat Ujian"
+                    : newCourseCategory === "LATIHAN UJIAN"
+                    ? "Tingkat Latihan"
+                    : "Description"}
+                </label>
+                {newCourseCategory === "UJIAN UAD" || newCourseCategory === "LATIHAN UJIAN" ? (
+                  <select
+                    required
+                    value={newCourseDesc}
+                    onChange={(e) => setNewCourseDesc(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="ANT I">ANT I</option>
+                    <option value="ATT I">ATT I</option>
+                    <option value="ANT II">ANT II</option>
+                    <option value="ATT II">ATT II</option>
+                    <option value="ANT III">ANT III</option>
+                    <option value="ATT III">ATT III</option>
+                    <option value="ANT IV">ANT IV</option>
+                    <option value="ATT IV">ATT IV</option>
+                    <option value="ANT V">ANT V</option>
+                    <option value="ATT V">ATT V</option>
+                  </select>
+                ) : (
+                  <textarea
+                    required
+                    rows={3}
+                    value={newCourseDesc}
+                    onChange={(e) => setNewCourseDesc(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Course description..."
+                  />
+                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Material Link (Optional)</label>
-                <input
-                  type="url"
-                  value={newCourseMaterialLink}
-                  onChange={(e) => setNewCourseMaterialLink(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="https://drive.google.com/..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Pelatihan</label>
-                <select
-                  value={newCourseCategory}
-                  onChange={(e) => setNewCourseCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
-                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
-                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
-                </select>
-              </div>
+              {newCourseCategory !== "UJIAN UAD" && newCourseCategory !== "LATIHAN UJIAN" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Material Link (Optional)</label>
+                    <input
+                      type="url"
+                      value={newCourseMaterialLink}
+                      onChange={(e) => setNewCourseMaterialLink(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="https://drive.google.com/..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Pelatihan</label>
+                    <select
+                      value={newCourseCategory}
+                      onChange={(e) => setNewCourseCategory(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                      <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                      <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                    </select>
+                  </div>
+                </>
+              )}
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -2371,7 +2752,11 @@ export default function AdminDashboard() {
                   type="submit"
                   className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
                 >
-                  Create Course
+                  {newCourseCategory === "UJIAN UAD"
+                    ? "Create Examination"
+                    : newCourseCategory === "LATIHAN UJIAN"
+                    ? "Create Training Examination"
+                    : "Create Course"}
                 </button>
               </div>
             </form>
@@ -2383,14 +2768,26 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Edit Course</h3>
+              <h3 className="text-lg font-bold text-gray-900">
+                {editCourseCategory === "UJIAN UAD"
+                  ? "Edit Examination"
+                  : editCourseCategory === "LATIHAN UJIAN"
+                  ? "Edit Training Examination"
+                  : "Edit Course"}
+              </h3>
               <button onClick={() => setIsEditModalOpen(false)} className="text-gray-400 hover:text-gray-500">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleEditCourse} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Course Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {editCourseCategory === "UJIAN UAD"
+                    ? "Mata Ujian"
+                    : editCourseCategory === "LATIHAN UJIAN"
+                    ? "Mata Latihan"
+                    : "Course Name"}
+                </label>
                 <input
                   type="text"
                   required
@@ -2400,36 +2797,66 @@ export default function AdminDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
-                  required
-                  value={editCourseDesc}
-                  onChange={(e) => setEditCourseDesc(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                  rows={3}
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {editCourseCategory === "UJIAN UAD"
+                    ? "Tingkat Ujian"
+                    : editCourseCategory === "LATIHAN UJIAN"
+                    ? "Tingkat Latihan"
+                    : "Description"}
+                </label>
+                {editCourseCategory === "UJIAN UAD" || editCourseCategory === "LATIHAN UJIAN" ? (
+                  <select
+                    required
+                    value={editCourseDesc}
+                    onChange={(e) => setEditCourseDesc(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="ANT I">ANT I</option>
+                    <option value="ATT I">ATT I</option>
+                    <option value="ANT II">ANT II</option>
+                    <option value="ATT II">ATT II</option>
+                    <option value="ANT III">ANT III</option>
+                    <option value="ATT III">ATT III</option>
+                    <option value="ANT IV">ANT IV</option>
+                    <option value="ATT IV">ATT IV</option>
+                    <option value="ANT V">ANT V</option>
+                    <option value="ATT V">ATT V</option>
+                  </select>
+                ) : (
+                  <textarea
+                    required
+                    value={editCourseDesc}
+                    onChange={(e) => setEditCourseDesc(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    rows={3}
+                  />
+                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Material Link (Optional)</label>
-                <input
-                  type="url"
-                  value={editCourseMaterialLink}
-                  onChange={(e) => setEditCourseMaterialLink(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Pelatihan</label>
-                <select
-                  value={editCourseCategory}
-                  onChange={(e) => setEditCourseCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
-                  <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
-                  <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
-                </select>
-              </div>
+              {editCourseCategory !== "UJIAN UAD" && editCourseCategory !== "LATIHAN UJIAN" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Material Link (Optional)</label>
+                    <input
+                      type="url"
+                      value={editCourseMaterialLink}
+                      onChange={(e) => setEditCourseMaterialLink(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Pelatihan</label>
+                    <select
+                      value={editCourseCategory}
+                      onChange={(e) => setEditCourseCategory(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>
+                      <option value="DIKLAT PENINGKATAN (PASIS)">DIKLAT PENINGKATAN (PASIS)</option>
+                      <option value="DIKLAT PEMBENTUKAN TARUNA">DIKLAT PEMBENTUKAN TARUNA</option>
+                    </select>
+                  </div>
+                </>
+              )}
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -2464,7 +2891,107 @@ export default function AdminDashboard() {
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-8">
+            {selectedCourse.category === "UJIAN UAD" || selectedCourse.category === "LATIHAN UJIAN" ? (
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl mx-auto w-full">
+                {(() => {
+                  const matchedAssessment = selectedCourse.assessments?.find((a: any) => !a.video_id && a.title === selectedCourse.category);
+                  return matchedAssessment ? (
+                    <div className="flex flex-col gap-4">
+                      <div className={`${selectedCourse.category === "UJIAN UAD" ? "bg-indigo-50 border-indigo-200 text-indigo-800" : "bg-amber-50 border-amber-200 text-amber-800"} border rounded-lg p-4 flex flex-col gap-3`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className={`font-bold ${selectedCourse.category === "UJIAN UAD" ? "text-indigo-900" : "text-amber-900"}`}>{selectedCourse.category} Configured</p>
+                            <p className="text-sm mt-1">Passing Grade: {matchedAssessment.passing_score} | Duration: {matchedAssessment.duration_minutes}m</p>
+                            <p className="text-sm mt-1">
+                              Mandatory: {matchedAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {matchedAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {matchedAssessment.show_one_by_one ? 'Yes' : 'No'}
+                            </p>
+                            <p className="text-sm mt-1 text-red-600 font-medium font-mono font-bold">Strict Mode: {matchedAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {matchedAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {matchedAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                          <button onClick={downloadTemplate} className={`flex-1 px-3 py-2 bg-white border ${selectedCourse.category === "UJIAN UAD" ? "border-indigo-300 text-indigo-700 hover:bg-indigo-100" : "border-amber-300 text-amber-950 hover:bg-amber-100"} rounded text-sm font-medium flex items-center justify-center gap-2`}>
+                            <Download className="w-4 h-4" /> Template
+                          </button>
+                          <button onClick={() => {
+                            setUploadingAssessmentId(matchedAssessment.id);
+                            fileInputRef.current?.click();
+                          }} className={`flex-1 px-3 py-2 ${selectedCourse.category === "UJIAN UAD" ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-amber-600 hover:bg-amber-700 text-white"} rounded text-sm font-medium flex items-center justify-center gap-2`}>
+                            <Upload className="w-4 h-4" /> Import CSV
+                          </button>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            if (viewingQuestionsForAssessmentId === matchedAssessment.id) {
+                              setViewingQuestionsForAssessmentId(null);
+                            } else {
+                              setViewingQuestionsForAssessmentId(matchedAssessment.id);
+                              supabase.from('questions').select('*').eq('assessment_id', matchedAssessment.id).order('order_num', { ascending: true })
+                                .then(({ data }) => setAssessmentQuestions(data || []));
+                            }
+                          }} 
+                          className={`w-full mt-2 px-3 py-2 bg-white border ${selectedCourse.category === "UJIAN UAD" ? "border-indigo-300 text-indigo-700 hover:bg-indigo-100" : "border-amber-300 text-amber-950 hover:bg-amber-100"} rounded text-sm font-medium transition-colors`}
+                        >
+                          {viewingQuestionsForAssessmentId === matchedAssessment.id ? 'Hide Questions' : 'View Questions'}
+                        </button>
+                      </div>
+
+                      {viewingQuestionsForAssessmentId === matchedAssessment.id && (
+                        renderQuestionsEditor(matchedAssessment.id)
+                      )}
+                    </div>
+                  ) : isCreatingAssessment && creatingAssessmentForVideoId === null ? (
+                    <form onSubmit={handleCreateAssessment} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+                      <div className="font-bold text-sm text-indigo-950 border-b pb-1">Creating {selectedCourse.category} Assessment</div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700">Passing Grade (0-100)</label>
+                        <input type="number" min="0" max="100" value={passingGrade} onChange={e => setPassingGrade(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
+                        <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
+                        <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded" />
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="isMandatoryExam" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <label htmlFor="isMandatoryExam" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="isStrictModeExam" checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <label htmlFor="isStrictModeExam" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab, Anti-Screenshot, dll)</label>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="isRandomizedExam" checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <label htmlFor="isRandomizedExam" className="text-xs font-medium text-gray-700">Acak Urutan Soal (Sistem Otomatis)</label>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="showOneByOneExam" checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <label htmlFor="showOneByOneExam" className="text-xs font-medium text-gray-700">Tampilkan Soal Per Satuan (Satu per satu)</label>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="preventCopypasteExam" checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <label htmlFor="preventCopypasteExam" className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="preventSplitScreenExam" checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <label htmlFor="preventSplitScreenExam" className="text-xs font-medium text-gray-700">Anti Split Screen (Full-Screen & Diskualifikasi Ke-2)</label>
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button type="button" onClick={() => setIsCreatingAssessment(false)} className="flex-1 py-1.5 bg-gray-200 rounded text-sm font-medium">Cancel</button>
+                        <button type="submit" className="flex-1 py-1.5 bg-indigo-600 text-white rounded text-sm font-medium">Save</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button onClick={() => { setIsCreatingAssessment(true); setCreatingAssessmentForVideoId(null); setCreatingAssessmentTitle(selectedCourse.category); setAudioLink(""); setIsMandatory(selectedCourse.category === 'UJIAN UAD'); }} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 font-medium hover:border-indigo-500 hover:text-indigo-600 transition-colors">
+                      + Create {selectedCourse.category} Assessment
+                    </button>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-8">
               {/* Left Column: Existing Videos & Material Link */}
               <div className="flex-1 space-y-8">
                 {/* Global Refreshing Config */}
@@ -3131,6 +3658,7 @@ export default function AdminDashboard() {
                 </form>
               </div>
             </div>
+            )}
           </div>
         </div>
       )}
