@@ -71,6 +71,7 @@ export default function AdminDashboard() {
   const [preventCopypaste, setPreventCopypaste] = useState(false);
   const [preventSplitScreen, setPreventSplitScreen] = useState(false);
   const [uploadingAssessmentId, setUploadingAssessmentId] = useState<string | null>(null);
+  const [editingAssessmentId, setEditingAssessmentId] = useState<string | null>(null);
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
 
   // Manual Question & Image State
@@ -909,6 +910,46 @@ export default function AdminDashboard() {
       } else {
         alert("Failed to create assessment: " + error.message);
       }
+    }
+  };
+
+  const handleUpdateAssessment = async (e: React.FormEvent, assessmentId: string) => {
+    e.preventDefault();
+    if (!selectedCourse) return;
+
+    const payload: any = {
+      passing_score: passingGrade,
+      duration_minutes: durationMinutes,
+      is_mandatory: isMandatory,
+      is_strict_mode: isStrictMode,
+      is_randomized: isRandomized,
+      show_one_by_one: showOneByOne,
+      prevent_copypaste: preventCopypaste,
+      prevent_split_screen: preventSplitScreen,
+      audio_link: audioLink || null
+    };
+
+    const { error } = await supabase
+      .from('assessments')
+      .update(payload)
+      .eq('id', assessmentId);
+
+    if (!error) {
+      setEditingAssessmentId(null);
+      setAudioLink("");
+      fetchCourses();
+      const { data } = await supabase
+        .from('courses')
+        .select('*, videos(*), assessments(*)')
+        .eq('id', selectedCourse.id)
+        .single();
+        
+      if (data) {
+        setSelectedCourse({ ...data, assessments: data.assessments || [] });
+      }
+    } else {
+      console.error("Failed to update assessment:", error);
+      alert("Failed to update assessment: " + error.message);
     }
   };
 
@@ -2881,6 +2922,7 @@ export default function AdminDashboard() {
       {isManageModalOpen && selectedCourse && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
             <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Kelola Konten: {selectedCourse.name}</h3>
@@ -2897,43 +2939,114 @@ export default function AdminDashboard() {
                   const matchedAssessment = selectedCourse.assessments?.find((a: any) => !a.video_id && a.title === selectedCourse.category);
                   return matchedAssessment ? (
                     <div className="flex flex-col gap-4">
-                      <div className={`${selectedCourse.category === "UJIAN UAD" ? "bg-indigo-50 border-indigo-200 text-indigo-800" : "bg-amber-50 border-amber-200 text-amber-800"} border rounded-lg p-4 flex flex-col gap-3`}>
-                        <div className="flex items-center justify-between">
+                      {editingAssessmentId === matchedAssessment.id ? (
+                        <form onSubmit={(e) => handleUpdateAssessment(e, matchedAssessment.id)} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3 text-gray-900">
+                          <div className={`font-bold text-sm border-b pb-1 ${selectedCourse.category === 'UJIAN UAD' ? 'text-indigo-950 border-indigo-200' : 'text-amber-950 border-amber-200'}`}>Edit {selectedCourse.category} Settings</div>
                           <div>
-                            <p className={`font-bold ${selectedCourse.category === "UJIAN UAD" ? "text-indigo-900" : "text-amber-900"}`}>{selectedCourse.category} Configured</p>
-                            <p className="text-sm mt-1">Passing Grade: {matchedAssessment.passing_score} | Duration: {matchedAssessment.duration_minutes}m</p>
-                            <p className="text-sm mt-1">
-                              Mandatory: {matchedAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {matchedAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {matchedAssessment.show_one_by_one ? 'Yes' : 'No'}
-                            </p>
-                            <p className="text-sm mt-1 text-red-600 font-medium font-mono font-bold">Strict Mode: {matchedAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {matchedAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {matchedAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
+                            <label className="block text-xs font-medium text-gray-700">Passing Grade (0-100)</label>
+                            <input type="number" min="0" max="100" value={passingGrade} onChange={e => setPassingGrade(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                           </div>
-                        </div>
-                        <div className="flex gap-2 mt-2">
-                          <button onClick={downloadTemplate} className={`flex-1 px-3 py-2 bg-white border ${selectedCourse.category === "UJIAN UAD" ? "border-indigo-300 text-indigo-700 hover:bg-indigo-100" : "border-amber-300 text-amber-950 hover:bg-amber-100"} rounded text-sm font-medium flex items-center justify-center gap-2`}>
-                            <Download className="w-4 h-4" /> Template
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
+                            <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
+                            <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="checkbox" id="isMandatoryExamEdit" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                            <label htmlFor="isMandatoryExamEdit" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="checkbox" id="isStrictModeExamEdit" checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                            <label htmlFor="isStrictModeExamEdit" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab, Anti-Screenshot, dll)</label>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="checkbox" id="isRandomizedExamEdit" checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                            <label htmlFor="isRandomizedExamEdit" className="text-xs font-medium text-gray-700">Acak Urutan Soal (Sistem Otomatis)</label>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="checkbox" id="showOneByOneExamEdit" checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                            <label htmlFor="showOneByOneExamEdit" className="text-xs font-medium text-gray-700">Tampilkan Soal Per Satuan (Satu per satu)</label>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="checkbox" id="preventCopypasteExamEdit" checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                            <label htmlFor="preventCopypasteExamEdit" className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="checkbox" id="preventSplitScreenExamEdit" checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                            <label htmlFor="preventSplitScreenExamEdit" className="text-xs font-medium text-gray-700">Anti Split Screen (Full-Screen & Diskualifikasi Ke-2)</label>
+                          </div>
+                          <div className="flex gap-2 pt-2">
+                            <button type="button" onClick={() => setEditingAssessmentId(null)} className="flex-1 py-1.5 bg-gray-200 rounded text-sm font-medium hover:bg-gray-300">Cancel</button>
+                            <button type="submit" className={`flex-1 py-1.5 text-white rounded text-sm font-medium ${selectedCourse.category === 'UJIAN UAD' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'}`}>Save</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className={`${selectedCourse.category === "UJIAN UAD" ? "bg-indigo-50 border-indigo-200 text-indigo-800" : "bg-amber-50 border-amber-200 text-amber-800"} border rounded-lg p-4 flex flex-col gap-3`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className={`font-bold ${selectedCourse.category === "UJIAN UAD" ? "text-indigo-900" : "text-amber-900"}`}>{selectedCourse.category} Configured</p>
+                              <p className="text-sm mt-1">Passing Grade: {matchedAssessment.passing_score} | Duration: {matchedAssessment.duration_minutes}m</p>
+                              <p className="text-sm mt-1">
+                                Mandatory: {matchedAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {matchedAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {matchedAssessment.show_one_by_one ? 'Yes' : 'No'}
+                              </p>
+                              <p className="text-sm mt-1 text-red-600 font-medium font-mono font-bold">Strict Mode: {matchedAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {matchedAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {matchedAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => {
+                                  setPassingGrade(matchedAssessment.passing_score || 70);
+                                  setDurationMinutes(matchedAssessment.duration_minutes || 60);
+                                  setAudioLink(matchedAssessment.audio_link || "");
+                                  setIsMandatory(matchedAssessment.is_mandatory !== false);
+                                  setIsStrictMode(!!matchedAssessment.is_strict_mode);
+                                  setIsRandomized(!!matchedAssessment.is_randomized);
+                                  setShowOneByOne(!!matchedAssessment.show_one_by_one);
+                                  setPreventCopypaste(!!matchedAssessment.prevent_copypaste);
+                                  setPreventSplitScreen(!!matchedAssessment.prevent_split_screen);
+                                  setEditingAssessmentId(matchedAssessment.id);
+                                }}
+                                className={`px-2.5 py-1 text-xs font-semibold border rounded transition-colors whitespace-nowrap bg-white ${selectedCourse.category === 'UJIAN UAD' ? 'text-indigo-700 border-indigo-300 hover:bg-indigo-50' : 'text-amber-800 border-amber-300 hover:bg-amber-50'}`}
+                              >
+                                Edit Settings
+                              </button>
+                              <button
+                                onClick={() => handleDeleteAssessment(matchedAssessment.id)}
+                                className="text-red-500 hover:text-red-700 text-xs font-semibold border border-red-200 hover:border-red-500 rounded px-2.5 py-1 transition-colors bg-white whitespace-nowrap"
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={downloadTemplate} className={`flex-1 px-3 py-2 bg-white border ${selectedCourse.category === "UJIAN UAD" ? "border-indigo-300 text-indigo-700 hover:bg-indigo-100" : "border-amber-300 text-amber-950 hover:bg-amber-100"} rounded text-sm font-medium flex items-center justify-center gap-2`}>
+                              <Download className="w-4 h-4" /> Template
+                            </button>
+                            <button onClick={() => {
+                              setUploadingAssessmentId(matchedAssessment.id);
+                              fileInputRef.current?.click();
+                            }} className={`flex-1 px-3 py-2 ${selectedCourse.category === "UJIAN UAD" ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-amber-600 hover:bg-amber-700 text-white"} rounded text-sm font-medium flex items-center justify-center gap-2`}>
+                              <Upload className="w-4 h-4" /> Import CSV
+                            </button>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              if (viewingQuestionsForAssessmentId === matchedAssessment.id) {
+                                setViewingQuestionsForAssessmentId(null);
+                              } else {
+                                setViewingQuestionsForAssessmentId(matchedAssessment.id);
+                                supabase.from('questions').select('*').eq('assessment_id', matchedAssessment.id).order('order_num', { ascending: true })
+                                  .then(({ data }) => setAssessmentQuestions(data || []));
+                              }
+                            }} 
+                            className={`w-full mt-2 px-3 py-2 bg-white border ${selectedCourse.category === "UJIAN UAD" ? "border-indigo-300 text-indigo-700 hover:bg-indigo-100" : "border-amber-300 text-amber-950 hover:bg-amber-100"} rounded text-sm font-medium transition-colors`}
+                          >
+                            {viewingQuestionsForAssessmentId === matchedAssessment.id ? 'Hide Questions' : 'View Questions'}
                           </button>
-                          <button onClick={() => {
-                            setUploadingAssessmentId(matchedAssessment.id);
-                            fileInputRef.current?.click();
-                          }} className={`flex-1 px-3 py-2 ${selectedCourse.category === "UJIAN UAD" ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-amber-600 hover:bg-amber-700 text-white"} rounded text-sm font-medium flex items-center justify-center gap-2`}>
-                            <Upload className="w-4 h-4" /> Import CSV
-                          </button>
                         </div>
-                        <button 
-                          onClick={() => {
-                            if (viewingQuestionsForAssessmentId === matchedAssessment.id) {
-                              setViewingQuestionsForAssessmentId(null);
-                            } else {
-                              setViewingQuestionsForAssessmentId(matchedAssessment.id);
-                              supabase.from('questions').select('*').eq('assessment_id', matchedAssessment.id).order('order_num', { ascending: true })
-                                .then(({ data }) => setAssessmentQuestions(data || []));
-                            }
-                          }} 
-                          className={`w-full mt-2 px-3 py-2 bg-white border ${selectedCourse.category === "UJIAN UAD" ? "border-indigo-300 text-indigo-700 hover:bg-indigo-100" : "border-amber-300 text-amber-950 hover:bg-amber-100"} rounded text-sm font-medium transition-colors`}
-                        >
-                          {viewingQuestionsForAssessmentId === matchedAssessment.id ? 'Hide Questions' : 'View Questions'}
-                        </button>
-                      </div>
+                      )}
 
                       {viewingQuestionsForAssessmentId === matchedAssessment.id && (
                         renderQuestionsEditor(matchedAssessment.id)
@@ -3157,7 +3270,6 @@ export default function AdminDashboard() {
                                   }} className="flex-1 px-2 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center justify-center gap-1">
                                     <Upload className="w-3 h-3" /> Import CSV
                                   </button>
-                                  <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                                   <button 
                                     onClick={() => {
                                       if (viewingQuestionsForAssessmentId === videoAssessment.id) {
@@ -3249,46 +3361,114 @@ export default function AdminDashboard() {
                           const ujianAssessment = selectedCourse.assessments?.find((a: any) => !a.video_id && a.title === 'UJIAN UAD');
                           return ujianAssessment ? (
                             <div className="flex flex-col gap-4">
-                              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-indigo-800 flex flex-col gap-3">
-                                <div className="flex items-center justify-between">
+                              {editingAssessmentId === ujianAssessment.id ? (
+                                <form onSubmit={(e) => handleUpdateAssessment(e, ujianAssessment.id)} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3 text-gray-900">
+                                  <div className="font-bold text-sm border-b pb-1 text-indigo-950 border-indigo-200">Edit UJIAN UAD Settings</div>
                                   <div>
-                                    <p className="font-bold text-indigo-900">UJIAN UAD Configured</p>
-                                    <p className="text-sm mt-1">Passing Grade: {ujianAssessment.passing_score} | Duration: {ujianAssessment.duration_minutes}m</p>
-                                    <p className="text-sm mt-1 text-gray-700">
-                                      Mandatory: {ujianAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {ujianAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {ujianAssessment.show_one_by_one ? 'Yes' : 'No'}
-                                    </p>
-                                    <p className="text-sm mt-1 text-red-600 font-medium font-mono">Strict Mode: {ujianAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {ujianAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {ujianAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
+                                    <label className="block text-xs font-medium text-gray-700">Passing Grade (0-100)</label>
+                                    <input type="number" min="0" max="100" value={passingGrade} onChange={e => setPassingGrade(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                                   </div>
-                                  <button onClick={() => handleDeleteAssessment(ujianAssessment.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold border border-red-200 hover:border-red-500 rounded px-2.5 py-1 transition-colors">
-                                    Hapus
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
+                                    <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
+                                    <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="isMandatoryExamEditUAD" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="isMandatoryExamEditUAD" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="isStrictModeExamEditUAD" checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="isStrictModeExamEditUAD" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab, Anti-Screenshot, dll)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="isRandomizedExamEditUAD" checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="isRandomizedExamEditUAD" className="text-xs font-medium text-gray-700">Acak Urutan Soal (Sistem Otomatis)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="showOneByOneExamEditUAD" checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="showOneByOneExamEditUAD" className="text-xs font-medium text-gray-700">Tampilkan Soal Per Satuan (Satu per satu)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="preventCopypasteExamEditUAD" checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="preventCopypasteExamEditUAD" className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="preventSplitScreenExamEditUAD" checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="preventSplitScreenExamEditUAD" className="text-xs font-medium text-gray-700">Anti Split Screen (Full-Screen & Diskualifikasi Ke-2)</label>
+                                  </div>
+                                  <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setEditingAssessmentId(null)} className="flex-1 py-1.5 bg-gray-200 rounded text-sm font-medium hover:bg-gray-300">Cancel</button>
+                                    <button type="submit" className="flex-1 py-1.5 text-white rounded text-sm font-medium bg-indigo-600 hover:bg-indigo-700">Save</button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-indigo-800 flex flex-col gap-3">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="font-bold text-indigo-900">UJIAN UAD Configured</p>
+                                      <p className="text-sm mt-1">Passing Grade: {ujianAssessment.passing_score} | Duration: {ujianAssessment.duration_minutes}m</p>
+                                      <p className="text-sm mt-1 text-gray-700">
+                                        Mandatory: {ujianAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {ujianAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {ujianAssessment.show_one_by_one ? 'Yes' : 'No'}
+                                      </p>
+                                      <p className="text-sm mt-1 text-red-600 font-medium font-mono">Strict Mode: {ujianAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {ujianAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {ujianAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                      <button
+                                        onClick={() => {
+                                          setPassingGrade(ujianAssessment.passing_score || 70);
+                                          setDurationMinutes(ujianAssessment.duration_minutes || 60);
+                                          setAudioLink(ujianAssessment.audio_link || "");
+                                          setIsMandatory(ujianAssessment.is_mandatory !== false);
+                                          setIsStrictMode(!!ujianAssessment.is_strict_mode);
+                                          setIsRandomized(!!ujianAssessment.is_randomized);
+                                          setShowOneByOne(!!ujianAssessment.show_one_by_one);
+                                          setPreventCopypaste(!!ujianAssessment.prevent_copypaste);
+                                          setPreventSplitScreen(!!ujianAssessment.prevent_split_screen);
+                                          setEditingAssessmentId(ujianAssessment.id);
+                                        }}
+                                        className="px-2.5 py-1 text-xs font-semibold border rounded transition-colors bg-white border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                      >
+                                        Edit Settings
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteAssessment(ujianAssessment.id)} 
+                                        className="text-red-500 hover:text-red-700 text-xs font-semibold border border-red-200 hover:border-red-500 rounded px-2.5 py-1 transition-colors bg-white whitespace-nowrap"
+                                      >
+                                        Hapus
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 mt-2">
+                                    <button onClick={downloadTemplate} className="flex-1 px-3 py-2 bg-white border border-indigo-300 rounded text-sm font-medium hover:bg-indigo-100 flex items-center justify-center gap-2">
+                                      <Download className="w-4 h-4" /> Template
+                                    </button>
+                                    <button onClick={() => {
+                                      setUploadingAssessmentId(ujianAssessment.id);
+                                      fileInputRef.current?.click();
+                                    }} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
+                                      <Upload className="w-4 h-4" /> Import CSV
+                                    </button>
+                                  </div>
+                                  <button 
+                                    onClick={() => {
+                                      if (viewingQuestionsForAssessmentId === ujianAssessment.id) {
+                                        setViewingQuestionsForAssessmentId(null);
+                                      } else {
+                                        setViewingQuestionsForAssessmentId(ujianAssessment.id);
+                                        supabase.from('questions').select('*').eq('assessment_id', ujianAssessment.id).order('order_num', { ascending: true })
+                                          .then(({ data }) => setAssessmentQuestions(data || []));
+                                      }
+                                    }} 
+                                    className="w-full mt-2 px-3 py-2 bg-white border border-indigo-300 rounded text-sm font-medium hover:bg-indigo-100 transition-colors text-indigo-700"
+                                  >
+                                    {viewingQuestionsForAssessmentId === ujianAssessment.id ? 'Hide Questions' : 'View Questions'}
                                   </button>
                                 </div>
-                                <div className="flex gap-2 mt-2">
-                                  <button onClick={downloadTemplate} className="flex-1 px-3 py-2 bg-white border border-indigo-300 rounded text-sm font-medium hover:bg-indigo-100 flex items-center justify-center gap-2">
-                                    <Download className="w-4 h-4" /> Template
-                                  </button>
-                                  <button onClick={() => {
-                                    setUploadingAssessmentId(ujianAssessment.id);
-                                    fileInputRef.current?.click();
-                                  }} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                                    <Upload className="w-4 h-4" /> Import CSV
-                                  </button>
-                                </div>
-                                <button 
-                                  onClick={() => {
-                                    if (viewingQuestionsForAssessmentId === ujianAssessment.id) {
-                                      setViewingQuestionsForAssessmentId(null);
-                                    } else {
-                                      setViewingQuestionsForAssessmentId(ujianAssessment.id);
-                                      supabase.from('questions').select('*').eq('assessment_id', ujianAssessment.id).order('order_num', { ascending: true })
-                                        .then(({ data }) => setAssessmentQuestions(data || []));
-                                    }
-                                  }} 
-                                  className="w-full mt-2 px-3 py-2 bg-white border border-indigo-300 rounded text-sm font-medium hover:bg-indigo-100 transition-colors text-indigo-700"
-                                >
-                                  {viewingQuestionsForAssessmentId === ujianAssessment.id ? 'Hide Questions' : 'View Questions'}
-                                </button>
-                              </div>
+                              )}
 
                               {viewingQuestionsForAssessmentId === ujianAssessment.id && (
                                 renderQuestionsEditor(ujianAssessment.id)
@@ -3355,46 +3535,114 @@ export default function AdminDashboard() {
                           const latihanAssessment = selectedCourse.assessments?.find((a: any) => !a.video_id && a.title === 'LATIHAN UJIAN');
                           return latihanAssessment ? (
                             <div className="flex flex-col gap-4">
-                              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800 flex flex-col gap-3">
-                                <div className="flex items-center justify-between">
+                              {editingAssessmentId === latihanAssessment.id ? (
+                                <form onSubmit={(e) => handleUpdateAssessment(e, latihanAssessment.id)} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3 text-gray-900">
+                                  <div className="font-bold text-sm border-b pb-1 text-amber-950 border-amber-200">Edit LATIHAN UJIAN Settings</div>
                                   <div>
-                                    <p className="font-bold text-amber-900">LATIHAN UJIAN Configured</p>
-                                    <p className="text-sm mt-1">Passing Grade: {latihanAssessment.passing_score} | Duration: {latihanAssessment.duration_minutes}m</p>
-                                    <p className="text-sm mt-1 text-gray-700">
-                                      Mandatory: {latihanAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {latihanAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {latihanAssessment.show_one_by_one ? 'Yes' : 'No'}
-                                    </p>
-                                    <p className="text-xs text-amber-800 italic mt-1 font-semibold">Note: Jawaban Benar akan ditunjukkan kepada peserta per-soal secara langsung.</p>
+                                    <label className="block text-xs font-medium text-gray-700">Passing Grade (0-100)</label>
+                                    <input type="number" min="0" max="100" value={passingGrade} onChange={e => setPassingGrade(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                                   </div>
-                                  <button onClick={() => handleDeleteAssessment(latihanAssessment.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold border border-red-200 hover:border-red-500 rounded px-2.5 py-1 transition-colors">
-                                    Hapus
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
+                                    <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
+                                    <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="isMandatoryExamEditLatihan" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="isMandatoryExamEditLatihan" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="isStrictModeExamEditLatihan" checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="isStrictModeExamEditLatihan" className="text-xs font-medium text-gray-700">Aktifkan Strict Mode (Kunci Tab, Anti-Screenshot, dll)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="isRandomizedExamEditLatihan" checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="isRandomizedExamEditLatihan" className="text-xs font-medium text-gray-700">Acak Urutan Soal (Sistem Otomatis)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="showOneByOneExamEditLatihan" checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="showOneByOneExamEditLatihan" className="text-xs font-medium text-gray-700">Tampilkan Soal Per Satuan (Satu per satu)</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="preventCopypasteExamEditLatihan" checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="preventCopypasteExamEditLatihan" className="text-xs font-medium text-gray-700">Cegah Copy-Paste & Screenshot</label>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" id="preventSplitScreenExamEditLatihan" checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                    <label htmlFor="preventSplitScreenExamEditLatihan" className="text-xs font-medium text-gray-700">Anti Split Screen (Full-Screen & Diskualifikasi Ke-2)</label>
+                                  </div>
+                                  <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setEditingAssessmentId(null)} className="flex-1 py-1.5 bg-gray-200 rounded text-sm font-medium hover:bg-gray-300">Cancel</button>
+                                    <button type="submit" className="flex-1 py-1.5 text-white rounded text-sm font-medium bg-amber-600 hover:bg-amber-700">Save</button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800 flex flex-col gap-3">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="font-bold text-amber-900">LATIHAN UJIAN Configured</p>
+                                      <p className="text-sm mt-1">Passing Grade: {latihanAssessment.passing_score} | Duration: {latihanAssessment.duration_minutes}m</p>
+                                      <p className="text-sm mt-1 text-gray-700">
+                                        Mandatory: {latihanAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {latihanAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {latihanAssessment.show_one_by_one ? 'Yes' : 'No'}
+                                      </p>
+                                      <p className="text-xs text-amber-800 italic mt-1 font-semibold">Note: Jawaban Benar akan ditunjukkan kepada peserta per-soal secara langsung.</p>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                      <button
+                                        onClick={() => {
+                                          setPassingGrade(latihanAssessment.passing_score || 70);
+                                          setDurationMinutes(latihanAssessment.duration_minutes || 60);
+                                          setAudioLink(latihanAssessment.audio_link || "");
+                                          setIsMandatory(latihanAssessment.is_mandatory !== false);
+                                          setIsStrictMode(!!latihanAssessment.is_strict_mode);
+                                          setIsRandomized(!!latihanAssessment.is_randomized);
+                                          setShowOneByOne(!!latihanAssessment.show_one_by_one);
+                                          setPreventCopypaste(!!latihanAssessment.prevent_copypaste);
+                                          setPreventSplitScreen(!!latihanAssessment.prevent_split_screen);
+                                          setEditingAssessmentId(latihanAssessment.id);
+                                        }}
+                                        className="px-2.5 py-1 text-xs font-semibold border rounded transition-colors bg-white border-amber-300 text-amber-700 hover:bg-amber-50"
+                                      >
+                                        Edit Settings
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteAssessment(latihanAssessment.id)} 
+                                        className="text-red-500 hover:text-red-700 text-xs font-semibold border border-red-200 hover:border-red-500 rounded px-2.5 py-1 transition-colors bg-white whitespace-nowrap"
+                                      >
+                                        Hapus
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 mt-2">
+                                    <button onClick={downloadTemplate} className="flex-1 px-3 py-2 bg-white border border-amber-300 rounded text-sm font-medium hover:bg-amber-100 flex items-center justify-center gap-2">
+                                      <Download className="w-4 h-4" /> Template
+                                    </button>
+                                    <button onClick={() => {
+                                      setUploadingAssessmentId(latihanAssessment.id);
+                                      fileInputRef.current?.click();
+                                    }} className="flex-1 px-3 py-2 bg-amber-600 text-white rounded text-sm font-medium hover:bg-amber-700 flex items-center justify-center gap-2">
+                                      <Upload className="w-4 h-4" /> Import CSV
+                                    </button>
+                                  </div>
+                                  <button 
+                                    onClick={() => {
+                                      if (viewingQuestionsForAssessmentId === latihanAssessment.id) {
+                                        setViewingQuestionsForAssessmentId(null);
+                                      } else {
+                                        setViewingQuestionsForAssessmentId(latihanAssessment.id);
+                                        supabase.from('questions').select('*').eq('assessment_id', latihanAssessment.id).order('order_num', { ascending: true })
+                                          .then(({ data }) => setAssessmentQuestions(data || []));
+                                      }
+                                    }} 
+                                    className="w-full mt-2 px-3 py-2 bg-white border border-amber-300 rounded text-sm font-medium hover:bg-amber-100 transition-colors text-amber-950"
+                                  >
+                                    {viewingQuestionsForAssessmentId === latihanAssessment.id ? 'Hide Questions' : 'View Questions'}
                                   </button>
                                 </div>
-                                <div className="flex gap-2 mt-2">
-                                  <button onClick={downloadTemplate} className="flex-1 px-3 py-2 bg-white border border-amber-300 rounded text-sm font-medium hover:bg-amber-100 flex items-center justify-center gap-2">
-                                    <Download className="w-4 h-4" /> Template
-                                  </button>
-                                  <button onClick={() => {
-                                    setUploadingAssessmentId(latihanAssessment.id);
-                                    fileInputRef.current?.click();
-                                  }} className="flex-1 px-3 py-2 bg-amber-600 text-white rounded text-sm font-medium hover:bg-amber-700 flex items-center justify-center gap-2">
-                                    <Upload className="w-4 h-4" /> Import CSV
-                                  </button>
-                                </div>
-                                <button 
-                                  onClick={() => {
-                                    if (viewingQuestionsForAssessmentId === latihanAssessment.id) {
-                                      setViewingQuestionsForAssessmentId(null);
-                                    } else {
-                                      setViewingQuestionsForAssessmentId(latihanAssessment.id);
-                                      supabase.from('questions').select('*').eq('assessment_id', latihanAssessment.id).order('order_num', { ascending: true })
-                                        .then(({ data }) => setAssessmentQuestions(data || []));
-                                    }
-                                  }} 
-                                  className="w-full mt-2 px-3 py-2 bg-white border border-amber-300 rounded text-sm font-medium hover:bg-amber-100 transition-colors text-amber-950"
-                                >
-                                  {viewingQuestionsForAssessmentId === latihanAssessment.id ? 'Hide Questions' : 'View Questions'}
-                                </button>
-                              </div>
+                              )}
 
                               {viewingQuestionsForAssessmentId === latihanAssessment.id && (
                                 renderQuestionsEditor(latihanAssessment.id)
@@ -3524,7 +3772,6 @@ export default function AdminDashboard() {
                                 }} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
                                   <Upload className="w-4 h-4" /> Import CSV
                                 </button>
-                                <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                               </div>
                               <button 
                                 onClick={() => {
