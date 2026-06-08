@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
 import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -202,11 +202,25 @@ export default function AdminDashboard() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterTingkat, setFilterTingkat] = useState("");
   const [filterCourseId, setFilterCourseId] = useState("");
+  const [filterMataKuliah, setFilterMataKuliah] = useState("");
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd] = useState("");
   const [filterClassName, setFilterClassName] = useState("");
   const [filterActivityStart, setFilterActivityStart] = useState("");
   const [filterActivityEnd, setFilterActivityEnd] = useState("");
+
+  const availableMataKuliahs = useMemo(() => {
+    if (!filterCourseId) return [];
+    const selected = courses.find(c => c.id === filterCourseId);
+    if (!selected?.videos) return [];
+    const subjects = new Set<string>();
+    selected.videos.forEach((v: any) => {
+      if (v.mata_kuliah) {
+        subjects.add(v.mata_kuliah.toUpperCase().trim());
+      }
+    });
+    return Array.from(subjects).sort();
+  }, [filterCourseId, courses]);
 
   // Photo Modal State
   const [photoModalData, setPhotoModalData] = useState<{live: string | null, initial: string | null, ktp: string | null, attendances: string[]} | null>(null);
@@ -337,7 +351,7 @@ export default function AdminDashboard() {
     ]);
     
     // Fetch total videos per course to calculate accurate percentage
-    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num').order('order_num', { ascending: true }).limit(10000);
+    const { data: allVideos } = await supabase.from('videos').select('id, title, course_id, order_num, mata_kuliah').order('order_num', { ascending: true }).limit(10000);
     const videoCountByCourse: Record<string, number> = {};
     if (allVideos) {
       allVideos.forEach(v => {
@@ -372,6 +386,11 @@ export default function AdminDashboard() {
         const scoreLines: string[] = [];
         const statusLines: string[] = [];
 
+        let courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
+        if (en.courses?.category === 'DIKLAT PENINGKATAN (PASIS)' && en.mata_kuliah) {
+          courseVideos = courseVideos.filter(v => v.mata_kuliah?.toUpperCase().trim() === en.mata_kuliah?.toUpperCase().trim());
+        }
+
         resultsByAssessment.forEach((results, assessmentId) => {
           // Sort results by created_at to get attempts in order
           results.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -381,7 +400,13 @@ export default function AdminDashboard() {
           if (assessment) {
             if (assessment.video_id) {
               const video = allVideos?.find(v => v.id === assessment.video_id);
-              label = video ? `Ass. Part ${video.order_num}` : 'Video Assessment';
+              if (video) {
+                const filteredIdx = courseVideos.findIndex(cv => cv.id === video.id);
+                const displayNum = filteredIdx !== -1 ? (filteredIdx + 1) : video.order_num;
+                label = `Ass. Part ${displayNum}`;
+              } else {
+                label = 'Video Assessment';
+              }
             } else {
               label = assessment.title || 'Final Ass.';
             }
@@ -422,12 +447,11 @@ export default function AdminDashboard() {
         });
         const uniqueUserVp = Array.from(uniqueUserVpMap.values());
 
-        const courseVideos = allVideos?.filter(v => v.course_id === en.course_id) || [];
-        const videoBreakdown = courseVideos.map(v => {
+        const videoBreakdown = courseVideos.map((v, idx) => {
           const vp = uniqueUserVpMap.get(v.id);
           const pct = vp ? (vp.progress_percentage || (vp.completed ? 100 : 0)) : 0;
           const isCompleted = vp ? (vp.completed || (vp.progress_percentage || 0) >= 90) : false;
-          return `Part ${v.order_num}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
+          return `Part ${idx + 1}: ${Math.round(pct)}% ${isCompleted ? '(Selesai)' : ''}`;
         }).join('\n');
 
         const totalVideosForCourse = courseVideos.length;
@@ -1029,6 +1053,9 @@ export default function AdminDashboard() {
     return reports.filter(r => {
       if (filterCourseId && r.course_id !== filterCourseId) return false;
       if (filterClassName && r.class_name !== filterClassName) return false;
+      if (filterCategory === 'DIKLAT PENINGKATAN (PASIS)' && filterMataKuliah) {
+        if (r.mata_kuliah?.toUpperCase().trim() !== filterMataKuliah.toUpperCase().trim()) return false;
+      }
       if ((filterCategory === 'UJIAN UAD' || filterCategory === 'LATIHAN UJIAN') && filterTingkat) {
         if (r.course_description !== filterTingkat) return false;
       }
@@ -1968,6 +1995,7 @@ export default function AdminDashboard() {
                     setFilterCategory(e.target.value);
                     setFilterTingkat("");
                     setFilterCourseId("");
+                    setFilterMataKuliah("");
                   }} 
                   className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                 >
@@ -1990,6 +2018,7 @@ export default function AdminDashboard() {
                     onChange={e => {
                       setFilterTingkat(e.target.value);
                       setFilterCourseId("");
+                      setFilterMataKuliah("");
                     }} 
                     className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                   >
@@ -2015,7 +2044,7 @@ export default function AdminDashboard() {
                     ? 'Mata Latihan' 
                     : 'Sub Pelatihan'}
                 </label>
-                <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                <select value={filterCourseId} onChange={e => { setFilterCourseId(e.target.value); setFilterMataKuliah(""); }} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                   <option value="">
                     {filterCategory === 'UJIAN UAD' 
                       ? 'Semua Mata Ujian' 
@@ -2038,6 +2067,21 @@ export default function AdminDashboard() {
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
+              {filterCategory === 'DIKLAT PENINGKATAN (PASIS)' && filterCourseId && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Mata Kuliah</label>
+                  <select 
+                    value={filterMataKuliah} 
+                    onChange={e => setFilterMataKuliah(e.target.value)} 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Semua Mata Kuliah</option>
+                    {availableMataKuliahs.map(mk => (
+                      <option key={mk} value={mk}>{mk}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
                 <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
@@ -2188,6 +2232,7 @@ export default function AdminDashboard() {
                     setFilterCategory(e.target.value);
                     setFilterTingkat("");
                     setFilterCourseId("");
+                    setFilterMataKuliah("");
                   }} 
                   className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                 >
@@ -2210,6 +2255,7 @@ export default function AdminDashboard() {
                     onChange={e => {
                       setFilterTingkat(e.target.value);
                       setFilterCourseId("");
+                      setFilterMataKuliah("");
                     }} 
                     className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                   >
@@ -2235,7 +2281,7 @@ export default function AdminDashboard() {
                     ? 'Mata Latihan' 
                     : 'Sub Pelatihan'}
                 </label>
-                <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                <select value={filterCourseId} onChange={e => { setFilterCourseId(e.target.value); setFilterMataKuliah(""); }} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                   <option value="">
                     {filterCategory === 'UJIAN UAD' 
                       ? 'Semua Mata Ujian' 
@@ -2258,6 +2304,21 @@ export default function AdminDashboard() {
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
+              {filterCategory === 'DIKLAT PENINGKATAN (PASIS)' && filterCourseId && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Mata Kuliah</label>
+                  <select 
+                    value={filterMataKuliah} 
+                    onChange={e => setFilterMataKuliah(e.target.value)} 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Semua Mata Kuliah</option>
+                    {availableMataKuliahs.map(mk => (
+                      <option key={mk} value={mk}>{mk}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
                 <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
@@ -2415,6 +2476,7 @@ export default function AdminDashboard() {
                     setFilterCategory(e.target.value);
                     setFilterTingkat("");
                     setFilterCourseId("");
+                    setFilterMataKuliah("");
                   }} 
                   className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                 >
@@ -2437,6 +2499,7 @@ export default function AdminDashboard() {
                     onChange={e => {
                       setFilterTingkat(e.target.value);
                       setFilterCourseId("");
+                      setFilterMataKuliah("");
                     }} 
                     className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                   >
@@ -2462,7 +2525,7 @@ export default function AdminDashboard() {
                     ? 'Mata Latihan' 
                     : 'Sub Pelatihan'}
                 </label>
-                <select value={filterCourseId} onChange={e => setFilterCourseId(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                <select value={filterCourseId} onChange={e => { setFilterCourseId(e.target.value); setFilterMataKuliah(""); }} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                   <option value="">
                     {filterCategory === 'UJIAN UAD' 
                       ? 'Semua Mata Ujian' 
@@ -2485,6 +2548,21 @@ export default function AdminDashboard() {
                     .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
+              {filterCategory === 'DIKLAT PENINGKATAN (PASIS)' && filterCourseId && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Mata Kuliah</label>
+                  <select 
+                    value={filterMataKuliah} 
+                    onChange={e => setFilterMataKuliah(e.target.value)} 
+                    className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Semua Mata Kuliah</option>
+                    {availableMataKuliahs.map(mk => (
+                      <option key={mk} value={mk}>{mk}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
                 <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
