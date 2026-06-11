@@ -191,6 +191,230 @@ export default function AdminDashboard() {
       alert("Gagal menghapus gambar: " + error.message);
     }
   };
+
+  // Allowed Seafarer Codes States
+  const [allowedSeafarerCodes, setAllowedSeafarerCodes] = useState<any[]>([]);
+  const [newCodeInput, setNewCodeInput] = useState("");
+  const [newNameInput, setNewNameInput] = useState("");
+  const [searchCodeQuery, setSearchCodeQuery] = useState("");
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
+
+  // Fetch allowed seafarer codes on mount / activeTab change
+  useEffect(() => {
+    if (activeTab === "allowed-seafarer-codes") {
+      fetchAllowedSeafarerCodes();
+    }
+  }, [activeTab]);
+
+  const fetchAllowedSeafarerCodes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('allowed_seafarer_codes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error) {
+        setAllowedSeafarerCodes(data || []);
+      } else {
+        // Fallback to localStorage if table doesn't exist
+        const local = localStorage.getItem('allowed_seafarer_codes');
+        if (local) {
+          setAllowedSeafarerCodes(JSON.parse(local));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAddSingleCode = async () => {
+    if (!/^\d{10}$/.test(newCodeInput.trim())) {
+      alert("Kode Pelaut harus berupa 10 digit angka!");
+      return;
+    }
+
+    const item = {
+      code: newCodeInput.trim(),
+      name: newNameInput.trim() || "Siswa / Pelaut"
+    };
+
+    try {
+      const { error } = await supabase
+        .from('allowed_seafarer_codes')
+        .insert([item]);
+
+      if (error) {
+        if (error.code === '23505') {
+          alert("Kode Pelaut sudah terdaftar!");
+          return;
+        }
+        throw error;
+      }
+      alert("Kode Pelaut berhasil ditambahkan!");
+      setNewCodeInput("");
+      setNewNameInput("");
+      fetchAllowedSeafarerCodes();
+    } catch (err) {
+      // Fallback
+      const prev = [...allowedSeafarerCodes];
+      if (prev.some(x => x.code === item.code)) {
+        alert("Kode Pelaut sudah terdaftar!");
+        return;
+      }
+      const newItem = { id: Date.now().toString(), ...item, created_at: new Date().toISOString() };
+      const updated = [newItem, ...prev];
+      localStorage.setItem('allowed_seafarer_codes', JSON.stringify(updated));
+      setAllowedSeafarerCodes(updated);
+      setNewCodeInput("");
+      setNewNameInput("");
+      alert("Kode Pelaut berhasil ditambahkan (Local Fallback)!");
+    }
+  };
+
+  const handleDeleteCode = async (id: string, code: string) => {
+    if (!confirm(`Apakah Anda yakin ingin menghapus Kode Pelaut ${code}?`)) return;
+    try {
+      const { error } = await supabase
+        .from('allowed_seafarer_codes')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      fetchAllowedSeafarerCodes();
+    } catch (err) {
+      const updated = allowedSeafarerCodes.filter(x => x.id !== id);
+      localStorage.setItem('allowed_seafarer_codes', JSON.stringify(updated));
+      setAllowedSeafarerCodes(updated);
+      alert("Kode Pelaut berhasil dihapus!");
+    }
+  };
+
+  const handleClearAllCodes = async () => {
+    if (!confirm("Apakah Anda yakin ingin menghapus SEMUA Kode Pelaut terdaftar?")) return;
+    try {
+      const { error } = await supabase
+        .from('allowed_seafarer_codes')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      if (error) throw error;
+      fetchAllowedSeafarerCodes();
+    } catch (err) {
+      localStorage.removeItem('allowed_seafarer_codes');
+      setAllowedSeafarerCodes([]);
+      alert("Daftar Kode Pelaut berhasil dibersihkan!");
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const fileSaver = await import('file-saver');
+      const saveAs = fileSaver.default?.saveAs || fileSaver.saveAs || fileSaver.default;
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Template Kode Pelaut');
+
+      worksheet.columns = [
+        { header: 'Code (10 Digit Angka)', key: 'code', width: 25 },
+        { header: 'Name', key: 'name', width: 25 }
+      ];
+
+      // Add dummy rows
+      worksheet.addRow({ code: '6201234567', name: 'Budi Santoso' });
+      worksheet.addRow({ code: '6209876543', name: 'Siti Aminah' });
+
+      // Save Workbook
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, 'Template_Import_Kode_Pelaut.xlsx');
+    } catch (err: any) {
+      alert("Gagal mendownload template: " + err.message);
+    }
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportingExcel(true);
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const workbook = new ExcelJS.Workbook();
+      const arrayBuffer = await file.arrayBuffer();
+      await workbook.xlsx.load(arrayBuffer as any);
+      const worksheet = workbook.worksheets[0];
+
+      const importedItems: any[] = [];
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // Skip headers
+
+        const rawCode = row.getCell(1).text || row.getCell(1).value?.toString() || "";
+        const rawName = row.getCell(2).text || row.getCell(2).value?.toString() || "Peserta";
+
+        const cleanCode = rawCode.trim();
+        // Validate code is 10 digits
+        if (/^\d{10}$/.test(cleanCode)) {
+          importedItems.push({
+            code: cleanCode,
+            name: rawName.trim()
+          });
+        }
+      });
+
+      if (importedItems.length === 0) {
+        alert("Tidak ada Kode Pelaut 10-digit valid yang ditemukan di Excel!");
+        return;
+      }
+
+      // Batch insert into supabase or fallback
+      let successCount = 0;
+      for (const item of importedItems) {
+        try {
+          const { error } = await supabase
+            .from('allowed_seafarer_codes')
+            .insert([item]);
+          if (!error) successCount++;
+        } catch {
+          // Keep loop going
+        }
+      }
+
+      if (successCount === 0) {
+        // Fallback to local
+        const prev = [...allowedSeafarerCodes];
+        const newItems = importedItems.map((item, idx) => ({
+          id: (Date.now() + idx).toString(),
+          ...item,
+          created_at: new Date().toISOString()
+        })).filter(item => !prev.some(p => p.code === item.code));
+
+        const updated = [...newItems, ...prev];
+        localStorage.setItem('allowed_seafarer_codes', JSON.stringify(updated));
+        setAllowedSeafarerCodes(updated);
+        alert(`Berhasil mengimpor ${newItems.length} Kode Pelaut (Local Fallback)!`);
+      } else {
+        alert(`Berhasil mengimpor ${successCount} dari ${importedItems.length} Kode Pelaut!`);
+        fetchAllowedSeafarerCodes();
+      }
+    } catch (err: any) {
+      alert("Gagal membaca file Excel: " + err.message);
+    } finally {
+      setIsImportingExcel(false);
+      e.target.value = ""; // clear input
+    }
+  };
+
+  const handleChangeCorrectAnswer = async (questionId: string, assessmentId: string, newIndex: number) => {
+    const { error } = await supabase
+      .from('questions')
+      .update({ correct_option_index: newIndex })
+      .eq('id', questionId);
+
+    if (!error) {
+      setAssessmentQuestions(prev => prev.map(q => q.id === questionId ? { ...q, correct_option_index: newIndex } : q));
+    } else {
+      alert("Gagal mengubah kunci jawaban: " + error.message);
+    }
+  };
+
   const [refreshingMaterialLinks, setRefreshingMaterialLinks] = useState<Record<string, string>>({});
   const [isSavingRefreshingMaterial, setIsSavingRefreshingMaterial] = useState<Record<string, boolean>>({});
   const [passingGrade, setPassingGrade] = useState(70);
@@ -1711,6 +1935,22 @@ export default function AdminDashboard() {
                         </div>
                       ))}
                     </div>
+                    {selectedCourse?.category === "LATIHAN UJIAN" && (
+                      <div className="mt-3 pt-2.5 border-t border-gray-150 flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-indigo-900">Ubah Kunci Jawaban:</span>
+                        <select
+                          value={q.correct_option_index}
+                          onChange={(e) => handleChangeCorrectAnswer(q.id, assessmentId, Number(e.target.value))}
+                          className="px-2 py-1 text-xs border border-indigo-200 rounded-md bg-indigo-50 text-indigo-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          {q.options.map((_opt: string, oIdx: number) => (
+                            <option key={oIdx} value={oIdx}>
+                              Kunci {String.fromCharCode(65 + oIdx)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1751,6 +1991,12 @@ export default function AdminDashboard() {
               >
                 <ClipboardList className="w-5 h-5" /> Training Examination
               </button>
+              <button
+                onClick={() => setActiveTab("allowed-seafarer-codes")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "allowed-seafarer-codes" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Users className="w-5 h-5" /> Akses Kode Pelaut
+              </button>
             </>
           )}
           <button
@@ -1788,6 +2034,179 @@ export default function AdminDashboard() {
 
       {/* Main Content */}
       <div className="flex-1 p-8 overflow-auto">
+        {activeTab === "allowed-seafarer-codes" && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center pb-5 border-b">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Otorisasi Kode Pelaut</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Kelola daftar 10-digit Kode Pelaut yang sah untuk mengakses Ujian UAD dan Latihan Ujian.
+                </p>
+              </div>
+              <button
+                onClick={handleDownloadTemplate}
+                className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-indigo-100 transition"
+              >
+                <Download className="w-4 h-4" /> Download Template Excel
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Form Input Manual */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+                <h3 className="font-bold text-gray-800 text-lg">Input Manual</h3>
+                
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                    Kode Pelaut (10 Digit):
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    placeholder="Contoh: 6201234567"
+                    value={newCodeInput}
+                    onChange={(e) => setNewCodeInput(e.target.value.replace(/\D/g, ''))}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                    Nama Pemilik (Opsional):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Budi Santoso"
+                    value={newNameInput}
+                    onChange={(e) => setNewNameInput(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <button
+                  onClick={handleAddSingleCode}
+                  className="w-full bg-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Daftarkan Kode
+                </button>
+              </div>
+
+              {/* Form Import Excel */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-800 text-lg mb-2">Import Spreadsheet</h3>
+                  <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                    Impor daftar Kode Pelaut sekaligus dari berkas Excel (.xlsx). Pastikan berkas mengikuti template resmi dengan kolom Kode di kolom pertama dan Nama di kolom kedua.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition cursor-pointer">
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls"
+                      onChange={handleImportExcel}
+                      disabled={isImportingExcel}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <Upload className="w-8 h-8 text-indigo-500 mx-auto mb-2 animate-pulse" />
+                    <span className="text-xs font-semibold text-gray-700 block">
+                      {isImportingExcel ? "Mengimpor dokumen..." : "Klik untuk unggah berkas .xlsx"}
+                    </span>
+                    <span className="text-[10px] text-gray-400 mt-1 block">Maksimal ukuran file 10MB</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Summary Card */}
+              <div className="bg-gradient-to-br from-indigo-700 to-indigo-900 text-white rounded-xl p-6 flex flex-col justify-between shadow-md">
+                <div>
+                  <h3 className="font-bold text-lg opacity-90">Status Database</h3>
+                  <div className="mt-4">
+                    <span className="text-4xl font-extrabold">{allowedSeafarerCodes.length}</span>
+                    <span className="text-sm opacity-80 ml-2">Kode Aktif Terdaftar</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mt-6">
+                  <p className="text-xs opacity-75">
+                    Hanya pemilik Kode Pelaut yang terdaftar di atas yang dapat mendaftar/masuk ke kelas "Ujian UAD" dan "Latihan Ujian".
+                  </p>
+                  <button
+                    onClick={handleClearAllCodes}
+                    className="mt-2 w-full bg-white/20 hover:bg-white/30 text-white border border-white/10 px-4 py-2 rounded-lg text-xs font-semibold transition"
+                  >
+                    Buka Akses Semua / Kosongkan Daftar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* List Table of Seafarer Codes */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-4 border-b bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <span className="font-bold text-gray-800 text-sm">Daftar Otorisasi Kode Pelaut</span>
+                <div className="w-full md:w-72">
+                  <input
+                    type="text"
+                    placeholder="Cari kode atau nama..."
+                    value={searchCodeQuery}
+                    onChange={(e) => setSearchCodeQuery(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto min-h-60">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-500 uppercase tracking-widest text-[10px] border-b">
+                      <th className="py-3 px-6">No</th>
+                      <th className="py-3 px-6">Kode Pelaut</th>
+                      <th className="py-3 px-6">Nama Pemilik</th>
+                      <th className="py-3 px-6">Tanggal Rilis</th>
+                      <th className="py-3 px-6 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-gray-700">
+                    {allowedSeafarerCodes
+                      .filter(item => 
+                        item.code.includes(searchCodeQuery.trim()) || 
+                        item.name.toLowerCase().includes(searchCodeQuery.toLowerCase())
+                      )
+                      .map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition">
+                          <td className="py-3.5 px-6 font-medium text-gray-400">{idx + 1}</td>
+                          <td className="py-3.5 px-6 font-mono text-gray-900 font-semibold">{item.code}</td>
+                          <td className="py-3.5 px-6">{item.name}</td>
+                          <td className="py-3.5 px-6 text-gray-400">
+                            {new Date(item.created_at).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3.5 px-6 text-right">
+                            <button
+                              onClick={() => handleDeleteCode(item.id, item.code)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition"
+                              title="Hapus Akses"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    {allowedSeafarerCodes.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-gray-400">
+                          Belum ada Kode Pelaut yang diotorisasi. Masukkan manual atau import melalui Excel di atas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "courses" && (
           <div>
             <div className="flex justify-between items-center mb-6">

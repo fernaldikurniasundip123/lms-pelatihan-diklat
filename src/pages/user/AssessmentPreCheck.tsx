@@ -72,7 +72,7 @@ export default function AssessmentPreCheck() {
   // If user is already verified globally or it is a practice exam, they can just proceed (unless blocked by attempts)
   useEffect(() => {
     const isPractice = courseCategory === 'LATIHAN UJIAN';
-    if ((user?.is_verified || isPractice) && attemptsInfo !== null) {
+    if (user?.is_verified && !isPractice && attemptsInfo !== null) {
       if (attemptsInfo.passed || attemptsInfo.count >= 3) {
         // Stay here to show the message
       } else {
@@ -120,7 +120,15 @@ export default function AssessmentPreCheck() {
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: 'image/jpeg' });
 
-      const fileName = `${userId}_${type}_${Date.now()}.jpg`;
+      const isPractice = courseCategory === 'LATIHAN UJIAN';
+      let fileName = `${userId}_${type}_${Date.now()}.jpg`;
+      if (isPractice) {
+        if (type === 'live') {
+          fileName = `latihan_ujian/selfie/${userId}_${Date.now()}.jpg`;
+        } else {
+          fileName = `latihan_ujian/ktp/${userId}_${Date.now()}.jpg`;
+        }
+      }
       const bucketName = 'verifications';
 
       const { error } = await supabase.storage
@@ -162,15 +170,27 @@ export default function AssessmentPreCheck() {
         throw new Error("Failed to upload photos");
       }
 
-      const { error: insertError } = await supabase
-        .from('global_verifications')
-        .insert({
-          user_id: user.id,
-          live_photo_url: livePhotoUrl,
-          ktp_photo_url: ktpPhotoUrl
-        });
-
-      if (insertError) throw insertError;
+      const isPractice = courseCategory === 'LATIHAN UJIAN';
+      if (isPractice) {
+        const { error: insertError } = await supabase
+          .from('latihan_verifications')
+          .insert({
+            user_id: user.id,
+            seafarer_code: user.identity,
+            live_photo_url: livePhotoUrl,
+            ktp_photo_url: ktpPhotoUrl
+          });
+        if (insertError) throw insertError;
+      } else {
+        const { error: insertError } = await supabase
+          .from('global_verifications')
+          .insert({
+            user_id: user.id,
+            live_photo_url: livePhotoUrl,
+            ktp_photo_url: ktpPhotoUrl
+          });
+        if (insertError) throw insertError;
+      }
 
       await checkAuth(); // Update user.is_verified
       navigate(`/course/${courseId}/assessment/${assessmentId}`);
@@ -183,7 +203,7 @@ export default function AssessmentPreCheck() {
 
   const isPractice = courseCategory === 'LATIHAN UUAN' || courseCategory === 'LATIHAN UJIAN';
 
-  if (user?.is_verified || isPractice) {
+  if (user?.is_verified && !isPractice) {
     if (attemptsInfo !== null) {
       if (attemptsInfo.passed) {
         return (

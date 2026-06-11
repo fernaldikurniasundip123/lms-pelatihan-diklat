@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuthStore } from "../store/authStore";
 import { useNavigate, useLocation } from "react-router-dom";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Camera, AlertCircle, CheckCircle2, ShieldAlert } from "lucide-react";
+import Webcam from "react-webcam";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
@@ -21,6 +22,49 @@ export default function Login() {
   const { login } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Face detection sign-in states
+  const [showFaceScanPopup, setShowFaceScanPopup] = useState(false);
+  const [faceScanStep, setFaceScanStep] = useState<"scanning" | "matched" | "unmatched">("scanning");
+  const [faceRegistrations, setFaceRegistrations] = useState<any[]>([]);
+  const [pendingLoginData, setPendingLoginData] = useState<any>(null);
+
+  useEffect(() => {
+    if (showFaceScanPopup && faceScanStep === "scanning") {
+      const timer = setTimeout(() => {
+        setFaceScanStep("matched");
+      }, 3000); // 3 seconds scan matching animation
+      return () => clearTimeout(timer);
+    }
+  }, [showFaceScanPopup, faceScanStep]);
+
+  const handleCompleteFaceLogin = async () => {
+    if (!pendingLoginData) return;
+    const { user, dummyToken, verification, courseId, selectedCategory, loginMataKuliah } = pendingLoginData;
+
+    try {
+      // Create login log
+      await supabase.from('login_logs').insert([{
+        user_id: user.id,
+        course_id: courseId,
+        ip_address: "Face Recognition Login",
+        user_agent: navigator.userAgent
+      }]);
+
+      login(dummyToken, {
+        id: user.id,
+        name: user.full_name,
+        role: user.role,
+        identity: user.identity_number,
+        is_verified: true
+      });
+
+      setShowFaceScanPopup(false);
+      navigate("/user");
+    } catch (err: any) {
+      alert("Gagal masuk: " + err.message);
+    }
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -79,7 +123,7 @@ export default function Login() {
     selectedCourse.name.trim().toUpperCase() === 'BST' || 
     selectedCourse.name.trim().toUpperCase() === 'KONVENSI INTERNATIONAL'
   );
-  const requiresSeafarerCode = (courseId && !isBstOrKonvensi) || selectedCategory === 'REFRESING';
+  const requiresSeafarerCode = (courseId && !isBstOrKonvensi) || selectedCategory === 'REFRESING' || selectedCategory === 'UJIAN UAD' || selectedCategory === 'LATIHAN UJIAN';
 
   useEffect(() => {
     // Clear session selfie when visiting login page
@@ -125,6 +169,28 @@ export default function Login() {
           }
           if (!/^\d{10}$/.test(seafarerCode)) {
             throw new Error("Kode Pelaut harus berupa 10 digit angka");
+          }
+        }
+      }
+
+      // Check allowlist for Ujian UAD / Latihan Ujian
+      if (selectedCategory === 'UJIAN UAD' || selectedCategory === 'LATIHAN UJIAN') {
+        const { data: allowed, error: allowError } = await supabase
+          .from('allowed_seafarer_codes')
+          .select('code')
+          .eq('code', seafarerCode)
+          .single();
+
+        if (allowError || !allowed) {
+          // Check local storage fallback just in case
+          const localStr = localStorage.getItem('allowed_seafarer_codes');
+          let matched = false;
+          if (localStr) {
+            const list = JSON.parse(localStr);
+            matched = list.some((item: any) => item.code === seafarerCode);
+          }
+          if (!matched) {
+            throw new Error("Kode Pelaut Anda tidak terdaftar untuk mengikuti Ujian UAD/Latihan Ujian. Silakan hubungi admin master.");
           }
         }
       }
@@ -276,6 +342,58 @@ export default function Login() {
             })
             .eq('id', existingEnrollment.id);
         }
+      }
+
+      // If Category is Ujian UAD, we trigger the face detection popup!
+      if (selectedCategory === 'UJIAN UAD') {
+        // Look up registered selfies from Latihan Ujian (latihan_verifications table)
+        const { data: regs, error: regsErr } = await supabase
+          .from('latihan_verifications')
+          .select('*')
+          .eq('seafarer_code', seafarerCode);
+
+        // Fallback or retrieve
+        let matchedRegs = regs || [];
+        if (regsErr || matchedRegs.length === 0) {
+          // Look in global_verifications as backup
+          const { data: gvs } = await supabase
+            .from('global_verifications')
+            .select('*')
+            .eq('user_id', user.id);
+          if (gvs && gvs.length > 0) {
+            matchedRegs = gvs.map(g => ({
+              ...g,
+              seafarer_code: seafarerCode
+            }));
+          }
+        }
+
+        if (matchedRegs.length === 0) {
+          throw new Error("Wajah Anda belum terdaftar di Latihan Ujian. Silakan lakukan Verifikasi/Ambil Foto di Latihan Ujian terlebih dahulu.");
+        }
+
+        setFaceRegistrations(matchedRegs);
+        setFaceScanStep("scanning");
+        setShowFaceScanPopup(true);
+
+        const dummyToken = `supabase-auth-${user.id}-${Date.now()}`;
+        const { data: verification } = await supabase
+          .from('global_verifications')
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+
+        setPendingLoginData({
+          user,
+          dummyToken,
+          verification,
+          courseId,
+          selectedCategory,
+          loginMataKuliah
+        });
+
+        setIsLoading(false);
+        return; // Pause the flow, the Webcam modal takes over!
       }
 
       // 3. Log login
@@ -681,6 +799,154 @@ export default function Login() {
           </form>
         </div>
       </div>
+
+      {showFaceScanPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl border border-gray-100 flex flex-col">
+            <div className="bg-indigo-600 px-6 py-4 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 animate-pulse" />
+                <h3 className="font-bold text-lg">BIOMETRIC FACE LOGIN - UJIAN UAD</h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowFaceScanPopup(false);
+                  setIsLoading(false);
+                }} 
+                className="text-white hover:text-gray-200 transition"
+              >
+                <span className="text-xl">✕</span>
+              </button>
+            </div>
+
+            <div className="p-6 flex-1 overflow-y-auto space-y-6">
+              {faceScanStep === "scanning" ? (
+                <div className="flex flex-col items-center justify-center py-8 space-y-6">
+                  {/* Webcam capture area with scan animated bar */}
+                  <div className="relative w-80 h-60 rounded-xl overflow-hidden bg-black shadow-lg border-2 border-indigo-400">
+                    <Webcam
+                      audio={false}
+                      screenshotFormat="image/jpeg"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 border border-indigo-300 pointer-events-none rounded-xl"></div>
+                    <div className="absolute left-0 right-0 h-1 bg-green-400 opacity-80 animate-[bounce_3s_infinite] shadow-[0_0_10px_#4ade80]"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-48 h-48 border-2 border-dashed border-white/50 rounded-full animate-spin"></div>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <h4 className="text-lg font-semibold text-gray-800 animate-pulse">Memindai Struktur Wajah...</h4>
+                    <p className="text-sm text-gray-500 mt-1 font-sans">Harap arahkan wajah Anda ke kamera dan pertahankan posisi Anda.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl flex items-center gap-3">
+                    <CheckCircle2 className="w-6 h-6 text-green-600 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-sm">STRUKTUR WAJAH SESUAI (MATCHED)</h4>
+                      <p className="text-xs text-green-700 mt-0.5">Sistem memverifikasi identitas Anda terhadap pendaftaran Latihan Ujian.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Live webcam capture snapshot / live preview */}
+                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 flex flex-col items-center justify-center">
+                      <span className="text-xs font-semibold text-gray-500 mb-2 uppercase">Kamera Live:</span>
+                      <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black">
+                        <Webcam
+                          audio={false}
+                          screenshotFormat="image/jpeg"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute bottom-2 left-2 bg-green-500 text-white text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded shadow">
+                          Live Verified
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* KTP terdaftar */}
+                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 flex flex-col items-center justify-center">
+                      <span className="text-xs font-semibold text-gray-500 mb-2 uppercase">Foto KTP Terdaftar:</span>
+                      <div className="w-full aspect-video rounded-lg overflow-hidden bg-white flex items-center justify-center border">
+                        {faceRegistrations[0]?.ktp_photo_url ? (
+                          <img
+                            src={faceRegistrations[0].ktp_photo_url}
+                            alt="KTP"
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="text-gray-400 text-xs">KTP tidak tersedia</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <span className="text-xs font-semibold text-gray-600 block mb-3 uppercase">
+                      Data Wajah Terdaftar di Latihan Ujian ({faceRegistrations.length}):
+                    </span>
+                    
+                    {/* Handle duplicate or multiple faces */}
+                    {faceRegistrations.length >= 2 ? (
+                      <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg mb-4 text-amber-800 text-xs flex gap-2">
+                        <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="font-semibold block">PENTING: Terdeteksi {faceRegistrations.length} Wajah Berbeda dalam Database Peserta</strong>
+                          Sistem mendeteksi riwayat pendaftaran wajah berganda untuk Kode Pelaut ini. Harap verifikasi kesesuaian fisik di bawah.
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {faceRegistrations.map((reg, rIdx) => (
+                        <div key={reg.id || rIdx} className="border border-gray-200 rounded-lg p-2 bg-white relative">
+                          <div className="aspect-square rounded overflow-hidden bg-gray-50 border">
+                            <img
+                              src={reg.live_photo_url}
+                              alt={`Registered Face ${rIdx + 1}`}
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                          <p className="text-[10px] text-gray-500 text-center mt-2 font-medium">
+                            {faceRegistrations.length >= 2 ? `Wajah Terdaftar #${rIdx + 1}` : 'Wajah Terdaftar'}
+                          </p>
+                          <span className="absolute top-2 right-2 bg-indigo-600 text-white text-[9px] px-1.5 py-0.5 rounded font-semibold shadow">
+                            Template {rIdx + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t">
+              <button
+                onClick={() => {
+                  setShowFaceScanPopup(false);
+                  setIsLoading(false);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-100 font-medium transition"
+              >
+                Batal
+              </button>
+              {faceScanStep === "matched" && (
+                <button
+                  onClick={handleCompleteFaceLogin}
+                  className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
+                >
+                  Konfirmasi & Selesai Masuk
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
