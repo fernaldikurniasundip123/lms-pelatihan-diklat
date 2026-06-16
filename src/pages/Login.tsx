@@ -259,11 +259,12 @@ export default function Login() {
       if (user) {
         if (user.role === 'admin' || user.role === 'admin2' || user.role === 'admin_uad') {
           // Khusus admin, isian "Kelas" berfungsi sebagai password
-          if (user.role === 'admin_uad' && className !== 'uad123') {
+          const trimmedClassName = className.trim();
+          if (user.role === 'admin_uad' && trimmedClassName !== 'uad123') {
             throw new Error("Password admin UAD salah");
-          } else if (user.role === 'admin2' && className !== 'report123') {
+          } else if (user.role === 'admin2' && trimmedClassName !== 'report123') {
             throw new Error("Password admin report salah");
-          } else if (user.role === 'admin' && className !== user.identity_number) {
+          } else if (user.role === 'admin' && trimmedClassName !== user.identity_number) {
             throw new Error("Password/Kelas admin salah");
           }
         } else {
@@ -292,11 +293,23 @@ export default function Login() {
       } else {
         // Create new user
         let role = 'user';
-        if (fullName === 'Admin Report' && className === 'report123') {
-          role = 'admin2';
-        } else if (fullName === 'Admin UAD' && className === 'uad123') {
-          role = 'admin_uad';
-        } else if (fullName.toLowerCase().includes('admin')) {
+        const trimmedFullName = fullName.trim();
+        const lowerFullName = trimmedFullName.toLowerCase();
+        const trimmedClassName = className.trim();
+
+        if (lowerFullName === 'admin report') {
+          if (trimmedClassName === 'report123') {
+            role = 'admin2';
+          } else {
+            throw new Error("Password untuk Admin Report salah");
+          }
+        } else if (lowerFullName === 'admin uad') {
+          if (trimmedClassName === 'uad123') {
+            role = 'admin_uad';
+          } else {
+            throw new Error("Password untuk Admin UAD salah");
+          }
+        } else if (lowerFullName.includes('admin')) {
           throw new Error("Tidak dapat membuat akun admin baru");
         }
         

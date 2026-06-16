@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
 import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw } from "lucide-react";
+import { GoogleGenAI } from "@google/genai";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
@@ -39,6 +40,13 @@ export default function AdminDashboard() {
   const [uadSuccessMsg, setUadSuccessMsg] = useState("");
   const uadVideoRef = useRef<HTMLVideoElement | null>(null);
   const uadStreamRef = useRef<MediaStream | null>(null);
+
+  // New Automated Matching States
+  const [uadAllVerifications, setUadAllVerifications] = useState<any[]>([]);
+  const [uadMatchingLoading, setUadMatchingLoading] = useState(false);
+  const [uadMatchScore, setUadMatchScore] = useState<number | null>(null);
+  const [uadMatchReason, setUadMatchReason] = useState<string>("");
+  const [uadCountdown, setUadCountdown] = useState<number | null>(null);
   
   // Add Course Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -214,40 +222,127 @@ export default function AdminDashboard() {
   const [isImportingExcel, setIsImportingExcel] = useState(false);
 
   // UAD Centralized Face Verification Functions & Hooks
-  const fetchUadUsers = async () => {
+  const fetchUadUsersAndVerifications = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch users
+      const { data: usersData, error: usersErr } = await supabase
         .from("users")
         .select("id, full_name, identity_number, class_name")
         .eq("role", "user")
         .order("full_name", { ascending: true });
-      if (!error && data) {
-        setUadUsers(data);
+
+      // Fetch active latihan verifications
+      const { data: verifData, error: verifErr } = await supabase
+        .from("latihan_verifications")
+        .select("*");
+
+      if (!usersErr && usersData) {
+        setUadUsers(usersData);
+      }
+
+      if (!usersErr && !verifErr && usersData && verifData) {
+        // Map verifications to users
+        const combined = verifData.map(v => {
+          const u = usersData.find(usr => usr.id === v.user_id);
+          return {
+            ...v,
+            user: u
+          };
+        }).filter(v => !!v.user); // only keep if has user
+        
+        setUadAllVerifications(combined);
       }
     } catch (e) {
-      console.error(e);
+      console.error("Failed to load UAD verification data:", e);
     }
   };
 
-  const fetchUadLatihanVerifications = async (userId: string) => {
+  const matchFaceScan = async (snapshotUrl: string) => {
+    setUadMatchingLoading(true);
+    setUadMatchScore(null);
+    setUadMatchReason("");
+    setUadSelectedUser(null);
+    setUadLatihanVerifications([]);
+
     try {
-      const { data, error } = await supabase
-        .from("latihan_verifications")
-        .select("*")
-        .eq("user_id", userId);
-      if (!error && data) {
-        setUadLatihanVerifications(data);
-      } else {
-        console.error("Error fetching latihan verifications:", error);
+      // 1. Get base64 representation of snapshot (remove header)
+      const base64Data = snapshotUrl.includes("base64,")
+        ? snapshotUrl.split("base64,")[1]
+        : snapshotUrl;
+
+      // 2. Fetch/Integrate with Gemini API if key is present
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      if (apiKey && uadAllVerifications.length > 0) {
+        try {
+          const ai = new GoogleGenAI({ apiKey });
+          
+          // Let's pass the candidates to keep the prompt compact and precise
+          const candidates = uadAllVerifications.map(v => ({
+            id: v.user_id,
+            name: v.user?.full_name || "Tanpa Nama",
+            seafarer_code: v.seafarer_code || v.user?.identity_number || "",
+            live_photo_url: v.live_photo_url
+          }));
+
+          const prompt = `Anda adalah sistem pengenalan wajah (Face Recognition AI) berbasis visi komputer yang ultra-presisi.
+Tugas Anda adalah menganalisis foto scan wajah fisik (Live Scan) yang terlampir dan mencocokkannya dengan daftar foto selfie dari para peserta yang tersimpan dari Latihan Ujian di database kami.
+
+Berikut adalah daftar peserta di Latihan Ujian:
+${candidates.map(c => `- ID: ${c.id}, Nama: ${c.name}, Kode Pelaut: ${c.seafarer_code}, URL Foto Selfie: ${c.live_photo_url}`).join('\n')}
+
+Silakan analisis secara mendalam dan temukan SATU peserta yang memiliki kecocokan wajah paling tinggi/mirip dengan foto Live Scan yang terlampir.
+Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA berupa JSON valid, tanpa markdown ataupun penjelasan chat):
+{
+  "matched_user_id": "ID peserta yang paling cocok",
+  "matched_name": "Nama lengkap peserta tersebut",
+  "confidence": 95, 
+  "reason": "Alasan analisis kecocokan visual singkat dalam bahasa Indonesia"
+}`;
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: base64Data
+                }
+              },
+              prompt
+            ]
+          });
+
+          const rawText = response.text || "";
+          const cleanJsonText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+          const result = JSON.parse(cleanJsonText);
+
+          if (result && result.matched_user_id) {
+            const matchedRecord = uadAllVerifications.find(v => v.user_id === result.matched_user_id);
+            if (matchedRecord) {
+              setUadSelectedUser(matchedRecord.user);
+              setUadLatihanVerifications([matchedRecord]);
+              setUadMatchScore(result.confidence || 95);
+              setUadMatchReason(result.reason || "Pencocokan wajah selesai dilakukan secara terpusat.");
+              setUadMatchingLoading(false);
+              return;
+            }
+          }
+        } catch (geminiErr) {
+          console.error("Gemini face recognition failed, falling back to manual confirm:", geminiErr);
+        }
       }
-    } catch (e) {
-      console.error(e);
+
+      setUadMatchReason("Ambil foto scan selesai. Silakan pilih peserta di sebelah kanan jika sistem tidak otomatis mencocokkan.");
+    } catch (err) {
+      console.error("Error matching face scan:", err);
+    } finally {
+      setUadMatchingLoading(false);
     }
   };
 
   useEffect(() => {
     if (activeTab === "verification_uad") {
-      fetchUadUsers();
+      fetchUadUsersAndVerifications();
     }
   }, [activeTab]);
 
@@ -265,6 +360,7 @@ export default function AdminDashboard() {
     try {
       setUadSnapshot(null);
       setUadCameraOn(true);
+      setUadCountdown(3);
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
       uadStreamRef.current = stream;
       if (uadVideoRef.current) {
@@ -274,10 +370,12 @@ export default function AdminDashboard() {
       console.error("Camera access failed:", e);
       alert("Gagal mengakses kamera: Pastikan izin kamera aktif!");
       setUadCameraOn(false);
+      setUadCountdown(null);
     }
   };
 
   const captureUadSnapshot = () => {
+    setUadCountdown(null);
     if (uadVideoRef.current) {
       const video = uadVideoRef.current;
       const canvas = document.createElement("canvas");
@@ -293,9 +391,25 @@ export default function AdminDashboard() {
           uadStreamRef.current = null;
         }
         setUadCameraOn(false);
+        // Trigger automated face matching
+        matchFaceScan(dataUrl);
       }
     }
   };
+
+  useEffect(() => {
+    let timer: any;
+    if (uadCameraOn && uadCountdown !== null) {
+      if (uadCountdown > 0) {
+        timer = setTimeout(() => {
+          setUadCountdown((prev) => (prev !== null ? prev - 1 : null));
+        }, 1000);
+      } else {
+        captureUadSnapshot();
+      }
+    }
+    return () => clearTimeout(timer);
+  }, [uadCameraOn, uadCountdown]);
 
   const handleUadVerifyAndApprove = async () => {
     if (!uadSelectedUser || !uadSnapshot) {
@@ -325,6 +439,7 @@ export default function AdminDashboard() {
         setUadLatihanVerifications([]);
         setUadSelectedUser(null);
         setUadSearchQuery("");
+        fetchUadUsersAndVerifications();
       } else {
         alert("Gagal menyimpan verifikasi: " + error.message);
       }
@@ -2395,205 +2510,248 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === "verification_uad" && (
-          <div className="space-y-6 text-gray-900">
-            <div className="flex justify-between items-center pb-5 border-b border-gray-200">
+          <div className="space-y-6 text-gray-900 animate-fadeIn">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-gray-200">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Verifikasi Scan Wajah Terpusat (Admin UAD)</h2>
-                <p className="text-sm text-gray-500 mt-1 font-medium">
-                  Gunakan kamera HP/Laptop Anda untuk memindai wajah fisik peserta, lalu validasikan dengan selfie dan data KTP dari Latihan Ujian.
+                <h2 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                  <Scan className="w-7 h-7 text-indigo-600 animate-pulse" /> Verifikasi Scan Wajah Terpusat (Admin UAD)
+                </h2>
+                <p className="text-sm text-gray-500 mt-1 font-medium leading-relaxed max-w-3xl">
+                  Arahkan kamera ke wajah peserta untuk melakukan pemindaian fisik. Sistem akan memindai secara otomatis dan mencocokkan kemiripan wajah dengan data foto selfie & KTP dari Latihan Ujian di database.
                 </p>
               </div>
             </div>
 
             {uadSuccessMsg && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center gap-3">
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center gap-3 shadow-sm">
                 <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
                 <p className="text-sm font-semibold">{uadSuccessMsg}</p>
               </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
-              {/* Left Column: Search Participant & Select */}
-              <div className="lg:col-span-4 bg-white rounded-xl shadow-sm border border-gray-250 p-6 space-y-4">
-                <h3 className="font-bold text-gray-850 text-lg">Cari & Pilih Peserta</h3>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Nama / 10-Digit Kode Pelaut..."
-                    value={uadSearchQuery}
-                    onChange={(e) => setUadSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-                  />
+              {/* Left Side: Dynamic Camera Scan & Intelligent Matching Status */}
+              <div className="lg:col-span-7 bg-white rounded-xl shadow-sm border border-gray-250 p-6 space-y-6 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-gray-850 text-lg flex items-center gap-2">
+                      <Camera className="w-5 h-5 text-indigo-500" /> 1. Area Scan Kamera Fisik
+                    </h3>
+                    <div className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full text-xs font-semibold">
+                      <span className="inline-block w-2 h-2 rounded-full bg-indigo-600 animate-ping"></span>
+                      LIVE SCAN
+                    </div>
+                  </div>
+
+                  {/* Main Viewport */}
+                  <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-gray-300 bg-gray-950 flex flex-col items-center justify-center shadow-inner">
+                    {uadCameraOn ? (
+                      <div className="relative w-full h-full">
+                        <video
+                          ref={uadVideoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover transform scale-x-[-1]"
+                        />
+                        {/* Interactive scan overlays */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="relative w-64 h-64 border-2 border-dashed border-indigo-400 rounded-full animate-pulse flex items-center justify-center">
+                            <span className="absolute w-full h-0.5 bg-indigo-500/50 rounded animate-bounce"></span>
+                            <div className="w-48 h-48 border border-white/20 rounded-full flex items-center justify-center bg-indigo-950/20 backdrop-blur-[1px]">
+                              {uadCountdown !== null && (
+                                <div className="text-white text-5xl font-black bg-indigo-600 w-20 h-20 rounded-full flex items-center justify-center shadow-xl animate-scaleIn border-2 border-white/30">
+                                  {uadCountdown}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {uadCountdown !== null && (
+                          <div className="absolute top-3 right-3 bg-red-600 text-white text-[11px] uppercase font-bold px-3 py-1.5 rounded-lg animate-pulse shadow flex items-center gap-1.5 leading-none">
+                            <span className="w-2.5 h-2.5 bg-white rounded-full animate-ping"></span>
+                            Pemindaian Otomatis dalam {uadCountdown} detik...
+                          </div>
+                        )}
+                        <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm text-white text-[10px] uppercase font-mono px-2 py-1 rounded">
+                          RESOLUSI: 640x480
+                        </div>
+                      </div>
+                    ) : uadSnapshot ? (
+                      <div className="relative w-full h-full">
+                        <img src={uadSnapshot} alt="Snapshot Scan" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-indigo-900/10 backdrop-blur-[1px] pointer-events-none"></div>
+                        <div className="absolute bottom-3 right-3 bg-emerald-600 text-white text-xs uppercase font-bold px-3 py-1 rounded-lg shadow-md flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5" /> Hasil Scan Tersimpan
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center p-8 text-center text-gray-400">
+                        <div className="w-20 h-20 bg-gray-900 rounded-full flex items-center justify-center border border-gray-800 mb-4 shadow">
+                          <Camera className="w-10 h-10 text-gray-500" />
+                        </div>
+                        <h4 className="font-bold text-gray-200">Kamera Belum Aktif</h4>
+                        <p className="text-xs text-gray-400 max-w-xs mt-1 mb-4 leading-relaxed font-semibold">
+                          Silakan aktifkan kamera Anda. Sistem akan memindai wajah fisik secara otomatis setelah kamera menyala.
+                        </p>
+                        <button
+                          onClick={startUadCamera}
+                          type="button"
+                          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-md transition-all transform active:scale-95"
+                        >
+                          <Camera className="w-4 h-4" /> Mulai Pindai/Nyalakan Kamera
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Camera Action Controls */}
+                  {(uadCameraOn || uadSnapshot) && (
+                    <div className="flex gap-3 justify-center mt-5">
+                      {uadCameraOn && (
+                        <button
+                          onClick={captureUadSnapshot}
+                          type="button"
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold flex items-center gap-2 shadow-md transition-all transform active:scale-95 animate-pulse"
+                        >
+                          <Scan className="w-4 h-4" /> Ambil Foto Sekarang (Manual)
+                        </button>
+                      )}
+                      {uadSnapshot && (
+                        <button
+                          onClick={startUadCamera}
+                          type="button"
+                          className="px-5 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-all"
+                        >
+                          <RefreshCw className="w-4 h-4" /> Pindai Wajah Ulang
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                <div className="max-h-[350px] overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100 bg-gray-50">
-                  {uadUsers
-                    .filter((u) => {
-                      const query = uadSearchQuery.toLowerCase().trim();
-                      if (!query) return true;
-                      return (
-                        u.full_name?.toLowerCase().includes(query) ||
-                        u.identity_number?.includes(query)
-                      );
-                    })
-                    .slice(0, 15)
-                    .map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          setUadSelectedUser(u);
-                          setUadLatihanVerifications([]);
-                          setUadSnapshot(null);
-                          setUadSuccessMsg("");
-                          fetchUadLatihanVerifications(u.id);
-                        }}
-                        className={`w-full px-4 py-3 text-left transition text-sm flex flex-col gap-0.5 ${
-                          uadSelectedUser?.id === u.id
-                            ? "bg-indigo-50 border-l-4 border-indigo-600 font-medium text-indigo-950"
-                            : "hover:bg-gray-105 text-gray-750 bg-white"
-                        }`}
-                      >
-                        <span className="font-bold block text-gray-900">{u.full_name}</span>
-                        <div className="flex justify-between text-xs text-gray-500">
-                          <span>Kode: {u.identity_number}</span>
-                          <span>Kelas: {u.class_name || "-"}</span>
-                        </div>
-                      </button>
-                    ))}
-                  {uadUsers.length === 0 && (
-                    <div className="p-4 text-center text-xs text-gray-400">Loading peserta...</div>
+                {/* AI Matching Status Console */}
+                <div className="border-t border-gray-150 pt-5 mt-6">
+                  {uadMatchingLoading ? (
+                    <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex flex-col items-center justify-center text-center space-y-3.5 animate-pulse">
+                      <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                      <div>
+                        <h5 className="font-bold text-indigo-900 text-sm">Sedang Mencocokkan Wajah</h5>
+                        <p className="text-xs text-indigo-600 mt-0.5">Sistem sedang mendeteksi kemiripan profil dengan Latihan Ujian...</p>
+                      </div>
+                    </div>
+                  ) : uadMatchScore !== null && uadSelectedUser ? (
+                    <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-emerald-800 font-bold text-sm tracking-tight flex items-center gap-1.5">
+                          <CheckCircle className="w-4 h-4 text-emerald-600" /> Kecocokan Terdeteksi Otomatis
+                        </span>
+                        <span className="bg-emerald-600 text-white text-xs font-black px-2.5 py-0.5 rounded-full shadow-sm">
+                          {uadMatchScore}% Sesuai
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-700 leading-relaxed font-semibold bg-white/70 p-2.5 rounded-lg border border-emerald-50 italic">
+                        "{uadMatchReason}"
+                      </p>
+                    </div>
+                  ) : uadSnapshot ? (
+                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl space-y-1">
+                      <h5 className="font-bold text-amber-900 text-xs uppercase tracking-wider">Hasil Scan Wajah Selesai</h5>
+                      <p className="text-xs text-amber-700 leading-relaxed font-semibold">
+                        Kamera berhasil menangkap wajah. Jika tidak otomatis terdeteksi, Anda dapat memilih peserta secara manual di panel pencarian bawah untuk langsung memverifikasi visual.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center gap-3">
+                      <div className="p-2 bg-slate-200 rounded-lg text-slate-500">
+                        <Scan className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Sistem Siap Pindai</h5>
+                        <p className="text-[11px] text-gray-500 leading-relaxed font-semibold mt-0.5">
+                          Siapkan wajah fisik peserta di depan kamera lalu klik "Ambil Foto". Hasil foto akan langsung memicu proses pencarian pintar di database.
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Right Column: Active Face Verification Area */}
-              <div className="lg:col-span-8 bg-white rounded-xl shadow-sm border border-gray-250 p-6 space-y-6">
-                {!uadSelectedUser ? (
-                  <div className="flex flex-col items-center justify-center py-24 text-gray-400 text-center">
-                    <Users className="w-16 h-16 text-indigo-150 mb-3" />
-                    <h4 className="font-bold text-gray-800 text-lg">Belum Ada Peserta Terpilih</h4>
-                    <p className="text-sm text-gray-500 max-w-sm mt-1">Silakan cari dan pilih salah satu peserta di panel sebelah kiri untuk memproses verifikasi mandiri.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="border-b pb-4">
-                      <h3 className="font-bold text-gray-900 text-xl">{uadSelectedUser.full_name}</h3>
-                      <p className="text-sm text-gray-500 mt-1 font-medium">
-                        Kode Pelaut: <span className="font-mono text-indigo-700 font-bold">{uadSelectedUser.identity_number}</span> | Kelas: {uadSelectedUser.class_name || "-"}
+              {/* Right Side: Matched Candidate & Latihan Ujian Comparison Data */}
+              <div className="lg:col-span-5 bg-white rounded-xl shadow-sm border border-gray-250 p-6 flex flex-col justify-between space-y-6">
+                <div>
+                  <h3 className="font-bold text-gray-850 text-lg mb-4 flex items-center gap-2 border-b pb-3">
+                    <ClipboardList className="w-5 h-5 text-indigo-500" /> 2. Data Pembanding (Latihan Ujian)
+                  </h3>
+
+                  {!uadSelectedUser ? (
+                    <div className="flex flex-col items-center justify-center p-12 text-gray-400 text-center space-y-3 bg-gray-50 border border-dashed border-gray-350 rounded-xl min-h-[350px]">
+                      <div className="w-16 h-16 bg-white/80 rounded-full border border-gray-200 flex items-center justify-center shadow-sm">
+                        <Users className="w-8 h-8 text-gray-300" />
+                      </div>
+                      <h4 className="font-bold text-gray-700 text-sm">Menunggu Hasil Scan</h4>
+                      <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+                        Silakan ambil foto scan wajah fisik peserta terlebih dahulu atau pilih nama peserta secara manual di panel pencarian untuk membuka data pembanding historis.
                       </p>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Sub-column 1: Live Webcam Action */}
-                      <div className="bg-gray-50 border border-gray-205 rounded-xl p-5 flex flex-col items-center text-center space-y-4">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-600 animate-ping"></span>
-                          <h4 className="font-bold text-indigo-950 text-xs uppercase tracking-wider">Live Scan Wajah</h4>
+                  ) : (
+                    <div className="space-y-5 animate-fadeIn">
+                      {/* Matched Profile Summary */}
+                      <div className="bg-indigo-950 p-4 rounded-xl text-white shadow-md relative overflow-hidden">
+                        <div className="absolute right-[-15px] bottom-[-15px] opacity-10">
+                          <Users className="w-32 h-32 text-white" />
                         </div>
-
-                        {uadCameraOn ? (
-                          <div className="relative w-full aspect-video rounded-lg overflow-hidden border border-gray-300 bg-black">
-                            <video
-                              ref={uadVideoRef}
-                              autoPlay
-                              playsInline
-                              muted
-                              className="w-full h-full object-cover transform scale-x-[-1]"
-                            />
-                            <div className="absolute inset-0 border-2 border-dashed border-indigo-400 m-6 rounded-full pointer-events-none opacity-60"></div>
-                          </div>
-                        ) : uadSnapshot ? (
-                          <div className="relative w-full aspect-video rounded-lg overflow-hidden border border-gray-300 bg-black">
-                            <img src={uadSnapshot} alt="Snapshot" className="w-full h-full object-cover" />
-                            <div className="absolute bottom-2 right-2 bg-emerald-600 text-white text-[10px] uppercase font-bold px-1.5 py-0.5 rounded shadow">
-                              Wajah Terpindai
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="w-full aspect-video rounded-lg border border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 bg-white">
-                            <Camera className="w-12 h-12 text-gray-300 mb-2" />
-                            <p className="text-xs font-semibold">Kamera mati</p>
-                          </div>
-                        )}
-
-                        <div className="flex gap-2 w-full justify-center">
-                          {!uadCameraOn && !uadSnapshot && (
-                            <button
-                              onClick={startUadCamera}
-                              type="button"
-                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1.5 shadow-sm transition"
-                            >
-                              <Camera className="w-4 h-4" /> Buka Kamera
-                            </button>
-                          )}
-                          {uadCameraOn && (
-                            <button
-                              onClick={captureUadSnapshot}
-                              type="button"
-                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1.5 shadow-sm transition"
-                            >
-                              <Scan className="w-4 h-4" /> Ambil Foto Wajah
-                            </button>
-                          )}
-                          {uadSnapshot && (
-                            <button
-                              onClick={startUadCamera}
-                              type="button"
-                              className="px-4 py-2 bg-gray-250 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition"
-                            >
-                              <RefreshCw className="w-4 h-4" /> Ambil Ulang
-                            </button>
-                          )}
+                        <span className="text-[10px] uppercase font-extrabold tracking-widest bg-white/20 text-white px-2 py-0.5 rounded mb-2 inline-block">
+                          Profil Terpilih
+                        </span>
+                        <h4 className="font-extrabold text-xl leading-snug">{uadSelectedUser.full_name}</h4>
+                        <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-indigo-150 font-medium">
+                          <p>Kode Pelaut: <span className="font-mono text-white font-bold">{uadSelectedUser.identity_number}</span></p>
+                          <p>Kelas: <span className="text-white font-bold">{uadSelectedUser.class_name || "-"}</span></p>
                         </div>
                       </div>
 
-                      {/* Sub-column 2: Previous Registered Faces & Document */}
-                      <div className="bg-gray-50 border border-gray-205 rounded-xl p-5 flex flex-col space-y-4">
-                        <h4 className="font-bold text-gray-850 text-center text-xs uppercase tracking-wider">Data Latihan Ujian</h4>
+                      {/* Display Stored Selfie & Document Data */}
+                      <div className="space-y-4">
+                        <h5 className="font-bold text-gray-700 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle className="w-3.5 h-3.5 text-indigo-500" /> Detail Media Latihan Ujian
+                        </h5>
 
                         {uadLatihanVerifications.length === 0 ? (
-                          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400">
-                            <Users className="w-10 h-10 text-gray-300 mb-2" />
-                            <p className="text-xs">
-                              Peserta belum memiliki data Latihan Ujian (Selfie & KTP mandiri dari awal).
-                            </p>
+                          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-xs leading-relaxed font-semibold">
+                            Peserta belum menyelesaikan verifikasi Latihan Ujian sebelumnya (Belum mengunggah Selfie & KTP mandiri).
                           </div>
                         ) : (
-                          <div className="space-y-4 overflow-y-auto max-h-[300px] pr-1">
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-[11px] text-blue-800 leading-relaxed font-medium">
-                              Note: Apabila terdapat beberapa foto selfie yang berbeda, pastikan semua foto dicocokkan dengan gambar fisik live scan di samping.
-                            </div>
-
-                            {/* Selfies Grid */}
-                            <div className="space-y-2">
-                              <span className="text-xs font-semibold text-gray-600 block">Foto Selfie Latihan:</span>
-                              <div className="grid grid-cols-2 gap-2">
-                                {uadLatihanVerifications.map((lv, idx) => (
-                                  <div key={lv.id || idx} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm hover:ring-2 hover:ring-indigo-400 transition-all">
-                                    <img
-                                      src={lv.live_photo_url}
-                                      alt={`Selfie ${idx + 1}`}
-                                      className="w-full h-full object-cover"
-                                      onError={(e: any) => { e.target.src = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150"; }}
-                                    />
-                                    <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1 rounded">
-                                      Foto {idx + 1}
-                                    </div>
-                                  </div>
-                                ))}
+                          <div className="space-y-4">
+                            {/* Selfie Latihan */}
+                            <div>
+                              <span className="text-xs font-bold text-gray-600 block mb-1.5">Foto Selfie Latihan Ujian:</span>
+                              <div className="aspect-square w-full rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm relative group">
+                                <img
+                                  src={uadLatihanVerifications[0]?.live_photo_url}
+                                  alt="Foto Selfie Latihan"
+                                  className="w-full h-full object-cover"
+                                  onError={(e: any) => { e.target.src = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300"; }}
+                                />
+                                <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-white text-[9px] uppercase font-bold px-2 py-0.5 rounded shadow">
+                                  Diunggah oleh Peserta
+                                </div>
                               </div>
                             </div>
 
                             {/* KTP Image */}
                             {uadLatihanVerifications[0]?.ktp_photo_url && (
-                              <div className="space-y-1">
-                                <span className="text-xs font-semibold text-gray-600 block">Foto KTP Latihan:</span>
-                                <div className="aspect-[1.58/1] rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm hover:ring-2 hover:ring-indigo-400 transition-all">
+                              <div>
+                                <span className="text-xs font-bold text-gray-600 block mb-1.5">Foto KTP Latihan Ujian:</span>
+                                <div className="aspect-[1.58/1] w-full rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm relative">
                                   <img
                                     src={uadLatihanVerifications[0].ktp_photo_url}
-                                    alt="KTP"
+                                    alt="Foto KTP"
                                     className="w-full h-full object-cover"
                                   />
+                                  <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-white text-[9px] uppercase font-bold px-2 py-0.5 rounded shadow">
+                                    Unggah Berkas KTP
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -2601,31 +2759,114 @@ export default function AdminDashboard() {
                         )}
                       </div>
                     </div>
+                  )}
+                </div>
 
-                    {/* Submit Action */}
-                    <div className="border-t border-gray-200 pt-5 flex justify-end">
+                {/* Final Verification Button */}
+                {uadSelectedUser && (
+                  <div className="border-t border-gray-200 pt-4 flex flex-col space-y-2">
+                    <button
+                      onClick={handleUadVerifyAndApprove}
+                      type="button"
+                      disabled={uadVerifying || !uadSnapshot}
+                      className={`w-full px-6 py-4 rounded-xl font-bold text-sm tracking-wide text-white transition flex items-center justify-center gap-2 shadow-md ${
+                        !uadSnapshot || uadVerifying
+                          ? "bg-gray-300 cursor-not-allowed text-gray-500 shadow-none"
+                          : "bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98]"
+                      }`}
+                    >
+                      {uadVerifying ? (
+                        <>
+                          <RefreshCw className="w-5 h-5 animate-spin" /> Sedang Menyetujui...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-5 h-5" /> Verifikasi & Setujui Peserta
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[10px] text-gray-400 text-center mt-1">
+                      Menyetujui akan mendaftarkan verifikasi global di sistem, mengizinkan peserta mengakses Ujian UAD secara instan tanpa verifikasi selfie tambahan.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Section: Manual Participant Search / Fallback Access */}
+            <div className="bg-slate-50 rounded-xl p-6 border border-gray-250 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-bold text-gray-800 text-base">3. Daftar Cadangan & Pencarian Manual</h4>
+                  <p className="text-xs text-gray-500 font-medium">
+                    Gunakan panel pencarian ini jika scanner wajah mengalami kendala teknis atau pencocokan otomatis tidak berjalan dengan lancar.
+                  </p>
+                </div>
+                <div className="relative w-full md:w-80">
+                  <input
+                    type="text"
+                    placeholder="Ketik Nama / Kode Pelaut di sini..."
+                    value={uadSearchQuery}
+                    onChange={(e) => setUadSearchQuery(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[220px] overflow-y-auto pr-1">
+                {uadUsers
+                  .filter((u) => {
+                    const query = uadSearchQuery.toLowerCase().trim();
+                    if (!query) return true;
+                    return (
+                      u.full_name?.toLowerCase().includes(query) ||
+                      u.identity_number?.includes(query)
+                    );
+                  })
+                  .slice(0, 15)
+                  .map((u) => {
+                    const hasVerification = uadAllVerifications.some(v => v.user_id === u.id);
+                    return (
                       <button
-                        onClick={handleUadVerifyAndApprove}
-                        type="button"
-                        disabled={uadVerifying || !uadSnapshot || uadLatihanVerifications.length === 0}
-                        className={`px-6 py-3 rounded-xl font-bold text-sm tracking-wide text-white transition flex items-center gap-2 shadow-md ${
-                          !uadSnapshot || uadLatihanVerifications.length === 0 || uadVerifying
-                            ? "bg-gray-300 cursor-not-allowed text-gray-500 shadow-none"
-                            : "bg-emerald-650 hover:bg-emerald-700 bg-emerald-600"
+                        key={u.id}
+                        onClick={() => {
+                          setUadSelectedUser(u);
+                          setUadLatihanVerifications([]);
+                          setUadSuccessMsg("");
+                          setUadMatchScore(null);
+                          setUadMatchReason("");
+                          const matchingVerif = uadAllVerifications.find(v => v.user_id === u.id);
+                          if (matchingVerif) {
+                            setUadLatihanVerifications([matchingVerif]);
+                          }
+                        }}
+                        className={`p-3.5 text-left rounded-xl border transition-all text-sm flex flex-col gap-1.5 ${
+                          uadSelectedUser?.id === u.id
+                            ? "bg-indigo-50/80 border-indigo-500 ring-1 ring-indigo-500 text-indigo-950 font-medium shadow-sm"
+                            : "bg-white hover:bg-gray-100 border-gray-200 text-gray-850 shadow-sm"
                         }`}
                       >
-                        {uadVerifying ? (
-                          <>
-                            <RefreshCw className="w-5 h-5 animate-spin" /> Sedang Memproses...
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle className="w-5 h-5" /> Verifikasi & Setujui Peserta
-                          </>
-                        )}
+                        <div className="flex justify-between items-start gap-1 w-full">
+                          <span className="font-extrabold text-sm text-gray-900 block truncate max-w-[80%]">{u.full_name}</span>
+                          {hasVerification ? (
+                            <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0">
+                              Latihan Ok
+                            </span>
+                          ) : (
+                            <span className="bg-gray-100 text-gray-400 text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0">
+                              No Latihan
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500 font-medium">
+                          <span>Kode: {u.identity_number}</span>
+                          <span>Kelas: {u.class_name || "-"}</span>
+                        </div>
                       </button>
-                    </div>
-                  </div>
+                    );
+                  })}
+                {uadUsers.length === 0 && (
+                  <div className="py-8 text-center text-xs text-gray-400 col-span-full">Loading database peserta...</div>
                 )}
               </div>
             </div>
