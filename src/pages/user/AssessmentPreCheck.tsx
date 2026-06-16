@@ -25,26 +25,40 @@ export default function AssessmentPreCheck() {
 
   useEffect(() => {
     async function loadCourseCategory() {
-      if (!courseId) return;
+      if (!courseId || !user) return;
       try {
-        const { data } = await supabase
+        const { data: cData } = await supabase
           .from('courses')
           .select('category')
           .eq('id', courseId)
           .single();
-        if (data) {
-          setCourseCategory(data.category);
+        
+        let cat = cData?.category || "";
+
+        const { data: eData } = await supabase
+          .from('enrollments')
+          .select('category')
+          .eq('user_id', user.id)
+          .eq('course_id', courseId)
+          .maybeSingle();
+
+        if (eData?.category) {
+          cat = eData.category;
         }
+
+        setCourseCategory(cat);
       } catch (err) {
         console.error("Failed to load course category:", err);
       }
     }
     loadCourseCategory();
-  }, [courseId]);
+  }, [courseId, user]);
 
   useEffect(() => {
     async function checkLatihanVerification() {
-      if (!user || courseCategory !== 'LATIHAN UJIAN') return;
+      if (!user || !courseCategory) return;
+      const isPrac = courseCategory.toUpperCase().trim() === 'LATIHAN UJIAN' || courseCategory.toUpperCase().trim() === 'LATIHAN UUAN' || courseCategory.toUpperCase().trim() === 'LATIHAN';
+      if (!isPrac) return;
       try {
         const { data, error } = await supabase
           .from('latihan_verifications')
@@ -94,13 +108,13 @@ export default function AssessmentPreCheck() {
 
   // If user is already verified globally or it is a practice exam, they can just proceed (unless blocked by attempts)
   useEffect(() => {
-    const isPractice = courseCategory === 'LATIHAN UJIAN';
+    const isPractice = courseCategory?.toUpperCase().trim() === 'LATIHAN UJIAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN UUAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN';
     if (isPractice) {
-      if (latihanVerified === true) {
+      if (latihanVerified === true || user?.is_verified) {
         navigate(`/course/${courseId}/assessment/${assessmentId}`);
       }
     } else {
-      if (user?.is_verified && attemptsInfo !== null) {
+      if ((user?.is_verified || latihanVerified === true) && attemptsInfo !== null) {
         if (attemptsInfo.passed || attemptsInfo.count >= 3) {
           // Stay here to show the message
         } else {
@@ -230,7 +244,30 @@ export default function AssessmentPreCheck() {
     }
   };
 
-  const isPractice = courseCategory === 'LATIHAN UUAN' || courseCategory === 'LATIHAN UJIAN';
+  const isPractice = courseCategory?.toUpperCase().trim() === 'LATIHAN UUAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN UJIAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN';
+
+  // While checking category or verification status on practice exam, show loading screen
+  if (isPractice && (latihanVerified === null || courseCategory === null)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-605 border-indigo-600 mb-4"></div>
+        <p className="text-gray-600 font-semibold text-sm">Memeriksa status verifikasi Latihan Ujian...</p>
+      </div>
+    );
+  }
+
+  // If already verified on practice exam
+  if (isPractice && (latihanVerified === true || user?.is_verified)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="animate-bounce mb-4 text-emerald-500">
+          <CheckCircle className="w-12 h-12" />
+        </div>
+        <p className="text-emerald-700 font-bold text-lg">Verifikasi Ditemukan!</p>
+        <p className="text-gray-500 text-sm mt-1">Mengalihkan Anda ke halaman ujian dalam sistem...</p>
+      </div>
+    );
+  }
 
   if (user?.is_verified && !isPractice) {
     if (attemptsInfo !== null) {
