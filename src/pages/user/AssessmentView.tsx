@@ -94,6 +94,9 @@ export default function AssessmentView() {
           [fetchedQuestions[i], fetchedQuestions[j]] = [fetchedQuestions[j], fetchedQuestions[i]];
         }
       }
+      if (assessmentData.max_questions && assessmentData.max_questions > 0) {
+        fetchedQuestions = fetchedQuestions.slice(0, assessmentData.max_questions);
+      }
 
       setAssessment(assessmentData);
       setQuestions(fetchedQuestions);

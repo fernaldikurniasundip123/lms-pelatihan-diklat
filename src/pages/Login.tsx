@@ -222,7 +222,7 @@ export default function Login() {
       const normalizedInputName = normalizeName(fullName);
 
       let users = uniqueUsers.filter(u => {
-        if (u.role === 'admin' || u.role === 'admin2') return true;
+        if (u.role === 'admin' || u.role === 'admin2' || u.role === 'admin_uad') return true;
         return normalizeName(u.full_name) === normalizedInputName;
       });
 
@@ -230,7 +230,7 @@ export default function Login() {
 
       if (users && users.length > 0) {
         // Check if it's an admin login attempt
-        const adminUser = users.find(u => u.role === 'admin' || u.role === 'admin2');
+        const adminUser = users.find(u => u.role === 'admin' || u.role === 'admin2' || u.role === 'admin_uad');
         if (adminUser) {
           user = adminUser;
         } else {
@@ -257,9 +257,13 @@ export default function Login() {
       }
 
       if (user) {
-        if (user.role === 'admin' || user.role === 'admin2') {
+        if (user.role === 'admin' || user.role === 'admin2' || user.role === 'admin_uad') {
           // Khusus admin, isian "Kelas" berfungsi sebagai password
-          if (className !== 'report123' && className !== user.identity_number) {
+          if (user.role === 'admin_uad' && className !== 'uad123') {
+            throw new Error("Password admin UAD salah");
+          } else if (user.role === 'admin2' && className !== 'report123') {
+            throw new Error("Password admin report salah");
+          } else if (user.role === 'admin' && className !== user.identity_number) {
             throw new Error("Password/Kelas admin salah");
           }
         } else {
@@ -290,6 +294,8 @@ export default function Login() {
         let role = 'user';
         if (fullName === 'Admin Report' && className === 'report123') {
           role = 'admin2';
+        } else if (fullName === 'Admin UAD' && className === 'uad123') {
+          role = 'admin_uad';
         } else if (fullName.toLowerCase().includes('admin')) {
           throw new Error("Tidak dapat membuat akun admin baru");
         }
@@ -310,7 +316,7 @@ export default function Login() {
       }
 
       // 2. Handle enrollment if course selected
-      if (courseId && user.role !== 'admin' && user.role !== 'admin2') {
+      if (courseId && user.role !== 'admin' && user.role !== 'admin2' && user.role !== 'admin_uad') {
         // Check existing enrollment
         const { data: existingEnrollment } = await supabase
           .from('enrollments')
@@ -344,56 +350,38 @@ export default function Login() {
         }
       }
 
-      // If Category is Ujian UAD, we trigger the face detection popup!
+      // If Category is Ujian UAD, check if they are verified by Admin UAD (global_verifications)
       if (selectedCategory === 'UJIAN UAD') {
-        // Look up registered selfies from Latihan Ujian (latihan_verifications table)
-        const { data: regs, error: regsErr } = await supabase
-          .from('latihan_verifications')
-          .select('*')
-          .eq('seafarer_code', seafarerCode);
-
-        // Fallback or retrieve
-        let matchedRegs = regs || [];
-        if (regsErr || matchedRegs.length === 0) {
-          // Look in global_verifications as backup
-          const { data: gvs } = await supabase
-            .from('global_verifications')
-            .select('*')
-            .eq('user_id', user.id);
-          if (gvs && gvs.length > 0) {
-            matchedRegs = gvs.map(g => ({
-              ...g,
-              seafarer_code: seafarerCode
-            }));
-          }
-        }
-
-        if (matchedRegs.length === 0) {
-          throw new Error("Wajah Anda belum terdaftar di Latihan Ujian. Silakan lakukan Verifikasi/Ambil Foto di Latihan Ujian terlebih dahulu.");
-        }
-
-        setFaceRegistrations(matchedRegs);
-        setFaceScanStep("scanning");
-        setShowFaceScanPopup(true);
-
-        const dummyToken = `supabase-auth-${user.id}-${Date.now()}`;
         const { data: verification } = await supabase
           .from('global_verifications')
           .select('id')
           .eq('user_id', user.id)
           .single();
 
-        setPendingLoginData({
-          user,
-          dummyToken,
-          verification,
-          courseId,
-          selectedCategory,
-          loginMataKuliah
+        if (!verification) {
+          throw new Error("Wajah Anda belum diverifikasi oleh Admin UAD. Silakan hubungi Admin UAD untuk melakukan verifikasi scan wajah terpusat terlebih dahulu.");
+        }
+
+        // Complete the sign-in directly and bypass biometric popup on student side!
+        const dummyToken = `supabase-auth-${user.id}-${Date.now()}`;
+        
+        login(dummyToken, {
+          id: user.id,
+          name: user.full_name,
+          role: user.role,
+          identity: user.identity_number,
+          is_verified: true
         });
 
+        const finalAssessment = selectedCourse?.assessments?.find((a: any) => !a.video_id);
+        if (finalAssessment) {
+          navigate(`/course/${courseId}/assessment/${finalAssessment.id}`);
+        } else {
+          navigate("/user");
+        }
+
         setIsLoading(false);
-        return; // Pause the flow, the Webcam modal takes over!
+        return;
       }
 
       // 3. Log login
@@ -425,7 +413,7 @@ export default function Login() {
         is_verified: !!verification
       });
       
-      if (user.role === "admin" || user.role === "admin2") {
+      if (user.role === "admin" || user.role === "admin2" || user.role === "admin_uad") {
         navigate("/admin");
       } else {
         navigate("/user");
@@ -454,14 +442,25 @@ export default function Login() {
     if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN") {
       return filteredCourses;
     }
-    return courses.filter(c => c.category === selectedCategory && c.description === selectedTingkat);
+    const filtered = courses.filter(c => c.category === selectedCategory && c.description === selectedTingkat);
+    if (selectedCategory === "UJIAN UAD") {
+      // Only show UJIAN UAD courses whose assessment has show_in_uad !== false
+      return filtered.filter(c => {
+        const finalAsm = c.assessments?.find((a: any) => !a.video_id);
+        return !finalAsm || finalAsm.show_in_uad !== false;
+      });
+    }
+    return filtered;
   }, [selectedCategory, selectedTingkat, courses, filteredCourses]);
 
   const isSelectedPeriodActive = useMemo(() => {
-    return activeRefreshingPeriods.some((p: any) => p.start === periodStart && p.end === periodEnd);
-  }, [activeRefreshingPeriods, periodStart, periodEnd]);
+    if (selectedCategory && (selectedCategory === "REFRESING" || selectedCategory === "UJIAN UAD")) {
+      return activeRefreshingPeriods.some((p: any) => p.start === periodStart && p.end === periodEnd);
+    }
+    return true;
+  }, [selectedCategory, activeRefreshingPeriods, periodStart, periodEnd]);
   
-  const isSignInDisabled = isLoading || (selectedCategory === "REFRESING" && !isSelectedPeriodActive);
+  const isSignInDisabled = isLoading || ((selectedCategory === "REFRESING" || selectedCategory === "UJIAN UAD") && !isSelectedPeriodActive);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -712,12 +711,12 @@ export default function Login() {
                   </div>
                 )}
 
-                {selectedCategory === "REFRESING" && selectedCourse ? (
+                {(selectedCategory === "REFRESING" || selectedCategory === "UJIAN UAD") && selectedCourse ? (
                   activeRefreshingPeriods.length > 0 ? (
                     <div className="grid grid-cols-1 gap-4">
                       <div>
                         <label htmlFor="refreshingPeriod" className="block text-sm font-medium text-gray-700">
-                          Periode Refresing
+                          {selectedCategory === "UJIAN UAD" ? "Periode Ujian UAD" : "Periode Refresing"}
                         </label>
                         <div className="mt-1">
                           <select
@@ -747,7 +746,7 @@ export default function Login() {
                     </div>
                   ) : (
                     <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm">
-                      Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa.
+                      Pendaftaran untuk {selectedCategory === "UJIAN UAD" ? "Ujian UAD" : "Pelatihan Refresing"} ini sudah ditutup atau periode link telah kadaluarsa.
                     </div>
                   )
                 ) : (

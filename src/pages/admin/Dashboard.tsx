@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
@@ -22,11 +22,23 @@ export function parseQuestionText(rawText: string) {
 export default function AdminDashboard() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState(user?.role === "admin2" ? "reports-final" : "courses");
+  const [activeTab, setActiveTab] = useState(user?.role === "admin2" ? "reports-final" : user?.role === "admin_uad" ? "examinations" : "courses");
   const [courses, setCourses] = useState<any[]>([]);
   const [videoReports, setVideoReports] = useState<any[]>([]);
   const [assessmentReports, setAssessmentReports] = useState<any[]>([]);
   const [finalReports, setFinalReports] = useState<any[]>([]);
+
+  // UAD Centralized Verification States
+  const [uadSearchQuery, setUadSearchQuery] = useState("");
+  const [uadUsers, setUadUsers] = useState<any[]>([]);
+  const [uadSelectedUser, setUadSelectedUser] = useState<any | null>(null);
+  const [uadLatihanVerifications, setUadLatihanVerifications] = useState<any[]>([]);
+  const [uadCameraOn, setUadCameraOn] = useState(false);
+  const [uadSnapshot, setUadSnapshot] = useState<string | null>(null);
+  const [uadVerifying, setUadVerifying] = useState(false);
+  const [uadSuccessMsg, setUadSuccessMsg] = useState("");
+  const uadVideoRef = useRef<HTMLVideoElement | null>(null);
+  const uadStreamRef = useRef<MediaStream | null>(null);
   
   // Add Course Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -73,6 +85,8 @@ export default function AdminDashboard() {
   const [uploadingAssessmentId, setUploadingAssessmentId] = useState<string | null>(null);
   const [editingAssessmentId, setEditingAssessmentId] = useState<string | null>(null);
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
+  const [maxQuestions, setMaxQuestions] = useState<number>(100);
+  const [showInUad, setShowInUad] = useState<boolean>(true);
 
   // Manual Question & Image State
   const [manualQuestionText, setManualQuestionText] = useState("");
@@ -198,6 +212,128 @@ export default function AdminDashboard() {
   const [newNameInput, setNewNameInput] = useState("");
   const [searchCodeQuery, setSearchCodeQuery] = useState("");
   const [isImportingExcel, setIsImportingExcel] = useState(false);
+
+  // UAD Centralized Face Verification Functions & Hooks
+  const fetchUadUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, full_name, identity_number, class_name")
+        .eq("role", "user")
+        .order("full_name", { ascending: true });
+      if (!error && data) {
+        setUadUsers(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchUadLatihanVerifications = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("latihan_verifications")
+        .select("*")
+        .eq("user_id", userId);
+      if (!error && data) {
+        setUadLatihanVerifications(data);
+      } else {
+        console.error("Error fetching latihan verifications:", error);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "verification_uad") {
+      fetchUadUsers();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!uadCameraOn || activeTab !== "verification_uad") {
+      if (uadStreamRef.current) {
+        uadStreamRef.current.getTracks().forEach((track) => track.stop());
+        uadStreamRef.current = null;
+      }
+      setUadCameraOn(false);
+    }
+  }, [uadCameraOn, activeTab]);
+
+  const startUadCamera = async () => {
+    try {
+      setUadSnapshot(null);
+      setUadCameraOn(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      uadStreamRef.current = stream;
+      if (uadVideoRef.current) {
+        uadVideoRef.current.srcObject = stream;
+      }
+    } catch (e) {
+      console.error("Camera access failed:", e);
+      alert("Gagal mengakses kamera: Pastikan izin kamera aktif!");
+      setUadCameraOn(false);
+    }
+  };
+
+  const captureUadSnapshot = () => {
+    if (uadVideoRef.current) {
+      const video = uadVideoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg");
+        setUadSnapshot(dataUrl);
+        if (uadStreamRef.current) {
+          uadStreamRef.current.getTracks().forEach((track) => track.stop());
+          uadStreamRef.current = null;
+        }
+        setUadCameraOn(false);
+      }
+    }
+  };
+
+  const handleUadVerifyAndApprove = async () => {
+    if (!uadSelectedUser || !uadSnapshot) {
+      alert("Pilih peserta dan ambil foto scan wajah fisik terlebih dahulu!");
+      return;
+    }
+    setUadVerifying(true);
+    setUadSuccessMsg("");
+    try {
+      await supabase
+        .from("global_verifications")
+        .delete()
+        .eq("user_id", uadSelectedUser.id);
+
+      const { error } = await supabase
+        .from("global_verifications")
+        .insert({
+          user_id: uadSelectedUser.id,
+          live_photo_url: uadSnapshot,
+          ktp_photo_url: uadLatihanVerifications[0]?.ktp_photo_url || uadSnapshot,
+          created_at: new Date().toISOString()
+        });
+
+      if (!error) {
+        setUadSuccessMsg(`Peserta "${uadSelectedUser.full_name}" berhasil terverifikasi terpusat! Ujian langsung aktif tanpa selfie.`);
+        setUadSnapshot(null);
+        setUadLatihanVerifications([]);
+        setUadSelectedUser(null);
+        setUadSearchQuery("");
+      } else {
+        alert("Gagal menyimpan verifikasi: " + error.message);
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    } finally {
+      setUadVerifying(false);
+    }
+  };
 
   // Fetch allowed seafarer codes on mount / activeTab change
   useEffect(() => {
@@ -1174,7 +1310,9 @@ export default function AdminDashboard() {
       show_one_by_one: showOneByOne,
       prevent_copypaste: preventCopypaste,
       prevent_split_screen: preventSplitScreen,
-      audio_link: audioLink || null
+      audio_link: audioLink || null,
+      max_questions: selectedCourse.category === "UJIAN UAD" ? maxQuestions : null,
+      show_in_uad: selectedCourse.category === "UJIAN UAD" ? showInUad : null
     };
 
     const { error } = await supabase
@@ -1275,6 +1413,7 @@ export default function AdminDashboard() {
 
   const filterReports = (reports: any[]) => {
     return reports.filter(r => {
+      if (user?.role === "admin_uad" && r.course_category !== "UJIAN UAD") return false;
       if (filterCourseId && r.course_id !== filterCourseId) return false;
       if (filterClassName && r.class_name !== filterClassName) return false;
       if (filterCategory === 'DIKLAT PENINGKATAN (PASIS)' && filterMataKuliah) {
@@ -1971,7 +2110,55 @@ export default function AdminDashboard() {
           </h1>
         </div>
         <nav className="flex-1 p-4 space-y-2">
-          {user?.role !== "admin2" && (
+          {user?.role === "admin_uad" ? (
+            <>
+              <button
+                onClick={() => setActiveTab("examinations")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "examinations" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Kelola Ujian UAD
+              </button>
+              <button
+                onClick={() => setActiveTab("verification_uad")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "verification_uad" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Users className="w-5 h-5" /> Verifikasi Peserta
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-assessment")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-assessment" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Laporan Assessment
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-final")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-final" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <CheckCircle className="w-5 h-5" /> Laporan Final
+              </button>
+            </>
+          ) : user?.role === "admin2" ? (
+            <>
+              <button
+                onClick={() => setActiveTab("reports-video")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-video" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Video className="w-5 h-5" /> Video Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-assessment")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-assessment" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Assessment Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-final")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-final" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <CheckCircle className="w-5 h-5" /> Final Reports
+              </button>
+            </>
+          ) : (
             <>
               <button
                 onClick={() => setActiveTab("courses")}
@@ -1997,26 +2184,26 @@ export default function AdminDashboard() {
               >
                 <Users className="w-5 h-5" /> Akses Kode Pelaut
               </button>
+              <button
+                onClick={() => setActiveTab("reports-video")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-video" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Video className="w-5 h-5" /> Video Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-assessment")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-assessment" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Assessment Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("reports-final")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-final" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <CheckCircle className="w-5 h-5" /> Final Reports
+              </button>
             </>
           )}
-          <button
-            onClick={() => setActiveTab("reports-video")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-video" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-          >
-            <Video className="w-5 h-5" /> Video Reports
-          </button>
-          <button
-            onClick={() => setActiveTab("reports-assessment")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-assessment" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-          >
-            <FileText className="w-5 h-5" /> Assessment Reports
-          </button>
-          <button
-            onClick={() => setActiveTab("reports-final")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-final" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
-          >
-            <CheckCircle className="w-5 h-5" /> Final Reports
-          </button>
         </nav>
         <div className="p-4 border-t">
           <div className="mb-4 px-4">
@@ -2202,6 +2389,244 @@ export default function AdminDashboard() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "verification_uad" && (
+          <div className="space-y-6 text-gray-900">
+            <div className="flex justify-between items-center pb-5 border-b border-gray-200">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Verifikasi Scan Wajah Terpusat (Admin UAD)</h2>
+                <p className="text-sm text-gray-500 mt-1 font-medium">
+                  Gunakan kamera HP/Laptop Anda untuk memindai wajah fisik peserta, lalu validasikan dengan selfie dan data KTP dari Latihan Ujian.
+                </p>
+              </div>
+            </div>
+
+            {uadSuccessMsg && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <p className="text-sm font-semibold">{uadSuccessMsg}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
+              {/* Left Column: Search Participant & Select */}
+              <div className="lg:col-span-4 bg-white rounded-xl shadow-sm border border-gray-250 p-6 space-y-4">
+                <h3 className="font-bold text-gray-850 text-lg">Cari & Pilih Peserta</h3>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Nama / 10-Digit Kode Pelaut..."
+                    value={uadSearchQuery}
+                    onChange={(e) => setUadSearchQuery(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                  />
+                </div>
+
+                <div className="max-h-[350px] overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100 bg-gray-50">
+                  {uadUsers
+                    .filter((u) => {
+                      const query = uadSearchQuery.toLowerCase().trim();
+                      if (!query) return true;
+                      return (
+                        u.full_name?.toLowerCase().includes(query) ||
+                        u.identity_number?.includes(query)
+                      );
+                    })
+                    .slice(0, 15)
+                    .map((u) => (
+                      <button
+                        key={u.id}
+                        onClick={() => {
+                          setUadSelectedUser(u);
+                          setUadLatihanVerifications([]);
+                          setUadSnapshot(null);
+                          setUadSuccessMsg("");
+                          fetchUadLatihanVerifications(u.id);
+                        }}
+                        className={`w-full px-4 py-3 text-left transition text-sm flex flex-col gap-0.5 ${
+                          uadSelectedUser?.id === u.id
+                            ? "bg-indigo-50 border-l-4 border-indigo-600 font-medium text-indigo-950"
+                            : "hover:bg-gray-105 text-gray-750 bg-white"
+                        }`}
+                      >
+                        <span className="font-bold block text-gray-900">{u.full_name}</span>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>Kode: {u.identity_number}</span>
+                          <span>Kelas: {u.class_name || "-"}</span>
+                        </div>
+                      </button>
+                    ))}
+                  {uadUsers.length === 0 && (
+                    <div className="p-4 text-center text-xs text-gray-400">Loading peserta...</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Active Face Verification Area */}
+              <div className="lg:col-span-8 bg-white rounded-xl shadow-sm border border-gray-250 p-6 space-y-6">
+                {!uadSelectedUser ? (
+                  <div className="flex flex-col items-center justify-center py-24 text-gray-400 text-center">
+                    <Users className="w-16 h-16 text-indigo-150 mb-3" />
+                    <h4 className="font-bold text-gray-800 text-lg">Belum Ada Peserta Terpilih</h4>
+                    <p className="text-sm text-gray-500 max-w-sm mt-1">Silakan cari dan pilih salah satu peserta di panel sebelah kiri untuk memproses verifikasi mandiri.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="border-b pb-4">
+                      <h3 className="font-bold text-gray-900 text-xl">{uadSelectedUser.full_name}</h3>
+                      <p className="text-sm text-gray-500 mt-1 font-medium">
+                        Kode Pelaut: <span className="font-mono text-indigo-700 font-bold">{uadSelectedUser.identity_number}</span> | Kelas: {uadSelectedUser.class_name || "-"}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Sub-column 1: Live Webcam Action */}
+                      <div className="bg-gray-50 border border-gray-205 rounded-xl p-5 flex flex-col items-center text-center space-y-4">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-600 animate-ping"></span>
+                          <h4 className="font-bold text-indigo-950 text-xs uppercase tracking-wider">Live Scan Wajah</h4>
+                        </div>
+
+                        {uadCameraOn ? (
+                          <div className="relative w-full aspect-video rounded-lg overflow-hidden border border-gray-300 bg-black">
+                            <video
+                              ref={uadVideoRef}
+                              autoPlay
+                              playsInline
+                              muted
+                              className="w-full h-full object-cover transform scale-x-[-1]"
+                            />
+                            <div className="absolute inset-0 border-2 border-dashed border-indigo-400 m-6 rounded-full pointer-events-none opacity-60"></div>
+                          </div>
+                        ) : uadSnapshot ? (
+                          <div className="relative w-full aspect-video rounded-lg overflow-hidden border border-gray-300 bg-black">
+                            <img src={uadSnapshot} alt="Snapshot" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-2 right-2 bg-emerald-600 text-white text-[10px] uppercase font-bold px-1.5 py-0.5 rounded shadow">
+                              Wajah Terpindai
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full aspect-video rounded-lg border border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 bg-white">
+                            <Camera className="w-12 h-12 text-gray-300 mb-2" />
+                            <p className="text-xs font-semibold">Kamera mati</p>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 w-full justify-center">
+                          {!uadCameraOn && !uadSnapshot && (
+                            <button
+                              onClick={startUadCamera}
+                              type="button"
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1.5 shadow-sm transition"
+                            >
+                              <Camera className="w-4 h-4" /> Buka Kamera
+                            </button>
+                          )}
+                          {uadCameraOn && (
+                            <button
+                              onClick={captureUadSnapshot}
+                              type="button"
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1.5 shadow-sm transition"
+                            >
+                              <Scan className="w-4 h-4" /> Ambil Foto Wajah
+                            </button>
+                          )}
+                          {uadSnapshot && (
+                            <button
+                              onClick={startUadCamera}
+                              type="button"
+                              className="px-4 py-2 bg-gray-250 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <RefreshCw className="w-4 h-4" /> Ambil Ulang
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Sub-column 2: Previous Registered Faces & Document */}
+                      <div className="bg-gray-50 border border-gray-205 rounded-xl p-5 flex flex-col space-y-4">
+                        <h4 className="font-bold text-gray-850 text-center text-xs uppercase tracking-wider">Data Latihan Ujian</h4>
+
+                        {uadLatihanVerifications.length === 0 ? (
+                          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400">
+                            <Users className="w-10 h-10 text-gray-300 mb-2" />
+                            <p className="text-xs">
+                              Peserta belum memiliki data Latihan Ujian (Selfie & KTP mandiri dari awal).
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-4 overflow-y-auto max-h-[300px] pr-1">
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-[11px] text-blue-800 leading-relaxed font-medium">
+                              Note: Apabila terdapat beberapa foto selfie yang berbeda, pastikan semua foto dicocokkan dengan gambar fisik live scan di samping.
+                            </div>
+
+                            {/* Selfies Grid */}
+                            <div className="space-y-2">
+                              <span className="text-xs font-semibold text-gray-600 block">Foto Selfie Latihan:</span>
+                              <div className="grid grid-cols-2 gap-2">
+                                {uadLatihanVerifications.map((lv, idx) => (
+                                  <div key={lv.id || idx} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm hover:ring-2 hover:ring-indigo-400 transition-all">
+                                    <img
+                                      src={lv.live_photo_url}
+                                      alt={`Selfie ${idx + 1}`}
+                                      className="w-full h-full object-cover"
+                                      onError={(e: any) => { e.target.src = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150"; }}
+                                    />
+                                    <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1 rounded">
+                                      Foto {idx + 1}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* KTP Image */}
+                            {uadLatihanVerifications[0]?.ktp_photo_url && (
+                              <div className="space-y-1">
+                                <span className="text-xs font-semibold text-gray-600 block">Foto KTP Latihan:</span>
+                                <div className="aspect-[1.58/1] rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm hover:ring-2 hover:ring-indigo-400 transition-all">
+                                  <img
+                                    src={uadLatihanVerifications[0].ktp_photo_url}
+                                    alt="KTP"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Submit Action */}
+                    <div className="border-t border-gray-200 pt-5 flex justify-end">
+                      <button
+                        onClick={handleUadVerifyAndApprove}
+                        type="button"
+                        disabled={uadVerifying || !uadSnapshot || uadLatihanVerifications.length === 0}
+                        className={`px-6 py-3 rounded-xl font-bold text-sm tracking-wide text-white transition flex items-center gap-2 shadow-md ${
+                          !uadSnapshot || uadLatihanVerifications.length === 0 || uadVerifying
+                            ? "bg-gray-300 cursor-not-allowed text-gray-500 shadow-none"
+                            : "bg-emerald-650 hover:bg-emerald-700 bg-emerald-600"
+                        }`}
+                      >
+                        {uadVerifying ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" /> Sedang Memproses...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="w-5 h-5" /> Verifikasi & Setujui Peserta
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3451,6 +3876,18 @@ export default function AdminDashboard() {
                             <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
                             <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                           </div>
+                          {selectedCourse.category === "UJIAN UAD" && (
+                            <>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700">Jumlah Soal Maksimal yang Dikerjakan (Isi 0 untuk semua)</label>
+                                <input type="number" min="0" value={maxQuestions} onChange={e => setMaxQuestions(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
+                                <input type="checkbox" id="showInUadEdit" checked={showInUad} onChange={e => setShowInUad(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                <label htmlFor="showInUadEdit" className="text-xs font-medium text-gray-700">Tampilkan Ujian di Menu UAD Peserta (Show in UAD)</label>
+                              </div>
+                            </>
+                          )}
                           <div className="flex items-center gap-2 mt-2">
                             <input type="checkbox" id="isMandatoryExamEdit" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
                             <label htmlFor="isMandatoryExamEdit" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
@@ -3489,6 +3926,11 @@ export default function AdminDashboard() {
                               <p className="text-sm mt-1">
                                 Mandatory: {matchedAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {matchedAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {matchedAssessment.show_one_by_one ? 'Yes' : 'No'}
                               </p>
+                              {selectedCourse.category === "UJIAN UAD" && (
+                                <p className="text-sm mt-1 text-indigo-900 font-semibold">
+                                  Max Questions: {matchedAssessment.max_questions || "All"} | Show in UAD: {matchedAssessment.show_in_uad !== false ? 'Yes' : 'No'}
+                                </p>
+                              )}
                               <p className="text-sm mt-1 text-red-600 font-medium font-mono font-bold">Strict Mode: {matchedAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {matchedAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {matchedAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
                             </div>
                             <div className="flex flex-col gap-2">
@@ -3503,6 +3945,8 @@ export default function AdminDashboard() {
                                   setShowOneByOne(!!matchedAssessment.show_one_by_one);
                                   setPreventCopypaste(!!matchedAssessment.prevent_copypaste);
                                   setPreventSplitScreen(!!matchedAssessment.prevent_split_screen);
+                                  setMaxQuestions(matchedAssessment.max_questions || 0);
+                                  setShowInUad(matchedAssessment.show_in_uad !== false);
                                   setEditingAssessmentId(matchedAssessment.id);
                                 }}
                                 className={`px-2.5 py-1 text-xs font-semibold border rounded transition-colors whitespace-nowrap bg-white ${selectedCourse.category === 'UJIAN UAD' ? 'text-indigo-700 border-indigo-300 hover:bg-indigo-50' : 'text-amber-800 border-amber-300 hover:bg-amber-50'}`}

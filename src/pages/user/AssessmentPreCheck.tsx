@@ -21,6 +21,7 @@ export default function AssessmentPreCheck() {
   const [loading, setLoading] = useState(false);
   const [attemptsInfo, setAttemptsInfo] = useState<{ count: number, passed: boolean } | null>(null);
   const [courseCategory, setCourseCategory] = useState<string | null>(null);
+  const [latihanVerified, setLatihanVerified] = useState<boolean | null>(null);
 
   useEffect(() => {
     async function loadCourseCategory() {
@@ -40,6 +41,28 @@ export default function AssessmentPreCheck() {
     }
     loadCourseCategory();
   }, [courseId]);
+
+  useEffect(() => {
+    async function checkLatihanVerification() {
+      if (!user || courseCategory !== 'LATIHAN UJIAN') return;
+      try {
+        const { data, error } = await supabase
+          .from('latihan_verifications')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1);
+        if (data && data.length > 0) {
+          setLatihanVerified(true);
+        } else {
+          setLatihanVerified(false);
+        }
+      } catch (err) {
+        console.error("Failed to check assessment verification:", err);
+        setLatihanVerified(false);
+      }
+    }
+    checkLatihanVerification();
+  }, [user, courseCategory]);
 
   useEffect(() => {
     if (user && courseId) {
@@ -72,14 +95,20 @@ export default function AssessmentPreCheck() {
   // If user is already verified globally or it is a practice exam, they can just proceed (unless blocked by attempts)
   useEffect(() => {
     const isPractice = courseCategory === 'LATIHAN UJIAN';
-    if (user?.is_verified && !isPractice && attemptsInfo !== null) {
-      if (attemptsInfo.passed || attemptsInfo.count >= 3) {
-        // Stay here to show the message
-      } else {
+    if (isPractice) {
+      if (latihanVerified === true) {
         navigate(`/course/${courseId}/assessment/${assessmentId}`);
       }
+    } else {
+      if (user?.is_verified && attemptsInfo !== null) {
+        if (attemptsInfo.passed || attemptsInfo.count >= 3) {
+          // Stay here to show the message
+        } else {
+          navigate(`/course/${courseId}/assessment/${assessmentId}`);
+        }
+      }
     }
-  }, [user, courseId, navigate, attemptsInfo, courseCategory]);
+  }, [user, courseId, navigate, attemptsInfo, courseCategory, latihanVerified, assessmentId]);
 
   const capture = useCallback(async () => {
     try {

@@ -777,7 +777,7 @@ export default function CourseView() {
                 )}
 
                 {/* Final Assessment Section */}
-                {assessments.find(a => !a.video_id) && (
+                {!isUjianOrLatihan && assessments.find(a => !a.video_id) && (
                   <button
                     onClick={() => {
                       const finalAssessment = assessments.find(a => !a.video_id);
@@ -798,7 +798,7 @@ export default function CourseView() {
                 )}
 
                 {/* Link Tugas Section */}
-                {!isRefreshing && (
+                {!isRefreshing && !isUjianOrLatihan && (
                   <div className="bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
                   <div className="p-4 border-b border-indigo-100 flex items-center gap-2">
                     <LinkIcon className="w-4 h-4 text-indigo-900" />
