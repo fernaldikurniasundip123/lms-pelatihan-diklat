@@ -2535,287 +2535,133 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
         )}
 
         {activeTab === "verification_uad" && (
-          <div className="space-y-6 text-gray-900 animate-fadeIn">
+          <div className="space-y-6 text-gray-900 animate-fadeIn font-sans">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-gray-200">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
-                  <Scan className="w-7 h-7 text-indigo-600 animate-pulse" /> Verifikasi Scan Wajah Terpusat (Admin UAD)
+                <h2 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2 font-sans">
+                  <Scan className="w-7 h-7 text-indigo-600" /> Monitoring Verifikasi Wajah Mandiri (Ujian UAD)
                 </h2>
-                <p className="text-sm text-gray-500 mt-1 font-medium leading-relaxed max-w-3xl">
-                  Arahkan kamera ke wajah peserta untuk melakukan pemindaian fisik. Sistem akan memindai secara otomatis dan mencocokkan kemiripan wajah dengan data foto selfie & KTP dari Latihan Ujian di database.
+                <p className="text-sm text-gray-500 mt-1 leading-relaxed max-w-3xl font-sans text-stone-500">
+                  Pemindaian wajah dikoordinasikan langsung pada akun masing-masing peserta saat memilih dan masuk kelas Ujian UAD. Gunakan panel berikut untuk meninjau, menyetujui, atau mereset status ujian peserta secara manual.
                 </p>
               </div>
             </div>
 
             {uadSuccessMsg && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center gap-3 shadow-sm">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <p className="text-sm font-semibold">{uadSuccessMsg}</p>
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-850 p-4 rounded-xl flex items-center gap-3 shadow-sm font-sans">
+                <CheckCircle className="w-5 h-5 text-emerald-650 flex-shrink-0" />
+                <p className="text-sm font-bold font-sans">{uadSuccessMsg}</p>
               </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
-              {/* Left Side: Dynamic Camera Scan & Intelligent Matching Status */}
-              <div className="lg:col-span-7 bg-white rounded-xl shadow-sm border border-gray-250 p-6 space-y-6 flex flex-col justify-between">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-6">
+              {/* Profile Overview Card */}
+              <div className="lg:col-span-12 bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
                 <div>
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100">
                     <h3 className="font-bold text-gray-850 text-lg flex items-center gap-2">
-                      <Camera className="w-5 h-5 text-indigo-500" /> 1. Area Scan Kamera Fisik
+                       <Scan className="w-5 h-5 text-indigo-500" /> Berkas Peninjauan Biometrik Peserta (UAD)
                     </h3>
-                    <div className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full text-xs font-semibold">
-                      <span className="inline-block w-2 h-2 rounded-full bg-indigo-600 animate-ping"></span>
-                      LIVE SCAN
+                    <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full text-xs font-semibold">
+                      STATUS: MONITORING INSTAN
                     </div>
                   </div>
 
-                  {/* Main Viewport */}
-                  <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-gray-300 bg-gray-950 flex flex-col items-center justify-center shadow-inner">
-                    {uadCameraOn ? (
-                      <div className="relative w-full h-full">
-                        <video
-                          ref={uadVideoRef}
-                          autoPlay
-                          playsInline
-                          muted
-                          className="w-full h-full object-cover transform scale-x-[-1]"
-                        />
-                        {/* Interactive scan overlays */}
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="relative w-64 h-64 border-2 border-dashed border-indigo-400 rounded-full animate-pulse flex items-center justify-center">
-                            <span className="absolute w-full h-0.5 bg-indigo-500/50 rounded animate-bounce"></span>
-                            <div className="w-48 h-48 border border-white/20 rounded-full flex items-center justify-center bg-indigo-950/20 backdrop-blur-[1px]">
-                              {uadCountdown !== null && (
-                                <div className="text-white text-5xl font-black bg-indigo-600 w-20 h-20 rounded-full flex items-center justify-center shadow-xl animate-scaleIn border-2 border-white/30">
-                                  {uadCountdown}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {uadCountdown !== null && (
-                          <div className="absolute top-3 right-3 bg-red-600 text-white text-[11px] uppercase font-bold px-3 py-1.5 rounded-lg animate-pulse shadow flex items-center gap-1.5 leading-none">
-                            <span className="w-2.5 h-2.5 bg-white rounded-full animate-ping"></span>
-                            Pemindaian Otomatis dalam {uadCountdown} detik...
-                          </div>
-                        )}
-                        <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm text-white text-[10px] uppercase font-mono px-2 py-1 rounded">
-                          RESOLUSI: 640x480
-                        </div>
-                      </div>
-                    ) : uadSnapshot ? (
-                      <div className="relative w-full h-full">
-                        <img src={uadSnapshot} alt="Snapshot Scan" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-indigo-900/10 backdrop-blur-[1px] pointer-events-none"></div>
-                        <div className="absolute bottom-3 right-3 bg-emerald-600 text-white text-xs uppercase font-bold px-3 py-1 rounded-lg shadow-md flex items-center gap-1">
-                          <CheckCircle className="w-3.5 h-3.5" /> Hasil Scan Tersimpan
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center p-8 text-center text-gray-400">
-                        <div className="w-20 h-20 bg-gray-900 rounded-full flex items-center justify-center border border-gray-800 mb-4 shadow">
-                          <Camera className="w-10 h-10 text-gray-500" />
-                        </div>
-                        <h4 className="font-bold text-gray-200">Kamera Belum Aktif</h4>
-                        <p className="text-xs text-gray-400 max-w-xs mt-1 mb-4 leading-relaxed font-semibold">
-                          Silakan aktifkan kamera Anda. Sistem akan memindai wajah fisik secara otomatis setelah kamera menyala.
-                        </p>
-                        <button
-                          onClick={startUadCamera}
-                          type="button"
-                          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-md transition-all transform active:scale-95"
-                        >
-                          <Camera className="w-4 h-4" /> Mulai Pindai/Nyalakan Kamera
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Camera Action Controls */}
-                  {(uadCameraOn || uadSnapshot) && (
-                    <div className="flex gap-3 justify-center mt-5">
-                      {uadCameraOn && (
-                        <button
-                          onClick={captureUadSnapshot}
-                          type="button"
-                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold flex items-center gap-2 shadow-md transition-all transform active:scale-95 animate-pulse"
-                        >
-                          <Scan className="w-4 h-4" /> Ambil Foto Sekarang (Manual)
-                        </button>
-                      )}
-                      {uadSnapshot && (
-                        <button
-                          onClick={startUadCamera}
-                          type="button"
-                          className="px-5 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-all"
-                        >
-                          <RefreshCw className="w-4 h-4" /> Pindai Wajah Ulang
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* AI Matching Status Console */}
-                <div className="border-t border-gray-150 pt-5 mt-6">
-                  {uadMatchingLoading ? (
-                    <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex flex-col items-center justify-center text-center space-y-3.5 animate-pulse">
-                      <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
-                      <div>
-                        <h5 className="font-bold text-indigo-900 text-sm">Sedang Mencocokkan Wajah</h5>
-                        <p className="text-xs text-indigo-600 mt-0.5">Sistem sedang mendeteksi kemiripan profil dengan Latihan Ujian...</p>
-                      </div>
-                    </div>
-                  ) : uadMatchScore !== null && uadSelectedUser ? (
-                    <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-emerald-800 font-bold text-sm tracking-tight flex items-center gap-1.5">
-                          <CheckCircle className="w-4 h-4 text-emerald-600" /> Kecocokan Terdeteksi Otomatis
-                        </span>
-                        <span className="bg-emerald-600 text-white text-xs font-black px-2.5 py-0.5 rounded-full shadow-sm">
-                          {uadMatchScore}% Sesuai
-                        </span>
-                      </div>
-                      <p className="text-xs text-emerald-700 leading-relaxed font-semibold bg-white/70 p-2.5 rounded-lg border border-emerald-50 italic">
-                        "{uadMatchReason}"
-                      </p>
-                    </div>
-                  ) : uadSnapshot ? (
-                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl space-y-1">
-                      <h5 className="font-bold text-amber-900 text-xs uppercase tracking-wider">Hasil Scan Wajah Selesai</h5>
-                      <p className="text-xs text-amber-700 leading-relaxed font-semibold">
-                        Kamera berhasil menangkap wajah. Jika tidak otomatis terdeteksi, Anda dapat memilih peserta secara manual di panel pencarian bawah untuk langsung memverifikasi visual.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center gap-3">
-                      <div className="p-2 bg-slate-200 rounded-lg text-slate-500">
-                        <Scan className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Sistem Siap Pindai</h5>
-                        <p className="text-[11px] text-gray-500 leading-relaxed font-semibold mt-0.5">
-                          Siapkan wajah fisik peserta di depan kamera lalu klik "Ambil Foto". Hasil foto akan langsung memicu proses pencarian pintar di database.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Side: Matched Candidate & Latihan Ujian Comparison Data */}
-              <div className="lg:col-span-5 bg-white rounded-xl shadow-sm border border-gray-250 p-6 flex flex-col justify-between space-y-6">
-                <div>
-                  <h3 className="font-bold text-gray-850 text-lg mb-4 flex items-center gap-2 border-b pb-3">
-                    <ClipboardList className="w-5 h-5 text-indigo-500" /> 2. Data Pembanding (Latihan Ujian)
-                  </h3>
-
+                  {/* Biometric Records Review Section */}
                   {!uadSelectedUser ? (
-                    <div className="flex flex-col items-center justify-center p-12 text-gray-400 text-center space-y-3 bg-gray-50 border border-dashed border-gray-350 rounded-xl min-h-[350px]">
-                      <div className="w-16 h-16 bg-white/80 rounded-full border border-gray-200 flex items-center justify-center shadow-sm">
-                        <Users className="w-8 h-8 text-gray-300" />
+                    <div className="flex flex-col items-center justify-center p-12 text-gray-400 text-center space-y-3 bg-gray-50 border border-dashed border-gray-300 rounded-xl min-h-[320px] font-sans">
+                      <div className="w-16 h-16 bg-white rounded-full border border-gray-200 flex items-center justify-center shadow-sm">
+                        <Users className="w-8 h-8 text-indigo-500 animate-pulse" />
                       </div>
-                      <h4 className="font-bold text-gray-700 text-sm">Menunggu Hasil Scan</h4>
-                      <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
-                        Silakan ambil foto scan wajah fisik peserta terlebih dahulu atau pilih nama peserta secara manual di panel pencarian untuk membuka data pembanding historis.
+                      <h4 className="font-bold text-gray-750 text-base">Pilih Peserta Di Daftar Pencarian Di Bawah</h4>
+                      <p className="text-xs text-gray-500 max-w-xs leading-relaxed font-semibold">
+                        Silakan pilih nama peserta menggunakan panel "Detail Pencarian Manual & Daftar Akumulatif" di bagian bawah untuk meninjau secara instan foto selfie latihan dan KTP fisik.
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-5 animate-fadeIn">
-                      {/* Matched Profile Summary */}
-                      <div className="bg-indigo-950 p-4 rounded-xl text-white shadow-md relative overflow-hidden">
-                        <div className="absolute right-[-15px] bottom-[-15px] opacity-10">
-                          <Users className="w-32 h-32 text-white" />
-                        </div>
-                        <span className="text-[10px] uppercase font-extrabold tracking-widest bg-white/20 text-white px-2 py-0.5 rounded mb-2 inline-block">
-                          Profil Terpilih
+                    <div className="space-y-6 animate-fadeIn font-sans bg-gray-50 border border-gray-200 p-6 rounded-2xl">
+                      <div className="bg-indigo-950 p-5 rounded-xl text-white shadow relative overflow-hidden font-sans">
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-white/20 text-indigo-100 px-2 py-0.5 rounded mb-2 inline-block font-sans">
+                          Profil Verifikasi Audit
                         </span>
-                        <h4 className="font-extrabold text-xl leading-snug">{uadSelectedUser.full_name}</h4>
-                        <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-indigo-150 font-medium">
-                          <p>Kode Pelaut: <span className="font-mono text-white font-bold">{uadSelectedUser.identity_number}</span></p>
-                          <p>Kelas: <span className="text-white font-bold">{uadSelectedUser.class_name || "-"}</span></p>
+                        <h4 className="font-extrabold text-2xl leading-snug">{uadSelectedUser.full_name}</h4>
+                        <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-indigo-200 font-medium font-sans">
+                          <p>Kode Pelaut: <span className="text-white font-mono font-bold bg-white/10 px-1.5 py-0.5 rounded">{uadSelectedUser.identity_number}</span></p>
+                          <p>Kelas: <span className="text-white font-bold bg-indigo-900/60 px-1.5 py-0.5 rounded">{uadSelectedUser.class_name || "-"}</span></p>
                         </div>
                       </div>
 
-                      {/* Display Stored Selfie & Document Data */}
-                      <div className="space-y-4">
-                        <h5 className="font-bold text-gray-700 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                          <CheckCircle className="w-3.5 h-3.5 text-indigo-500" /> Detail Media Latihan Ujian
-                        </h5>
-
-                        {uadLatihanVerifications.length === 0 ? (
-                          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-xs leading-relaxed font-semibold">
-                            Peserta belum menyelesaikan verifikasi Latihan Ujian sebelumnya (Belum mengunggah Selfie & KTP mandiri).
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            {/* Selfie Latihan */}
-                            <div>
-                              <span className="text-xs font-bold text-gray-600 block mb-1.5">Foto Selfie Latihan Ujian:</span>
-                              <div className="aspect-square w-full rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm relative group">
-                                <img
-                                  src={uadLatihanVerifications[0]?.live_photo_url}
-                                  alt="Foto Selfie Latihan"
-                                  className="w-full h-full object-cover"
-                                  onError={(e: any) => { e.target.src = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300"; }}
-                                />
-                                <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-white text-[9px] uppercase font-bold px-2 py-0.5 rounded shadow">
-                                  Diunggah oleh Peserta
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* KTP Image */}
-                            {uadLatihanVerifications[0]?.ktp_photo_url && (
-                              <div>
-                                <span className="text-xs font-bold text-gray-600 block mb-1.5">Foto KTP Latihan Ujian:</span>
-                                <div className="aspect-[1.58/1] w-full rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm relative">
-                                  <img
-                                    src={uadLatihanVerifications[0].ktp_photo_url}
-                                    alt="Foto KTP"
-                                    className="w-full h-full object-cover"
-                                  />
-                                  <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-white text-[9px] uppercase font-bold px-2 py-0.5 rounded shadow">
-                                    Unggah Berkas KTP
-                                  </div>
-                                </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Selfie Reference */}
+                        <div className="space-y-2 font-sans">
+                          <span className="text-xs font-bold text-gray-650 tracking-wide block font-sans">Foto Selfie Latihan Ujian (Referensi)</span>
+                          <div className="aspect-square w-full rounded-xl overflow-hidden border border-gray-300 bg-white shadow-inner relative flex items-center justify-center font-sans">
+                            {uadLatihanVerifications.length > 0 && uadLatihanVerifications[0]?.live_photo_url ? (
+                              <img
+                                src={uadLatihanVerifications[0].live_photo_url}
+                                alt="Foto Referensi"
+                                className="w-full h-full object-cover font-sans"
+                                referrerPolicy="no-referrer"
+                                onError={(e: any) => { e.target.src = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300"; }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xs text-gray-400 p-4 text-center font-sans font-medium">
+                                Belum mengunggah foto selfie latihan.
                               </div>
                             )}
                           </div>
-                        )}
+                        </div>
+
+                        {/* KTP Identity */}
+                        <div className="space-y-2 font-sans">
+                          <span className="text-xs font-bold text-gray-650 tracking-wide block font-sans">Foto Kartu Identitas (KTP)</span>
+                          <div className="aspect-square w-full rounded-xl overflow-hidden border border-gray-300 bg-white shadow-inner relative flex items-center justify-center font-sans">
+                            {uadLatihanVerifications.length > 0 && uadLatihanVerifications[0]?.ktp_photo_url ? (
+                              <img
+                                src={uadLatihanVerifications[0].ktp_photo_url}
+                                alt="Foto KTP"
+                                className="w-full h-full object-cover font-sans"
+                                referrerPolicy="no-referrer"
+                                onError={(e: any) => { e.target.src = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300"; }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xs text-gray-400 p-4 text-center font-sans font-medium">
+                                Belum mengunggah berkas KTP.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-200 pt-4 flex flex-col sm:flex-row items-center justify-between gap-4 font-sans">
+                        <div className="text-xs text-gray-500 max-w-md font-sans">
+                          <p className="font-bold text-gray-805">Tindakan Kelulusan Biometrik</p>
+                          <p className="mt-0.5 font-medium">Tindakan ini menyetujui kelayakan biometrik peserta secara manual dan mengotorisasi hak ujian UAD seketika.</p>
+                        </div>
+                        <button
+                          onClick={handleUadVerifyAndApprove}
+                          type="button"
+                          disabled={uadVerifying}
+                          className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 flex-shrink-0 shadow disabled:bg-gray-300 disabled:text-gray-500"
+                        >
+                          {uadVerifying ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin font-sans" /> Memproses...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4 font-sans" /> Verifikasi & Setujui Manual
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   )}
-                </div>
 
-                {/* Final Verification Button */}
-                {uadSelectedUser && (
-                  <div className="border-t border-gray-200 pt-4 flex flex-col space-y-2">
-                    <button
-                      onClick={handleUadVerifyAndApprove}
-                      type="button"
-                      disabled={uadVerifying || !uadSnapshot}
-                      className={`w-full px-6 py-4 rounded-xl font-bold text-sm tracking-wide text-white transition flex items-center justify-center gap-2 shadow-md ${
-                        !uadSnapshot || uadVerifying
-                          ? "bg-gray-300 cursor-not-allowed text-gray-500 shadow-none"
-                          : "bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98]"
-                      }`}
-                    >
-                      {uadVerifying ? (
-                        <>
-                          <RefreshCw className="w-5 h-5 animate-spin" /> Sedang Menyetujui...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-5 h-5" /> Verifikasi & Setujui Peserta
-                        </>
-                      )}
-                    </button>
-                    <p className="text-[10px] text-gray-400 text-center mt-1">
-                      Menyetujui akan mendaftarkan verifikasi global di sistem, mengizinkan peserta mengakses Ujian UAD secara instan tanpa verifikasi selfie tambahan.
-                    </p>
-                  </div>
-                )}
+                </div>
               </div>
+
+
             </div>
 
             {/* Bottom Section: Manual Participant Search / Fallback Access */}

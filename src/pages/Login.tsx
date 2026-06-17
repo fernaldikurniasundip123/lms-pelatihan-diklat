@@ -363,39 +363,7 @@ export default function Login() {
         }
       }
 
-      // If Category is Ujian UAD, check if they are verified by Admin UAD (global_verifications)
-      if (selectedCategory === 'UJIAN UAD') {
-        const { data: verification } = await supabase
-          .from('global_verifications')
-          .select('id')
-          .eq('user_id', user.id)
-          .single();
-
-        if (!verification) {
-          throw new Error("Wajah Anda belum diverifikasi oleh Admin UAD. Silakan hubungi Admin UAD untuk melakukan verifikasi scan wajah terpusat terlebih dahulu.");
-        }
-
-        // Complete the sign-in directly and bypass biometric popup on student side!
-        const dummyToken = `supabase-auth-${user.id}-${Date.now()}`;
-        
-        login(dummyToken, {
-          id: user.id,
-          name: user.full_name,
-          role: user.role,
-          identity: user.identity_number,
-          is_verified: true
-        });
-
-        const finalAssessment = selectedCourse?.assessments?.find((a: any) => !a.video_id);
-        if (finalAssessment) {
-          navigate(`/course/${courseId}/assessment/${finalAssessment.id}`);
-        } else {
-          navigate("/user");
-        }
-
-        setIsLoading(false);
-        return;
-      }
+      // Ujian UAD can now login freely and perform self face recognition on their assessment precheck page before starting.
 
       // 3. Log login
       await supabase.from('login_logs').insert([{
