@@ -23,10 +23,53 @@ export default function UserDashboard() {
   const [ktpPhoto, setKtpPhoto] = useState<string | null>(null);
   const webcamRef = useRef<Webcam>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUadUser, setIsUadUser] = useState<boolean | null>(null);
 
   useEffect(() => {
     setIsVerified(user?.is_verified);
   }, [user]);
+
+  useEffect(() => {
+    async function checkUadUser() {
+      if (!user) return;
+      try {
+        const { data, error } = await supabase
+          .from('enrollments')
+          .select('course_id, category')
+          .eq('user_id', user.id);
+        
+        if (!error && data && data.length > 0) {
+          const hasUad = data.some((e: any) => e.category === 'UJIAN UAD');
+          setIsUadUser(hasUad);
+          
+          if (hasUad) {
+            // Find the UJIAN UAD course and its final assessment ID
+            const uadEnrollment = data.find((e: any) => e.category === 'UJIAN UAD');
+            if (uadEnrollment) {
+              const courseId = uadEnrollment.course_id;
+              const { data: assessments } = await supabase
+                .from('assessments')
+                .select('id')
+                .eq('course_id', courseId)
+                .is('video_id', null)
+                .limit(1);
+              
+              if (assessments && assessments.length > 0) {
+                const assessmentId = assessments[0].id;
+                // Redirect immediately to precheck face recognition!
+                navigate(`/course/${courseId}/assessment/${assessmentId}/precheck`);
+              }
+            }
+          }
+        } else {
+          setIsUadUser(false);
+        }
+      } catch (err) {
+        setIsUadUser(false);
+      }
+    }
+    checkUadUser();
+  }, [user, navigate]);
 
   useEffect(() => {
     if (isVerified && hasSessionSelfie && user) {
@@ -241,20 +284,26 @@ export default function UserDashboard() {
   const [activeZoomClass, setActiveZoomClass] = useState<{ id: string; name: string } | null>(null);
 
   const [selectedZoomCourse, setSelectedZoomCourse] = useState<{ id: string; name: string } | null>(null);
-  const [retrievedZoomConfig, setRetrievedZoomConfig] = useState<{ meeting_name: string; zoom_link: string } | null>(null);
+  const [retrievedZoomConfig, setRetrievedZoomConfig] = useState<{ meeting_name: string; zoom_link: string; course_periods?: string[] } | null>(null);
   const [loadingZoomConfig, setLoadingZoomConfig] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("");
 
   const fetchZoomConfigForCourse = async (courseId: string) => {
     setLoadingZoomConfig(true);
     setRetrievedZoomConfig(null);
+    setSelectedPeriod("");
     let foundConfig: any = null;
 
     try {
       const { data, error } = await supabase.from("zoom_settings").select("*");
       if (!error && data) {
-        foundConfig = data.find((item: any) => 
-          Array.isArray(item.course_ids) && item.course_ids.includes(courseId)
-        );
+        foundConfig = data.find((item: any) => {
+          if (!Array.isArray(item.course_ids)) return false;
+          return item.course_ids.some((c: any) => {
+            if (typeof c === 'string') return c === courseId;
+            return c && typeof c === 'object' && c.course_id === courseId;
+          });
+        });
       }
     } catch (e) {
       console.warn("Could not fetch zoom configs from Supabase server, checking LocalStorage...");
@@ -264,21 +313,44 @@ export default function UserDashboard() {
       const stored = localStorage.getItem("local_zoom_settings");
       if (stored) {
         const configs = JSON.parse(stored);
-        foundConfig = configs.find((item: any) => 
-          Array.isArray(item.course_ids) && item.course_ids.includes(courseId)
-        );
+        foundConfig = configs.find((item: any) => {
+          if (!Array.isArray(item.course_ids)) return false;
+          return item.course_ids.some((c: any) => {
+            if (typeof c === 'string') return c === courseId;
+            return c && typeof c === 'object' && c.course_id === courseId;
+          });
+        });
       }
     }
 
     if (foundConfig) {
+      // Find specific mapping periods
+      let periods: string[] = [];
+      if (Array.isArray(foundConfig.course_ids)) {
+        const mapping = foundConfig.course_ids.find((c: any) => {
+          if (typeof c === 'string') return c === courseId;
+          return c && typeof c === 'object' && c.course_id === courseId;
+        });
+        if (mapping && typeof mapping === 'object' && Array.isArray(mapping.periods)) {
+          periods = mapping.periods;
+        }
+      }
+
       setRetrievedZoomConfig({
         meeting_name: foundConfig.meeting_name,
-        zoom_link: foundConfig.zoom_link
+        zoom_link: foundConfig.zoom_link,
+        course_periods: periods
       });
+      
+      // Auto-select first period if available
+      if (periods.length > 0) {
+        setSelectedPeriod(periods[0]);
+      }
     } else {
       setRetrievedZoomConfig({
         meeting_name: "Embed Link Zoom Default",
-        zoom_link: "https://zoom.us/j/98765432101"
+        zoom_link: "https://zoom.us/j/98765432101",
+        course_periods: []
       });
     }
     setLoadingZoomConfig(false);
@@ -287,13 +359,14 @@ export default function UserDashboard() {
   const handleJoinDirectZoom = async (courseId: string, courseName: string, zoomLink: string) => {
     if (!user) return;
     const userClass = localStorage.getItem("selected_class") || (user as any)?.class_name || "KELAS UTAMA";
+    const finalClassName = selectedPeriod ? `${userClass} (${selectedPeriod})` : userClass;
     
     const payload = {
       id: crypto.randomUUID(),
       user_id: user.id,
       user_name: user.name,
       seafarer_code: user.identity || "",
-      class_name: userClass,
+      class_name: finalClassName,
       course_id: courseId,
       course_name: courseName,
       joined_at: new Date().toISOString(),
@@ -318,6 +391,8 @@ export default function UserDashboard() {
   };
 
   if (activeZoomClass && user) {
+    const userClass = (user as any)?.class_name || "Kelas Utama";
+    const finalClassName = selectedPeriod ? `${userClass} (${selectedPeriod})` : userClass;
     return (
       <ZoomClassroom
         courseId={activeZoomClass.id}
@@ -326,14 +401,14 @@ export default function UserDashboard() {
           id: user.id,
           name: user.name,
           identity: user.identity,
-          class_name: (user as any)?.class_name || "Kelas Utama"
+          class_name: finalClassName
         }}
         onLeave={() => setActiveZoomClass(null)}
       />
     );
   }
 
-  if (!isVerified && user?.role === 'user') {
+  if (!isVerified && user?.role === 'user' && isUadUser === false) {
     return (
       <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
@@ -427,7 +502,7 @@ export default function UserDashboard() {
     );
   }
 
-  if (isVerified && !hasSessionSelfie && user?.role === 'user') {
+  if (isVerified && !hasSessionSelfie && user?.role === 'user' && isUadUser === false) {
     return (
       <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
@@ -674,6 +749,30 @@ export default function UserDashboard() {
                 <h4 className="text-xl font-bold text-gray-900 mt-1.5 truncate">{selectedZoomCourse.name}</h4>
                 <p className="text-xs text-gray-500 mt-1">Silakan pilih metode untuk tergabung ke dalam sesi Zoom Meeting hari ini.</p>
               </div>
+
+              {!loadingZoomConfig && retrievedZoomConfig && retrievedZoomConfig.course_periods && retrievedZoomConfig.course_periods.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                  <label htmlFor="periodSelectField" className="block text-xs font-bold text-gray-700 uppercase tracking-wide">
+                    PILIH PERIODE DIKLAT ANDA:
+                  </label>
+                  <select
+                    id="periodSelectField"
+                    value={selectedPeriod}
+                    onChange={(e) => setSelectedPeriod(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white text-gray-950 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  >
+                    <option value="" disabled>-- Pilih Periode Kelas --</option>
+                    {retrievedZoomConfig.course_periods.map((period) => (
+                      <option key={period} value={period}>
+                        {period}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-500 font-medium">
+                    Periode diklat yang dipilih akan dicatat pada laporan telemetri & rekap presensi kelas sinkronus Anda.
+                  </p>
+                </div>
+              )}
 
               {loadingZoomConfig ? (
                 <div className="py-6 flex flex-col items-center justify-center gap-3">

@@ -21,11 +21,16 @@ interface Course {
   description?: string;
 }
 
-interface ZoomConfig {
+export interface CourseMapping {
+  course_id: string;
+  periods: string[];
+}
+
+export interface ZoomConfig {
   id: string;
   meeting_name: string;
   zoom_link: string;
-  course_ids: string[]; // List of mapped course IDs
+  course_ids: (string | CourseMapping)[]; // List of mapped course IDs or mappings with periods
 }
 
 interface SinkronusSettingsProps {
@@ -121,13 +126,53 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
     }));
   };
 
+  const getSelectedCourseMapping = (config: ZoomConfig, courseId: string): CourseMapping | null => {
+    if (!Array.isArray(config.course_ids)) return null;
+    const found = config.course_ids.find(item => {
+      if (typeof item === 'string') return item === courseId;
+      return item && typeof item === 'object' && item.course_id === courseId;
+    });
+    if (!found) return null;
+    return typeof found === 'string' ? { course_id: found, periods: [] } : found;
+  };
+
   const handleToggleCourse = (configId: string, courseId: string) => {
     setZoomConfigs(zoomConfigs.map(item => {
       if (item.id === configId) {
-        const isSelected = item.course_ids.includes(courseId);
-        const updatedCourseIds = isSelected 
-          ? item.course_ids.filter(id => id !== courseId)
-          : [...item.course_ids, courseId];
+        const mapping = getSelectedCourseMapping(item, courseId);
+        const isSelected = mapping !== null;
+        let updatedCourseIds: (string | CourseMapping)[] = [];
+
+        if (isSelected) {
+          // Remove
+          updatedCourseIds = item.course_ids.filter(c => {
+            const cid = typeof c === 'string' ? c : c.course_id;
+            return cid !== courseId;
+          });
+        } else {
+          // Add default mapping with empty periods
+          updatedCourseIds = [...item.course_ids, { course_id: courseId, periods: [] }];
+        }
+        return { ...item, course_ids: updatedCourseIds };
+      }
+      return item;
+    }));
+  };
+
+  const handleUpdatePeriods = (configId: string, courseId: string, periodsText: string) => {
+    const periodsArray = periodsText.split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
+    setZoomConfigs(zoomConfigs.map(item => {
+      if (item.id === configId) {
+        const updatedCourseIds = item.course_ids.map(c => {
+          const cid = typeof c === 'string' ? c : c.course_id;
+          if (cid === courseId) {
+            return { course_id: courseId, periods: periodsArray };
+          }
+          return c;
+        });
         return { ...item, course_ids: updatedCourseIds };
       }
       return item;
@@ -323,30 +368,48 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
                 </div>
 
                 {/* Courses Checklist scrollbox */}
-                <div className="max-h-[160px] overflow-y-auto pr-1 space-y-2">
+                <div className="max-h-[280px] overflow-y-auto pr-1 space-y-2">
                   {filteredCoursesList.map(c => {
-                    const isChecked = config.course_ids.includes(c.id);
+                    const mapping = getSelectedCourseMapping(config, c.id);
+                    const isChecked = mapping !== null;
+                    const periodsValue = mapping?.periods ? mapping.periods.join(", ") : "";
+                    
                     return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleToggleCourse(config.id, c.id)}
-                        className={`w-full text-left px-3 py-2 rounded-lg border text-xs flex justify-between items-center transition-all ${
-                          isChecked 
-                            ? "bg-indigo-50/80 border-indigo-400 font-semibold text-indigo-950 shadow-sm" 
-                            : "bg-white hover:bg-slate-100 border-gray-200 text-gray-700"
-                        }`}
-                      >
-                        <div>
-                          <p className="font-bold text-gray-900 leading-snug">{c.name}</p>
-                          <span className="text-[10px] text-gray-500 block uppercase font-mono tracking-wider">{c.category}</span>
-                        </div>
+                      <div key={c.id} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCourse(config.id, c.id)}
+                          className={`w-full text-left px-3 py-2 text-xs flex justify-between items-center transition-all ${
+                            isChecked 
+                              ? "bg-indigo-50/80 border-b border-indigo-200 font-semibold text-indigo-950" 
+                              : "hover:bg-slate-100 text-gray-700"
+                          }`}
+                        >
+                          <div>
+                            <p className="font-bold text-gray-900 leading-snug">{c.name}</p>
+                            <span className="text-[10px] text-gray-500 block uppercase font-mono tracking-wider">{c.category}</span>
+                          </div>
+                          {isChecked && (
+                            <span className="bg-indigo-600 text-white rounded-full p-0.5">
+                              <Check className="w-3 h-3 stroke-[3px]" />
+                            </span>
+                          )}
+                        </button>
+                        
                         {isChecked && (
-                          <span className="bg-indigo-600 text-white rounded-full p-0.5">
-                            <Check className="w-3 h-3 stroke-[3px]" />
-                          </span>
+                          <div className="p-2 bg-indigo-50/20 border-t border-indigo-100 flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-indigo-900 uppercase tracking-wider block">Periode Diklat (pisahkan dengan koma):</label>
+                            <input
+                              type="text"
+                              value={periodsValue}
+                              onChange={(e) => handleUpdatePeriods(config.id, c.id, e.target.value)}
+                              placeholder="Misal: Angkatan I, Angkatan II, Juni 2026"
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                            />
+                          </div>
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                   {filteredCoursesList.length === 0 && (

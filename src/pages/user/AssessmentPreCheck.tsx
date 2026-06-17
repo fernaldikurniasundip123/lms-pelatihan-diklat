@@ -26,6 +26,7 @@ export default function AssessmentPreCheck() {
 
   // Participant Face Recognition States
   const [savedSelfie, setSavedSelfie] = useState<string | null>(null);
+  const [savedKtp, setSavedKtp] = useState<string | null>(null);
   const [loadingStoredSelfie, setLoadingStoredSelfie] = useState(false);
   const [isVerifyingFace, setIsVerifyingFace] = useState(false);
   const [faceVerificationResult, setFaceVerificationResult] = useState<{ match: boolean; confidence: number; reason: string } | null>(null);
@@ -119,16 +120,43 @@ export default function AssessmentPreCheck() {
       if (!user) return;
       setLoadingStoredSelfie(true);
       try {
-        const { data } = await supabase
-          .from('latihan_verifications')
-          .select('live_photo_url')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        let fetchedData: any = null;
+        
+        // Priority 1: Search by seafarer_code (kode pelaut)
+        if (user.identity) {
+          const { data: byCode, error: errCode } = await supabase
+            .from('latihan_verifications')
+            .select('live_photo_url, ktp_photo_url')
+            .eq('seafarer_code', user.identity)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!errCode && byCode) {
+            fetchedData = byCode;
+          }
+        }
 
-        if (data && data.live_photo_url) {
-          setSavedSelfie(data.live_photo_url);
+        // Priority 2: Fallback to user_id
+        if (!fetchedData) {
+          const { data: byUid, error: errUid } = await supabase
+            .from('latihan_verifications')
+            .select('live_photo_url, ktp_photo_url')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!errUid && byUid) {
+            fetchedData = byUid;
+          }
+        }
+
+        if (fetchedData) {
+          if (fetchedData.live_photo_url) {
+            setSavedSelfie(fetchedData.live_photo_url);
+          }
+          if (fetchedData.ktp_photo_url) {
+            setSavedKtp(fetchedData.ktp_photo_url);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch saved selfie from latihan:", err);
@@ -339,7 +367,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
     setLoading(true);
     try {
       const livePhotoUrl = await uploadToSupabase(livePhoto, user.id, 'live');
-      const ktpPhotoUrl = isUad ? livePhotoUrl : await uploadToSupabase(ktpPhoto!, user.id, 'ktp');
+      const ktpPhotoUrl = isUad ? (savedKtp || livePhotoUrl) : await uploadToSupabase(ktpPhoto!, user.id, 'ktp');
 
       if (!livePhotoUrl || !ktpPhotoUrl) {
         throw new Error("Failed to upload photos");
