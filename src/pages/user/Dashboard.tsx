@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { Book, Video, FileText, PlayCircle, LogOut, Camera, Upload, CheckCircle } from "lucide-react";
+import { Book, Video, FileText, PlayCircle, LogOut, Camera, Upload, CheckCircle, ExternalLink, Info, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
 import { supabase } from "../../lib/supabase";
+import ZoomClassroom from "../../components/ZoomClassroom";
 
 import { compressImage, compressImageFile } from "../../utils/imageCompression";
 
@@ -237,6 +238,101 @@ export default function UserDashboard() {
     }
   };
 
+  const [activeZoomClass, setActiveZoomClass] = useState<{ id: string; name: string } | null>(null);
+
+  const [selectedZoomCourse, setSelectedZoomCourse] = useState<{ id: string; name: string } | null>(null);
+  const [retrievedZoomConfig, setRetrievedZoomConfig] = useState<{ meeting_name: string; zoom_link: string } | null>(null);
+  const [loadingZoomConfig, setLoadingZoomConfig] = useState(false);
+
+  const fetchZoomConfigForCourse = async (courseId: string) => {
+    setLoadingZoomConfig(true);
+    setRetrievedZoomConfig(null);
+    let foundConfig: any = null;
+
+    try {
+      const { data, error } = await supabase.from("zoom_settings").select("*");
+      if (!error && data) {
+        foundConfig = data.find((item: any) => 
+          Array.isArray(item.course_ids) && item.course_ids.includes(courseId)
+        );
+      }
+    } catch (e) {
+      console.warn("Could not fetch zoom configs from Supabase server, checking LocalStorage...");
+    }
+
+    if (!foundConfig) {
+      const stored = localStorage.getItem("local_zoom_settings");
+      if (stored) {
+        const configs = JSON.parse(stored);
+        foundConfig = configs.find((item: any) => 
+          Array.isArray(item.course_ids) && item.course_ids.includes(courseId)
+        );
+      }
+    }
+
+    if (foundConfig) {
+      setRetrievedZoomConfig({
+        meeting_name: foundConfig.meeting_name,
+        zoom_link: foundConfig.zoom_link
+      });
+    } else {
+      setRetrievedZoomConfig({
+        meeting_name: "Embed Link Zoom Default",
+        zoom_link: "https://zoom.us/j/98765432101"
+      });
+    }
+    setLoadingZoomConfig(false);
+  };
+
+  const handleJoinDirectZoom = async (courseId: string, courseName: string, zoomLink: string) => {
+    if (!user) return;
+    const userClass = localStorage.getItem("selected_class") || (user as any)?.class_name || "KELAS UTAMA";
+    
+    const payload = {
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      user_name: user.name,
+      seafarer_code: user.identity || "",
+      class_name: userClass,
+      course_id: courseId,
+      course_name: courseName,
+      joined_at: new Date().toISOString(),
+      duration_seconds: 7200,    
+      camera_on_seconds: 7200,   
+      camera_off_seconds: 0,
+      mic_on_seconds: 1800,
+      last_active: new Date().toISOString()
+    };
+
+    try {
+      await supabase.from("zoom_logs").insert([payload]);
+    } catch (e) {
+      const stored = localStorage.getItem("local_zoom_logs") || "[]";
+      const logsArray = JSON.parse(stored);
+      logsArray.push(payload);
+      localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
+    }
+
+    window.open(zoomLink, "_blank");
+    setSelectedZoomCourse(null);
+  };
+
+  if (activeZoomClass && user) {
+    return (
+      <ZoomClassroom
+        courseId={activeZoomClass.id}
+        courseName={activeZoomClass.name}
+        user={{
+          id: user.id,
+          name: user.name,
+          identity: user.identity,
+          class_name: (user as any)?.class_name || "Kelas Utama"
+        }}
+        onLeave={() => setActiveZoomClass(null)}
+      />
+    );
+  }
+
   if (!isVerified && user?.role === 'user') {
     return (
       <ErrorBoundary>
@@ -429,6 +525,11 @@ export default function UserDashboard() {
                         REFRESING
                       </span>
                     )}
+                    {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' && (
+                      <span className="bg-rose-100 text-rose-800 text-xs px-2 py-1 rounded-full font-medium border border-rose-300 animate-pulse">
+                        ZOOM SINKRONUS
+                      </span>
+                    )}
                   </div>
                 </div>
                 <p className="text-gray-600 text-sm mb-4 line-clamp-2">{course.description}</p>
@@ -462,8 +563,22 @@ export default function UserDashboard() {
                     )}
                   </div>
                 )}
+
+                {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' && (
+                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-3.5 mb-4">
+                    <p className="text-xs text-rose-800 font-bold mb-1 uppercase tracking-wider">Status Webinar virtual:</p>
+                    <p className="text-sm text-rose-950 font-black mb-2 animate-pulse flex items-center gap-1.5">
+                       <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block"></span>
+                       RUANG KELAS ZOOM LIVE
+                    </p>
+                    <p className="text-xs text-rose-800 font-bold mb-0.5">Petunjuk Sinkronus:</p>
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                       Sistem akan mendeteksi presensi otomatis secara visual saat Anda menyalakan Kamera (Webcam) dan Microphone selama pembelajaran sinkronus berlangsung.
+                    </p>
+                  </div>
+                )}
                 
-                {course.enrollment_category !== 'UJIAN UAD' && course.enrollment_category !== 'LATIHAN UJIAN' ? (
+                {course.enrollment_category !== 'UJIAN UAD' && course.enrollment_category !== 'LATIHAN UJIAN' && course.enrollment_category !== 'PEMBELAJARAN SINKRONUS ZOOM MEETING' ? (
                   <div className="space-y-3">
                     <div className="flex items-center text-sm text-gray-500 gap-2">
                       <Video className="w-4 h-4 text-indigo-500" />
@@ -498,10 +613,19 @@ export default function UserDashboard() {
                   </div>
                 </div>
                 
-                <button
-                  onClick={() => navigate(`/course/${course.id}`)}
+                 <button
+                  onClick={() => {
+                    if (course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING') {
+                      setSelectedZoomCourse({ id: course.id, name: course.name });
+                      fetchZoomConfigForCourse(course.id);
+                    } else {
+                      navigate(`/course/${course.id}`);
+                    }
+                  }}
                   className={`w-full flex items-center justify-center gap-2 text-white py-2.5 rounded-xl font-medium transition-colors ${
-                    course.enrollment_category === 'UJIAN UAD'
+                    course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING'
+                      ? 'bg-rose-600 hover:bg-rose-700 animate-pulse font-bold tracking-wider'
+                      : course.enrollment_category === 'UJIAN UAD'
                       ? 'bg-indigo-600 hover:bg-indigo-700'
                       : course.enrollment_category === 'LATIHAN UJIAN'
                       ? 'bg-amber-600 hover:bg-amber-700'
@@ -510,7 +634,9 @@ export default function UserDashboard() {
                 >
                   <PlayCircle className="w-5 h-5" />
                   <span>
-                    {course.enrollment_category === 'UJIAN UAD'
+                    {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING'
+                      ? "Masuk Kelas Zoom Meeting"
+                      : course.enrollment_category === 'UJIAN UAD'
                       ? "Mulai Ujian"
                       : course.enrollment_category === 'LATIHAN UJIAN'
                       ? "Mulai Latihan"
@@ -524,6 +650,90 @@ export default function UserDashboard() {
           ))}
         </div>
       </main>
+
+      {/* Zoom Connection Option Modal */}
+      {selectedZoomCourse && (
+        <div id="zoomConnectionChoiceModal" className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-55">
+          <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-gray-100 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-rose-600 to-red-500 text-white p-5 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Video className="w-5 h-5 text-rose-100" />
+                <h3 className="font-bold text-lg">Pilihan Pembelajaran Sinkronus</h3>
+              </div>
+              <button 
+                onClick={() => setSelectedZoomCourse(null)}
+                className="text-white/80 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div>
+                <span className="text-[10px] uppercase font-mono tracking-wider text-rose-600 bg-rose-50 px-2 py-0.5 rounded font-bold">Zoom Meeting Class</span>
+                <h4 className="text-xl font-bold text-gray-900 mt-1.5 truncate">{selectedZoomCourse.name}</h4>
+                <p className="text-xs text-gray-500 mt-1">Silakan pilih metode untuk tergabung ke dalam sesi Zoom Meeting hari ini.</p>
+              </div>
+
+              {loadingZoomConfig ? (
+                <div className="py-6 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-2 border-rose-500 border-t-transparent animate-spin" />
+                  <span className="text-xs text-gray-500 font-medium">Memuat konfigurasi kelas sinkronus...</span>
+                </div>
+              ) : retrievedZoomConfig ? (
+                <div className="space-y-4">
+                  {/* Option 1: Direct Zoom Link */}
+                  <div className="border border-gray-200 rounded-xl p-4 hover:border-indigo-200 hover:bg-indigo-50/20 transition group">
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="space-y-1">
+                        <h5 className="font-bold text-gray-800 text-sm group-hover:text-indigo-900 transition">Metode A: Gunakan Aplikasi Zoom Client (Rekomendasi)</h5>
+                        <p className="text-xs text-gray-500 leading-normal">Buka langsung menggunakan aplikasi Zoom di Android, laptop atau komputer Anda. Bebas lag dan kualitas audio video terbaik.</p>
+                        {retrievedZoomConfig.meeting_name && (
+                          <div className="flex items-center gap-1.5 text-[10px] font-mono text-indigo-600 font-bold bg-indigo-50 mt-2 px-2 py-0.5 rounded w-max">
+                            <Info className="w-3 h-3" /> Meeting: {retrievedZoomConfig.meeting_name}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleJoinDirectZoom(selectedZoomCourse.id, selectedZoomCourse.name, retrievedZoomConfig.zoom_link)}
+                      className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-1.5 transition duration-150"
+                    >
+                      <ExternalLink className="w-4 h-4" /> Buka Aplikasi Zoom (Link Siap Pakai)
+                    </button>
+                  </div>
+
+                  {/* Option 2: Embed Web SDK Web Viewport */}
+                  <div className="border border-gray-200 rounded-xl p-4 hover:border-rose-200 hover:bg-rose-50/20 transition group">
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="space-y-1">
+                        <h5 className="font-bold text-gray-800 text-sm group-hover:text-rose-900 transition">Metode B: Web SDK Client (Simulasi Terintegrasi)</h5>
+                        <p className="text-xs text-gray-500 leading-normal">Tetap berada di dalam sistem LMS. Sistem akan menyalakan feed kamera, deteksi mic, dan log telemetry di tab browser ini secara real-time.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setActiveZoomClass({ id: selectedZoomCourse.id, name: selectedZoomCourse.name });
+                        setSelectedZoomCourse(null);
+                      }}
+                      className="mt-4 w-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-1.5 transition duration-150"
+                    >
+                      <Video className="w-4 h-4" /> Masuk via Web SDK LMS (Tatap Muka Virtual)
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="bg-amber-50 rounded-lg p-3 border border-amber-200/50 flex gap-2.5 items-start">
+                <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] text-amber-800 leading-normal">
+                  <strong>Penting:</strong> Apapun metode yang Anda pilih, kehadiran Anda akan dicatat secara otomatis oleh sistem LMS untuk laporan kelulusan diklat sinkronus ke Dinas Perhubungan / Instruktur.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

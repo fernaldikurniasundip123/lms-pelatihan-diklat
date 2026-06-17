@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock } from "lucide-react";
 import { GoogleGenAI } from "@google/genai";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../../lib/supabase";
+import SinkronusSettings from "../../components/SinkronusSettings";
+import SinkronusReports from "../../components/SinkronusReports";
 
 export function parseQuestionText(rawText: string) {
   if (!rawText) return { text: "", imageUrl: null };
@@ -95,6 +97,7 @@ export default function AdminDashboard() {
   const [viewingQuestionsForAssessmentId, setViewingQuestionsForAssessmentId] = useState<string | null>(null);
   const [maxQuestions, setMaxQuestions] = useState<number>(100);
   const [showInUad, setShowInUad] = useState<boolean>(true);
+  const [isCourseActive, setIsCourseActive] = useState<boolean>(true);
 
   // Manual Question & Image State
   const [manualQuestionText, setManualQuestionText] = useState("");
@@ -1461,6 +1464,12 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       .eq('id', assessmentId);
 
     if (!error) {
+      if (selectedCourse.category === "UJIAN UAD") {
+        await supabase
+          .from('courses')
+          .update({ status: isCourseActive ? 'active' : 'inactive' })
+          .eq('id', selectedCourse.id);
+      }
       setEditingAssessmentId(null);
       setAudioLink("");
       fetchCourses();
@@ -2341,6 +2350,18 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "reports-final" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
               >
                 <CheckCircle className="w-5 h-5" /> Final Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("zoom-settings")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "zoom-settings" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Video className="w-5 h-5" /> Setting Pembelajaran Sinkronus
+              </button>
+              <button
+                onClick={() => setActiveTab("zoom-reports")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "zoom-reports" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Clock className="w-5 h-5" /> Laporan Sinkronus Zoom
               </button>
             </>
           )}
@@ -3655,6 +3676,14 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             </div>
           </div>
         )}
+
+        {activeTab === "zoom-settings" && (
+          <SinkronusSettings courses={courses} />
+        )}
+
+        {activeTab === "zoom-reports" && (
+          <SinkronusReports />
+        )}
       </div>
 
       {/* Photo Modal */}
@@ -3995,6 +4024,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                 <input type="number" min="0" value={maxQuestions} onChange={e => setMaxQuestions(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                               </div>
                               <div className="flex items-center gap-2 mt-2">
+                                <input type="checkbox" id="isCourseActiveEdit" checked={isCourseActive} onChange={e => setIsCourseActive(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
+                                <label htmlFor="isCourseActiveEdit" className="text-xs font-semibold text-indigo-950">Status Ujian UAD Aktif (Active Status)</label>
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
                                 <input type="checkbox" id="showInUadEdit" checked={showInUad} onChange={e => setShowInUad(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
                                 <label htmlFor="showInUadEdit" className="text-xs font-medium text-gray-700">Tampilkan Ujian di Menu UAD Peserta (Show in UAD)</label>
                               </div>
@@ -4039,8 +4072,15 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                 Mandatory: {matchedAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {matchedAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {matchedAssessment.show_one_by_one ? 'Yes' : 'No'}
                               </p>
                               {selectedCourse.category === "UJIAN UAD" && (
-                                <p className="text-sm mt-1 text-indigo-900 font-semibold">
-                                  Max Questions: {matchedAssessment.max_questions || "All"} | Show in UAD: {matchedAssessment.show_in_uad !== false ? 'Yes' : 'No'}
+                                <p className="text-sm mt-1 text-indigo-900 font-semibold flex items-center gap-2 flex-wrap">
+                                  <span>Max Questions: {matchedAssessment.max_questions || "All"}</span>
+                                  <span>|</span>
+                                  <span>Show in UAD: {matchedAssessment.show_in_uad !== false ? 'Yes' : 'No'}</span>
+                                  <span>|</span>
+                                  <span>Status: </span>
+                                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedCourse.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    {selectedCourse.status === 'active' ? 'AKTIF' : 'NON-AKTIF'}
+                                  </span>
                                 </p>
                               )}
                               <p className="text-sm mt-1 text-red-600 font-medium font-mono font-bold">Strict Mode: {matchedAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {matchedAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {matchedAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
@@ -4059,6 +4099,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                   setPreventSplitScreen(!!matchedAssessment.prevent_split_screen);
                                   setMaxQuestions(matchedAssessment.max_questions || 0);
                                   setShowInUad(matchedAssessment.show_in_uad !== false);
+                                  setIsCourseActive(selectedCourse.status === 'active');
                                   setEditingAssessmentId(matchedAssessment.id);
                                 }}
                                 className={`px-2.5 py-1 text-xs font-semibold border rounded transition-colors whitespace-nowrap bg-white ${selectedCourse.category === 'UJIAN UAD' ? 'text-indigo-700 border-indigo-300 hover:bg-indigo-50' : 'text-amber-800 border-amber-300 hover:bg-amber-50'}`}

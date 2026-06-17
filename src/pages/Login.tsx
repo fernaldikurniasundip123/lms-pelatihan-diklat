@@ -123,7 +123,7 @@ export default function Login() {
     selectedCourse.name.trim().toUpperCase() === 'BST' || 
     selectedCourse.name.trim().toUpperCase() === 'KONVENSI INTERNATIONAL'
   );
-  const requiresSeafarerCode = (courseId && !isBstOrKonvensi) || selectedCategory === 'REFRESING' || selectedCategory === 'UJIAN UAD' || selectedCategory === 'LATIHAN UJIAN';
+  const requiresSeafarerCode = (courseId && !isBstOrKonvensi) || selectedCategory === 'REFRESING' || selectedCategory === 'UJIAN UAD' || selectedCategory === 'LATIHAN UJIAN' || selectedCategory === 'PEMBELAJARAN SINKRONUS ZOOM MEETING';
 
   useEffect(() => {
     // Clear session selfie when visiting login page
@@ -159,7 +159,7 @@ export default function Login() {
     try {
       // Validasi awal
       if (courseId && !isAdminLogin) {
-        if (!periodStart || !periodEnd) {
+        if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "PEMBELAJARAN SINKRONUS ZOOM MEETING" && (!periodStart || !periodEnd)) {
           throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
         }
         
@@ -339,13 +339,15 @@ export default function Login() {
           .single();
 
         if (!existingEnrollment) {
+          const finalPeriodStart = (selectedCategory === "UJIAN UAD" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") && !periodStart ? new Date().toISOString().split('T')[0] : periodStart;
+          const finalPeriodEnd = (selectedCategory === "UJIAN UAD" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") && !periodEnd ? new Date().toISOString().split('T')[0] : periodEnd;
           const { error: enrollError } = await supabase
             .from('enrollments')
             .insert([{
               user_id: user.id,
               course_id: courseId,
-              period_start: new Date(periodStart).toISOString(),
-              period_end: new Date(periodEnd).toISOString(),
+              period_start: new Date(finalPeriodStart).toISOString(),
+              period_end: new Date(finalPeriodEnd).toISOString(),
               category: selectedCategory,
               mata_kuliah: selectedCategory === "DIKLAT PENINGKATAN (PASIS)" ? loginMataKuliah : null
             }]);
@@ -408,6 +410,9 @@ export default function Login() {
 
   const filteredCourses = useMemo(() => {
     if (!selectedCategory) return courses;
+    if (selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") {
+      return courses;
+    }
     if (selectedCategory === "REFRESING") {
       return courses.filter(c => {
         const hasRefreshingVideo = c.videos?.some((v: any) => v.is_refreshing);
@@ -435,13 +440,13 @@ export default function Login() {
   }, [selectedCategory, selectedTingkat, courses, filteredCourses]);
 
   const isSelectedPeriodActive = useMemo(() => {
-    if (selectedCategory && (selectedCategory === "REFRESING" || selectedCategory === "UJIAN UAD")) {
+    if (selectedCategory && selectedCategory === "REFRESING") {
       return activeRefreshingPeriods.some((p: any) => p.start === periodStart && p.end === periodEnd);
     }
     return true;
   }, [selectedCategory, activeRefreshingPeriods, periodStart, periodEnd]);
   
-  const isSignInDisabled = isLoading || ((selectedCategory === "REFRESING" || selectedCategory === "UJIAN UAD") && !isSelectedPeriodActive);
+  const isSignInDisabled = isLoading || (selectedCategory === "REFRESING" && !isSelectedPeriodActive);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -559,6 +564,7 @@ export default function Login() {
                         <option value="REFRESING">REFRESING</option>
                         <option value="UJIAN UAD">UJIAN UAD</option>
                         <option value="LATIHAN UJIAN">LATIHAN UJIAN</option>
+                        <option value="PEMBELAJARAN SINKRONUS ZOOM MEETING">PEMBELAJARAN SINKRONUS ZOOM MEETING</option>
                       </select>
                     </div>
                   </div>
@@ -624,7 +630,7 @@ export default function Login() {
                   {selectedCategory && selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN" && (
                     <div>
                       <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
-                        Sub Pelatihan
+                        {selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING" ? "Pilih Jenis Diklat" : "Sub Pelatihan"}
                       </label>
                       <div className="mt-1">
                         <select
@@ -638,7 +644,7 @@ export default function Login() {
                           className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         >
                           <option value="">
-                            -- Pilih Sub Pelatihan --
+                            {selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING" ? "-- Pilih Jenis Diklat --" : "-- Pilih Sub Pelatihan --"}
                           </option>
                           {filteredCourses.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
@@ -692,12 +698,12 @@ export default function Login() {
                   </div>
                 )}
 
-                {(selectedCategory === "REFRESING" || selectedCategory === "UJIAN UAD") && selectedCourse ? (
+                {selectedCategory === "REFRESING" && selectedCourse ? (
                   activeRefreshingPeriods.length > 0 ? (
                     <div className="grid grid-cols-1 gap-4">
                       <div>
                         <label htmlFor="refreshingPeriod" className="block text-sm font-medium text-gray-700">
-                          {selectedCategory === "UJIAN UAD" ? "Periode Ujian UAD" : "Periode Refresing"}
+                          Periode Refresing
                         </label>
                         <div className="mt-1">
                           <select
@@ -727,42 +733,44 @@ export default function Login() {
                     </div>
                   ) : (
                     <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm">
-                      Pendaftaran untuk {selectedCategory === "UJIAN UAD" ? "Ujian UAD" : "Pelatihan Refresing"} ini sudah ditutup atau periode link telah kadaluarsa.
+                      Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa.
                     </div>
                   )
                 ) : (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
-                        Periode Diklat Mulai
-                      </label>
-                      <div className="mt-1">
-                        <input
-                          id="periodStart"
-                          name="periodStart"
-                          type="date"
-                          value={periodStart}
-                          onChange={(e) => setPeriodStart(e.target.value)}
-                          className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        />
+                  selectedCategory !== "UJIAN UAD" && selectedCategory !== "PEMBELAJARAN SINKRONUS ZOOM MEETING" && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
+                          Periode Diklat Mulai
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="periodStart"
+                            name="periodStart"
+                            type="date"
+                            value={periodStart}
+                            onChange={(e) => setPeriodStart(e.target.value)}
+                            className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
+                          Periode Diklat Selesai
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="periodEnd"
+                            name="periodEnd"
+                            type="date"
+                            value={periodEnd}
+                            onChange={(e) => setPeriodEnd(e.target.value)}
+                            className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
-                        Periode Diklat Selesai
-                      </label>
-                      <div className="mt-1">
-                        <input
-                          id="periodEnd"
-                          name="periodEnd"
-                          type="date"
-                          value={periodEnd}
-                          onChange={(e) => setPeriodEnd(e.target.value)}
-                          className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  )
                 )}
               </>
             )}
