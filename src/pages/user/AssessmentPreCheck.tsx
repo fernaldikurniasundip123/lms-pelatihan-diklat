@@ -318,7 +318,6 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: 'image/jpeg' });
 
-      const isPractice = courseCategory === 'LATIHAN UJIAN';
       let fileName = `${userId}_${type}_${Date.now()}.jpg`;
       if (isPractice) {
         if (type === 'live') {

@@ -339,8 +339,8 @@ export default function Login() {
           .single();
 
         if (!existingEnrollment) {
-          const finalPeriodStart = (selectedCategory === "UJIAN UAD" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") && !periodStart ? new Date().toISOString().split('T')[0] : periodStart;
-          const finalPeriodEnd = (selectedCategory === "UJIAN UAD" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") && !periodEnd ? new Date().toISOString().split('T')[0] : periodEnd;
+          const finalPeriodStart = (selectedCategory === "UJIAN UAD" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING" || selectedCategory === "LATIHAN UJIAN") && !periodStart ? new Date().toISOString().split('T')[0] : (periodStart || new Date().toISOString().split('T')[0]);
+          const finalPeriodEnd = (selectedCategory === "UJIAN UAD" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING" || selectedCategory === "LATIHAN UJIAN") && !periodEnd ? new Date().toISOString().split('T')[0] : (periodEnd || new Date().toISOString().split('T')[0]);
           const { error: enrollError } = await supabase
             .from('enrollments')
             .insert([{
@@ -388,6 +388,7 @@ export default function Login() {
       } else {
         localStorage.removeItem("selected_mata_kuliah");
       }
+      localStorage.setItem("selected_login_category", selectedCategory);
       login(dummyToken, {
         id: user.id,
         name: user.full_name,
@@ -428,7 +429,7 @@ export default function Login() {
     if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN") {
       return filteredCourses;
     }
-    const filtered = courses.filter(c => c.category === selectedCategory && c.description === selectedTingkat);
+    const filtered = courses.filter(c => c.category === selectedCategory && (c.description || '').trim() === selectedTingkat);
     if (selectedCategory === "UJIAN UAD") {
       // Only show UJIAN UAD courses whose assessment has show_in_uad !== false
       return filtered.filter(c => {

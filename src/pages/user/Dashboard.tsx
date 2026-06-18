@@ -39,7 +39,8 @@ export default function UserDashboard() {
           .eq('user_id', user.id);
         
         if (!error && data && data.length > 0) {
-          const hasUad = data.some((e: any) => e.category === 'UJIAN UAD');
+          const activeCategory = localStorage.getItem("selected_login_category");
+          const hasUad = data.some((e: any) => e.category === 'UJIAN UAD') && activeCategory === 'UJIAN UAD';
           setIsUadUser(hasUad);
           
           if (hasUad) {
