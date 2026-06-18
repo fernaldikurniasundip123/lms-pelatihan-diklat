@@ -290,6 +290,56 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
     }
   }, [webcamRef, savedSelfie, isPractice]);
 
+  // Auto-trigger scan on loading for isUad mode
+  useEffect(() => {
+    if (!isUad || !savedSelfie) return;
+    
+    let isMounted = true;
+    const timer = setTimeout(() => {
+      if (!isMounted) return;
+      
+      const triggerAutoScan = async () => {
+        try {
+          const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
+          if (imageSrc && isMounted) {
+            setLivePhoto(imageSrc);
+            handleFaceRecognition(imageSrc);
+          }
+        } catch (e) {
+          console.error("Auto scan failed:", e);
+        }
+      };
+      
+      triggerAutoScan();
+    }, 2000);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [savedSelfie, isUad]);
+
+  const handleReScan = async () => {
+    setLivePhoto(null);
+    setFaceVerificationResult(null);
+    setIsVerifyingFace(true);
+    setTimeout(async () => {
+      try {
+        const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
+        if (imageSrc) {
+          setLivePhoto(imageSrc);
+          handleFaceRecognition(imageSrc);
+        } else {
+          setIsVerifyingFace(false);
+          setError("Gagal mengakses kamera silakan coba lagi.");
+        }
+      } catch (err) {
+        console.error("Manual re-scan capture failed:", err);
+        setIsVerifyingFace(false);
+      }
+    }, 800);
+  };
+
   const handleKtpUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -387,14 +437,33 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
           });
         if (insertError) throw insertError;
       } else {
-        const { error: insertError } = await supabase
+        const { data: existingGv, error: selectGvError } = await supabase
           .from('global_verifications')
-          .upsert({
-            user_id: user.id,
-            live_photo_url: livePhotoUrl,
-            ktp_photo_url: ktpPhotoUrl
-          });
-        if (insertError) throw insertError;
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (selectGvError) throw selectGvError;
+
+        if (existingGv) {
+          const { error: updateError } = await supabase
+            .from('global_verifications')
+            .update({
+              live_photo_url: livePhotoUrl,
+              ktp_photo_url: ktpPhotoUrl
+            })
+            .eq('user_id', user.id);
+          if (updateError) throw updateError;
+        } else {
+          const { error: insertError } = await supabase
+            .from('global_verifications')
+            .insert({
+              user_id: user.id,
+              live_photo_url: livePhotoUrl,
+              ktp_photo_url: ktpPhotoUrl
+            });
+          if (insertError) throw insertError;
+        }
       }
 
       await checkAuth(); // Update user.is_verified
@@ -498,25 +567,21 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                 {/* 1. WEBCAM/LIVE PHOTO SECTION */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2 font-sans">
-                    <Camera className="w-5 h-5 text-indigo-600" /> Ambil Foto Sesi Uji
+                    <Camera className="w-5 h-5 text-indigo-600" /> Skan Wajah Sesi Uji (Live Selfie)
                   </h3>
                   
                   <div className="aspect-video bg-gray-900 rounded-xl overflow-hidden relative border-2 border-indigo-200 shadow-inner flex items-center justify-center">
-                    {livePhoto ? (
-                      <img src={livePhoto} alt="Live capture" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <Webcam
-                        audio={false}
-                        ref={webcamRef}
-                        screenshotFormat="image/jpeg"
-                        screenshotQuality={0.8}
-                        className="w-full h-full object-cover"
-                        videoConstraints={{ facingMode: "user" }}
-                      />
-                    )}
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      screenshotQuality={0.8}
+                      className="w-full h-full object-cover"
+                      videoConstraints={{ facingMode: "user" }}
+                    />
                     
-                    {/* Glowing Scan Overlay when testing */}
-                    {!livePhoto && (
+                    {/* Glowing Scan Overlay when testing / scanning */}
+                    {isVerifyingFace && (
                       <div className="absolute inset-0 pointer-events-none border-t-2 border-indigo-500 animate-[pulse_1.5s_infinite]">
                         <div className="w-full h-1 bg-gradient-to-r from-transparent via-indigo-400 to-transparent animate-[bounce_2s_infinite]"></div>
                       </div>
@@ -525,43 +590,42 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                   
                   <div className="space-y-3">
                     <button
-                      onClick={livePhoto ? () => { setLivePhoto(null); setFaceVerificationResult(null); } : capture}
-                      className="w-full py-2.5 px-4 font-semibold rounded-lg shadow-sm text-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none transition-colors animate-pulse"
+                      onClick={handleReScan}
+                      disabled={isVerifyingFace}
+                      className="w-full py-2.5 px-4 font-semibold rounded-lg shadow-sm text-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none transition-colors disabled:opacity-50"
                     >
-                      {livePhoto ? "Ambil Ulang Foto Wajah" : "Ambil Foto Sekarang"}
+                      {isVerifyingFace ? "Sedang Memindai Wajah..." : "Pindai Wajah Otomatis"}
                     </button>
 
                     {/* Camera upload option for mobile phones */}
-                    {!livePhoto && (
-                      <label className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-indigo-200 rounded-lg shadow-sm text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 cursor-pointer transition-all">
-                        <Camera className="w-4 h-4 text-indigo-600" />
-                        <span>Gunakan Kamera Handphone</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="user"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              try {
-                                const compressedSrc = await compressImageFile(file, 640, 480, 0.8);
-                                setLivePhoto(compressedSrc);
-                                handleFaceRecognition(compressedSrc);
-                              } catch {
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  const src = reader.result as string;
-                                  setLivePhoto(src);
-                                  handleFaceRecognition(src);
-                                };
-                                reader.readAsDataURL(file);
-                              }
+                    <label className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-indigo-200 rounded-lg shadow-sm text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 cursor-pointer transition-all">
+                      <Camera className="w-4 h-4 text-indigo-600" />
+                      <span>Gunakan Kamera Handphone</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="user"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            try {
+                              const compressedSrc = await compressImageFile(file, 640, 480, 0.8);
+                              setLivePhoto(compressedSrc);
+                              handleFaceRecognition(compressedSrc);
+                            } catch {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                const src = reader.result as string;
+                                setLivePhoto(src);
+                                handleFaceRecognition(src);
+                              };
+                              reader.readAsDataURL(file);
                             }
-                          }}
-                        />
-                      </label>
-                    )}
+                          }
+                        }}
+                      />
+                    </label>
                   </div>
                 </div>
 
@@ -579,14 +643,14 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                         </div>
                         <div className="text-xs text-gray-600 font-sans">
                           <span className="inline-block bg-indigo-100 text-indigo-805 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold text-[10px] mb-2 font-sans">Terdaftar dari Latihan</span>
-                          <p className="font-medium text-gray-700 font-sans">Wajah Anda akan dicocokkan otomatis dengan foto Latihan Ujian ini ketika Anda mengambil foto baru di sebelah kiri.</p>
+                          <p className="font-medium text-gray-700 font-sans">Wajah Anda dicocokkan otomatis secara langsung melalui kamera (Live Selfie) dengan database Latihan Ujian di atas.</p>
                         </div>
                       </div>
                     </div>
                   )}
 
                   {/* Face analyzing loader state */}
-                  {livePhoto && isVerifyingFace && (
+                  {isVerifyingFace && (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-amber-805 text-amber-800 flex items-center gap-4 animate-pulse text-left">
                       <RefreshCw className="w-7 h-7 animate-spin text-amber-600 flex-shrink-0" />
                       <div className="font-sans">
@@ -606,7 +670,11 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                           </div>
                           <div className="font-sans">
                             <h4 className="font-extrabold text-emerald-950 text-base">Wajah Peserta Berhasil Dikenali</h4>
-                            <p className="text-xs text-emerald-800 font-medium font-sans">Kecocokan visual: <span className="font-bold">{faceVerificationResult.confidence}% Cocok</span></p>
+                            <p className="text-xs text-emerald-800 font-semibold font-sans">
+                              Kecocokan visual: <span className="font-bold text-emerald-900">{faceVerificationResult.confidence}% Cocok</span>
+                              {" | "}
+                              Sisa Perbedaan Wajah: <span className="font-bold text-amber-700">{100 - faceVerificationResult.confidence}% Berbeda</span>
+                            </p>
                           </div>
                         </div>
 
@@ -631,22 +699,33 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
 
                         {/* PHOTO COMPILATION (Live vs Stored side-by-side) */}
                         <div className="space-y-2 text-left font-sans">
-                          <h5 className="text-[10px] font-bold text-emerald-900 uppercase tracking-wide font-sans">Perbandingan Biometrik Wajah</h5>
-                          <div className="flex gap-4 items-center justify-start">
+                          <h5 className="text-[10px] font-bold text-emerald-900 uppercase tracking-wide font-sans">Perbandingan Biometrik & KTP Referensi</h5>
+                          <div className="flex flex-wrap gap-4 items-center justify-start">
                             <div className="relative">
                               <div className="w-16 h-16 rounded-lg overflow-hidden border-2 border-emerald-300 bg-gray-100">
                                 <img src={livePhoto} alt="Live foto" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                               </div>
-                              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-emerald-600 text-white font-bold text-[8px] px-1 py-0.2 rounded uppercase font-sans">LIVE</span>
+                              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-emerald-600 text-white font-bold text-[8px] px-1 py-0.2 rounded uppercase font-sans whitespace-nowrap">LIVE</span>
                             </div>
                             {savedSelfie && (
                               <>
-                                <div className="text-emerald-500 font-bold text-sm">✖</div>
+                                <div className="text-emerald-500 font-bold text-xs">➕</div>
                                 <div className="relative">
                                   <div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-350 bg-gray-100">
                                     <img src={savedSelfie} alt="Stored foto" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                   </div>
-                                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-indigo-600 text-white font-bold text-[8px] px-0.8 py-0.2 rounded uppercase font-sans">REFERENSI</span>
+                                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-indigo-600 text-white font-bold text-[8px] px-1.2 py-0.2 rounded uppercase font-sans whitespace-nowrap">REFERENSI</span>
+                                </div>
+                              </>
+                            )}
+                            {savedKtp && (
+                              <>
+                                <div className="text-emerald-500 font-bold text-xs">➕</div>
+                                <div className="relative">
+                                  <div className="w-24 h-16 rounded-lg overflow-hidden border border-gray-250 bg-gray-100">
+                                    <img src={savedKtp} alt="KTP referensi" className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
+                                  </div>
+                                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-amber-600 text-white font-bold text-[8px] px-1.5 py-0.2 rounded uppercase font-sans whitespace-nowrap">REFERENSI KTP</span>
                                 </div>
                               </>
                             )}
@@ -660,20 +739,20 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                           <h4 className="font-bold text-sm font-sans">Wajah Tidak Dikenali / Kurang Cocok ({faceVerificationResult.confidence}% Kemiripan)</h4>
                         </div>
                         <p className="text-xs opacity-90 font-sans ml-9">{faceVerificationResult.reason}</p>
-                        <p className="text-xs font-bold text-red-800 font-sans ml-9 mt-2">Saran: Silakan ambil ulang foto selfie Anda dengan pencahayaan terang dan hadapkan wajah lurus tegak ke kamera agar sistem memvalidasi profil secara instan.</p>
+                        <p className="text-xs font-bold text-red-800 font-sans ml-9 mt-2">Saran: Silakan posisikan wajah lurus tegak ke arah kamera dengan pencahayaan yang terang agar sistem memvalidasi profil secara instan.</p>
                       </div>
                     )
                   )}
 
                   {/* Instruction fallback when no capture made yet */}
-                  {!livePhoto && (
+                  {!livePhoto && !isVerifyingFace && (
                     <div className="bg-indigo-50 border border-indigo-150 rounded-xl p-6 text-indigo-900 space-y-2 font-sans text-left">
                       <div className="flex items-center gap-2">
                         <Scan className="w-5 h-5 text-indigo-600 animate-pulse" />
-                        <h4 className="font-bold text-sm">Menunggu Scan Wajah Biometrik</h4>
+                        <h4 className="font-bold text-sm">Pemindaian Wajah Berjalan Otomatis</h4>
                       </div>
                       <p className="text-xs text-indigo-850 font-medium leading-relaxed font-sans">
-                        Harap tidak menutup halaman ini. Ambil foto wajah Anda menggunakan kamera untuk memicu pengenalan data profil dan membuka tombol pengerjaan ujian.
+                        Harap tegap hadapkan wajah ke arah kamera. Sistem sedang mendeteksi dan mencocokkan wajah Anda secara otomatis untuk memvalidasi akun secara instan.
                       </p>
                     </div>
                   )}
