@@ -24,6 +24,9 @@ export default function AssessmentPreCheck() {
   const [courseCategory, setCourseCategory] = useState<string | null>(null);
   const [latihanVerified, setLatihanVerified] = useState<boolean | null>(null);
 
+  const isPractice = courseCategory?.toUpperCase().trim() === 'LATIHAN UUAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN UJIAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN';
+  const isUad = courseCategory?.toUpperCase().trim() === 'UJIAN UAD' || courseCategory?.toUpperCase().trim() === 'UJIAN';
+
   // Participant Face Recognition States
   const [savedSelfie, setSavedSelfie] = useState<string | null>(null);
   const [savedKtp, setSavedKtp] = useState<string | null>(null);
@@ -257,14 +260,13 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
   // If user is already verified globally or it is a practice exam, they can just proceed (unless blocked by attempts)
   useEffect(() => {
     if (!courseCategory) return;
-    const isPractice = courseCategory?.toUpperCase().trim() === 'LATIHAN UJIAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN UUAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN';
     if (isPractice) {
-      // Bypass pre-check completely for Latihan Ujian, directly proceed to the assessment!
-      navigate(`/course/${courseId}/assessment/${assessmentId}`);
+      if (latihanVerified === true || user?.is_verified) {
+        navigate(`/course/${courseId}/assessment/${assessmentId}`);
+      }
       return;
     }
 
-    const isUad = courseCategory?.toUpperCase().trim() === 'UJIAN UAD' || courseCategory?.toUpperCase().trim() === 'UJIAN';
     if (!isUad && (user?.is_verified || latihanVerified === true) && attemptsInfo !== null) {
       if (attemptsInfo.passed || attemptsInfo.count >= 3) {
         // Stay here to show the message
@@ -272,19 +274,21 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
         navigate(`/course/${courseId}/assessment/${assessmentId}`);
       }
     }
-  }, [user, courseId, navigate, attemptsInfo, courseCategory, latihanVerified, assessmentId]);
+  }, [user, courseId, navigate, attemptsInfo, courseCategory, isPractice, isUad, latihanVerified, assessmentId]);
 
   const capture = useCallback(async () => {
     try {
       const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
       if (imageSrc) {
         setLivePhoto(imageSrc);
-        handleFaceRecognition(imageSrc);
+        if (!isPractice) {
+          handleFaceRecognition(imageSrc);
+        }
       }
     } catch (e) {
       console.error("Capture live photo error:", e);
     }
-  }, [webcamRef, savedSelfie]);
+  }, [webcamRef, savedSelfie, isPractice]);
 
   const handleKtpUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -359,7 +363,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
       }
     } else {
       if (!livePhoto || !ktpPhoto) {
-        setError("Please complete both photo verification steps.");
+        setError("Silakan lengkapi kedua langkah verifikasi: ambil foto selfie dan unggah foto KTP.");
         return;
       }
     }
@@ -370,10 +374,9 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
       const ktpPhotoUrl = isUad ? (savedKtp || livePhotoUrl) : await uploadToSupabase(ktpPhoto!, user.id, 'ktp');
 
       if (!livePhotoUrl || !ktpPhotoUrl) {
-        throw new Error("Failed to upload photos");
+        throw new Error("Gagal mengunggah foto verifikasi silakan coba lagi.");
       }
 
-      const isPractice = courseCategory === 'LATIHAN UJIAN';
       if (isPractice) {
         const { error: insertError } = await supabase
           .from('latihan_verifications')
@@ -404,8 +407,6 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
     }
   };
 
-  const isPractice = courseCategory?.toUpperCase().trim() === 'LATIHAN UUAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN UJIAN' || courseCategory?.toUpperCase().trim() === 'LATIHAN';
-  const isUad = courseCategory?.toUpperCase().trim() === 'UJIAN UAD' || courseCategory?.toUpperCase().trim() === 'UJIAN';
 
   // While checking category or verification status on practice exam, show loading screen
   if (isPractice && (latihanVerified === null || courseCategory === null)) {
@@ -470,12 +471,14 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
       <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-150">
         <div className="bg-indigo-600 px-8 py-6 text-white text-left">
           <h1 className="text-2xl font-bold font-sans">
-            {isUad ? "Sistem Pencocokan Wajah Mandiri (UAD)" : "Identity Verification"}
+            {isUad ? "Sistem Pencocokan Wajah Mandiri (UAD)" : isPractice ? "Prapendaftaran Profil Mandiri (Latihan Ujian)" : "Verifikasi Identitas Ujian"}
           </h1>
           <p className="mt-2 text-indigo-100 text-sm font-sans">
             {isUad 
               ? "Silakan ambil scan wajah di bawah untuk menampilkan data diri peserta dan memulai Ujian UAD tanpa verifikasi admin." 
-              : "Please verify your identity before starting the assessment."
+              : isPractice
+                ? "Silakan ambil foto selfie langsung dan unggah foto KTP Anda. Profil data ini akan disimpan sebagai database referensi prapendaftaran untuk proses Face Recognition pada Ujian UAD."
+                : "Silakan verifikasi identitas Anda untuk dapat mengakses instrumen ujian."
             }
           </p>
         </div>
@@ -712,14 +715,20 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
             <>
               {/* User Info Confirmation */}
               <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 font-sans text-left">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 font-sans">Confirm Details</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 font-sans">
+                  {isPractice ? "Konfirmasi Data Diri Peserta" : "Confirm Details"}
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-500 font-sans">Full Name</label>
+                    <label className="block text-sm font-medium text-gray-500 font-sans">
+                      {isPractice ? "Nama Lengkap" : "Full Name"}
+                    </label>
                     <div className="mt-1 text-gray-900 font-medium font-sans">{user?.name}</div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-500 font-sans">Identity Number</label>
+                    <label className="block text-sm font-medium text-gray-500 font-sans">
+                      {isPractice ? "No. Kode Pelaut" : "Identity Number"}
+                    </label>
                     <div className="mt-1 text-gray-900 font-medium font-sans">{user?.identity}</div>
                   </div>
                 </div>
@@ -785,7 +794,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                 {/* Live Photo Capture */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                    <Camera className="w-5 h-5 text-indigo-600" /> 1. Live Photo Selfie
+                    <Camera className="w-5 h-5 text-indigo-600" /> 1. {isPractice ? "Ambil Foto Selfie Mandiri" : "Live Photo Selfie"}
                   </h3>
                   <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden relative border-2 border-dashed border-gray-300 flex items-center justify-center">
                     {livePhoto ? (
@@ -805,16 +814,16 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                   <div className="space-y-3 font-sans">
                     <button
                       onClick={livePhoto ? () => { setLivePhoto(null); setFaceVerificationResult(null); } : capture}
-                      className="w-full py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-505 focus:ring-indigo-505 focus:ring-indigo-500 font-sans"
+                      className="w-full py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-505 focus:ring-indigo-500 font-sans"
                     >
-                      <span>{livePhoto ? "Ambil Ulang Foto" : "Ambil Foto Sekarang"}</span>
+                      <span>{livePhoto ? "Ambil Ulang Foto Selfie" : "Ambil Foto Selfie Sekarang"}</span>
                     </button>
 
                     {!livePhoto && (
                       <div>
                         <label className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-indigo-200 rounded-lg shadow-sm text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 cursor-pointer transition-colors text-center font-sans">
                           <Camera className="w-4 h-4 text-indigo-600" />
-                          <span>Kamera Bawaan HP (Rekomendasi Vivo, Infinix, dll)</span>
+                          <span>{isPractice ? "Gunakan Kamera Handphone" : "Kamera Bawaan HP (Rekomendasi Vivo, Infinix, dll)"}</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -826,13 +835,17 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                                 try {
                                   const compressedSrc = await compressImageFile(file, 640, 480, 0.8);
                                   setLivePhoto(compressedSrc);
-                                  handleFaceRecognition(compressedSrc);
+                                  if (!isPractice) {
+                                    handleFaceRecognition(compressedSrc);
+                                  }
                                 } catch {
                                   const reader = new FileReader();
                                   reader.onloadend = () => {
                                     const src = reader.result as string;
                                     setLivePhoto(src);
-                                    handleFaceRecognition(src);
+                                    if (!isPractice) {
+                                      handleFaceRecognition(src);
+                                    }
                                   };
                                   reader.readAsDataURL(file);
                                 }
@@ -848,7 +861,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                 {/* KTP Upload */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2 font-sans">
-                    <Upload className="w-5 h-5 text-indigo-600 font-sans" /> 2. ID Card (KTP)
+                    <Upload className="w-5 h-5 text-indigo-600 font-sans" /> 2. {isPractice ? "Unggah Foto KTP Peserta" : "ID Card (KTP)"}
                   </h3>
                   <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden relative border-2 border-dashed border-gray-300 flex items-center justify-center font-sans">
                     {ktpPhoto ? (
@@ -857,8 +870,8 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                       <div className="text-center p-6 bg-white w-full h-full flex flex-col items-center justify-center font-sans">
                         <Upload className="mx-auto h-12 w-12 text-gray-400 font-sans" />
                         <div className="mt-4 flex text-sm text-gray-650 justify-center font-sans">
-                          <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500 px-3 py-2 border border-gray-300 shadow-sm font-sans">
-                            <span>Upload KTP</span>
+                          <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-505 px-3 py-2 border border-gray-300 shadow-sm font-sans">
+                            <span>{isPractice ? "Pilih Berkas KTP" : "Upload KTP"}</span>
                             <input id="file-upload" name="file-upload" type="file" className="sr-only font-sans" accept="image/*" onChange={handleKtpUpload} />
                           </label>
                         </div>
@@ -871,7 +884,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                       onClick={() => setKtpPhoto(null)}
                       className="w-full py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 font-sans"
                     >
-                      Hapus KTP
+                      {isPractice ? "Hapus Foto KTP" : "Hapus KTP"}
                     </button>
                   )}
                 </div>
@@ -889,7 +902,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                   disabled={!livePhoto || !ktpPhoto || loading || isVerifyingFace || (savedSelfie !== null && faceVerificationResult?.match !== true)}
                   className="px-6 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-sans"
                 >
-                  {loading ? <span>Menyimpan...</span> : <><CheckCircle className="w-5 h-5" /> <span>Mulai Ujian</span></>}
+                  {loading ? <span>Menyimpan...</span> : <><CheckCircle className="w-5 h-5" /> <span>{isPractice ? "Konfirmasi & Mulai Latihan" : "Mulai Ujian"}</span></>}
                 </button>
               </div>
             </>
