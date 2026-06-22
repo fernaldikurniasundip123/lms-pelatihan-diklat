@@ -189,6 +189,20 @@ export default function Login() {
             const list = JSON.parse(localStr);
             matched = list.some((item: any) => item.code === seafarerCode);
           }
+
+          // Tambahan: jika Kode Pelaut sudah terdaftar di tabel users, maka diizinkan akses meskipun belum ada di list allowed_seafarer_codes
+          if (!matched) {
+            const { data: existingUser } = await supabase
+              .from('users')
+              .select('id')
+              .eq('identity_number', seafarerCode)
+              .maybeSingle();
+
+            if (existingUser) {
+              matched = true;
+            }
+          }
+
           if (!matched) {
             throw new Error("Kode Pelaut Anda tidak terdaftar untuk mengikuti Ujian UAD/Latihan Ujian. Silakan hubungi admin master.");
           }
