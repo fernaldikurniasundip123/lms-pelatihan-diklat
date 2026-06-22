@@ -228,7 +228,13 @@ export default function Login() {
 
       let user = null;
 
-      if (users && users.length > 0) {
+      // Prioritas 1: Jika jenis ujian ini butuh Kode Pelaut, cari terlebih dahulu barangkali ada user dengan Kode Pelaut tersebut di seluruh DB kita.
+      // Hal ini mencegah error "duplicate key violates unique constraint users_identity_number_key" jika ejaan namanya sedikit berbeda tetapi Kode Pelautnya sama.
+      if (requiresSeafarerCode && seafarerCode) {
+        user = uniqueUsers.find(u => u.identity_number === seafarerCode);
+      }
+
+      if (!user && users && users.length > 0) {
         // Check if it's an admin login attempt
         const adminUser = users.find(u => u.role === 'admin' || u.role === 'admin2' || u.role === 'admin_uad');
         if (adminUser) {
@@ -273,6 +279,17 @@ export default function Login() {
             const { data: updatedUser } = await supabase
               .from('users')
               .update({ class_name: className })
+              .eq('id', user.id)
+              .select()
+              .single();
+            if (updatedUser) user = updatedUser;
+          }
+          
+          // Update full_name jika berbeda (untuk mencocokkan ejaan input terbaru tanpa membuat duplikat)
+          if (fullName && user.full_name !== fullName) {
+            const { data: updatedUser } = await supabase
+              .from('users')
+              .update({ full_name: fullName })
               .eq('id', user.id)
               .select()
               .single();
