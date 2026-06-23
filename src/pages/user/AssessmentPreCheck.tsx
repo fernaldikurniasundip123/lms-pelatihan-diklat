@@ -20,7 +20,7 @@ export default function AssessmentPreCheck() {
   const [ktpPhoto, setKtpPhoto] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [attemptsInfo, setAttemptsInfo] = useState<{ count: number, passed: boolean } | null>(null);
+  const [attemptsInfo, setAttemptsInfo] = useState<{ count: number, passed: boolean, passedCount?: number } | null>(null);
   const [courseCategory, setCourseCategory] = useState<string | null>(null);
   const [latihanVerified, setLatihanVerified] = useState<boolean | null>(null);
 
@@ -107,13 +107,14 @@ export default function AssessmentPreCheck() {
 
       if (results) {
         const passed = results.some(r => r.passed);
-        setAttemptsInfo({ count: results.length, passed });
+        const passedCount = results.filter(r => r.passed).length;
+        setAttemptsInfo({ count: results.length, passed, passedCount });
       } else {
-        setAttemptsInfo({ count: 0, passed: false });
+        setAttemptsInfo({ count: 0, passed: false, passedCount: 0 });
       }
     } catch (err) {
       console.error("Failed to check attempts:", err);
-      setAttemptsInfo({ count: 0, passed: false });
+      setAttemptsInfo({ count: 0, passed: false, passedCount: 0 });
     }
   };
 
@@ -261,8 +262,19 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
   useEffect(() => {
     if (!courseCategory) return;
     if (isPractice) {
-      if (latihanVerified === true || user?.is_verified) {
-        navigate(`/course/${courseId}/assessment/${assessmentId}`);
+      if (attemptsInfo !== null) {
+        const pCount = attemptsInfo.passedCount || 0;
+        const totalCount = attemptsInfo.count || 0;
+        const isLocked = pCount >= 3 || totalCount >= 8;
+
+        if (isLocked) {
+          // Stay here to show the lock total message
+          return;
+        }
+
+        if (latihanVerified === true || user?.is_verified) {
+          navigate(`/course/${courseId}/assessment/${assessmentId}`);
+        }
       }
       return;
     }
@@ -477,7 +489,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
 
 
   // While checking category or verification status on practice exam, show loading screen
-  if (isPractice && (latihanVerified === null || courseCategory === null)) {
+  if (isPractice && (latihanVerified === null || courseCategory === null || attemptsInfo === null)) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-605 border-indigo-600 mb-4 font-semibold text-sm">...</div>
@@ -486,10 +498,52 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
     );
   }
 
+  // Lock check specifically for practice exam
+  if (isPractice && attemptsInfo !== null) {
+    const pCount = attemptsInfo.passedCount || 0;
+    const totalCount = attemptsInfo.count || 0;
+    if (pCount >= 3 || totalCount >= 8) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center font-sans border border-rose-150">
+            <div className="w-16 h-16 bg-rose-50 border-2 border-rose-200 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse flex-shrink-0">
+              <AlertCircle className="w-9 h-9" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2 font-sans">Batas Kunci Tercapai</h2>
+            <p className="text-gray-600 mb-6 font-medium text-sm leading-relaxed font-sans">
+              Mohon maaf, akses Latihan Ujian Anda telah dikunci total oleh sistem karena telah memenuhi batas maksimal pengerjaan.
+            </p>
+            
+            <div className="bg-rose-50/50 p-5 rounded-2xl text-left border border-rose-100 mb-6 text-sm space-y-3 font-sans">
+              <div className="flex justify-between items-center py-1.5 border-b border-rose-100">
+                <span className="text-gray-650 font-medium">Selesai / Kelulusan:</span>
+                <span className="font-extrabold text-rose-700 bg-rose-100/50 px-2.5 py-0.5 rounded-full text-xs">{pCount} / 3 Kali Lulus</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5">
+                <span className="text-gray-650 font-medium">Total Percobaan Ujian:</span>
+                <span className="font-extrabold text-sm text-gray-900">{totalCount} / 8 Percobaan</span>
+              </div>
+            </div>
+            
+            <p className="text-xs text-rose-500 font-semibold mb-6 leading-relaxed font-sans">
+              *Peserta dikunci total karena sudah mencapai 3 kali kelulusan atau menghabiskan seluruh 8 kali percobaan pengerjaan.
+            </p>
+            <button 
+              onClick={() => navigate(`/course/${courseId}`)} 
+              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md hover:shadow-indigo-200 font-sans"
+            >
+              Kembali ke Menu Kelas
+            </button>
+          </div>
+        </div>
+      );
+    }
+  }
+
   // If already verified on practice exam
   if (isPractice && (latihanVerified === true || user?.is_verified)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 font-sans">
         <div className="animate-bounce mb-4 text-emerald-500">
           <CheckCircle className="w-12 h-12" />
         </div>

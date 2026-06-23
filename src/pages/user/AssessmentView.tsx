@@ -74,7 +74,27 @@ export default function AssessmentView() {
         .single();
 
       if (courseData) {
-        setCourseCategory(courseData.category || "");
+        const cat = courseData.category || "";
+        setCourseCategory(cat);
+
+        // Double guard block: if Latihaan Ujian is locked, redirect to precheck immediately
+        if (cat.toUpperCase().trim() === 'LATIHAN UJIAN' || cat.toUpperCase().trim() === 'LATIHAN' || cat.toUpperCase().trim() === 'LATIHAN UUAN') {
+          const { data: results } = await supabase
+            .from('assessment_results')
+            .select('passed')
+            .eq('user_id', user.id)
+            .eq('course_id', courseId)
+            .eq('assessment_id', assessmentId);
+          
+          if (results) {
+            const passedCount = results.filter(r => r.passed).length;
+            const totalCount = results.length;
+            if (passedCount >= 3 || totalCount >= 8) {
+              navigate(`/course/${courseId}/assessment/${assessmentId}/precheck`);
+              return;
+            }
+          }
+        }
       }
 
       // Fetch questions
