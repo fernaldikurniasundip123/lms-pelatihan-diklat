@@ -520,39 +520,83 @@ export default function CourseView() {
               />
             </div>
           ) : isRefreshing ? (
-            <div className="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col" style={{ minHeight: '600px' }}>
-              <div className="p-4 border-b border-gray-200">
-                <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-indigo-600" />
-                  Materi Refresing
-                </h3>
-              </div>
-              <div className="flex-1 w-full bg-gray-100">
-                {assessments.find(a => !a.video_id)?.refreshing_material_link ? (
-                  <iframe 
-                    src={(assessments.find(a => !a.video_id)?.refreshing_material_link || '').replace('/view', '/preview').replace('usp=sharing', '')} 
-                    className="w-full h-full border-0"
-                    title="Materi Refresing"
-                    allowFullScreen
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-500 flex-col gap-2 p-8 text-center">
-                    <p>Materi belum tersedia</p>
+            <div className="flex flex-col gap-6">
+              <div className="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col" style={{ minHeight: '600px' }}>
+                <div className="p-4 border-b border-gray-200">
+                  <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-600" />
+                    Materi Refresing
+                  </h3>
+                </div>
+                <div className="flex-1 w-full bg-gray-100">
+                  {assessments.find(a => !a.video_id)?.refreshing_material_link ? (
+                    <iframe 
+                      src={(assessments.find(a => !a.video_id)?.refreshing_material_link || '').replace('/view', '/preview').replace('usp=sharing', '')} 
+                      className="w-full h-full border-0"
+                      title="Materi Refresing"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-500 flex-col gap-2 p-8 text-center">
+                      <p>Materi belum tersedia</p>
+                    </div>
+                  )}
+                </div>
+                {assessments.find(a => !a.video_id)?.refreshing_material_link && (
+                  <div className="p-3 bg-gray-50 border-t border-gray-200 text-center">
+                    <a 
+                      href={assessments.find(a => !a.video_id)?.refreshing_material_link} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-indigo-600 font-medium hover:underline"
+                    >
+                      Buka di tab baru (jika PDF tidak muncul)
+                    </a>
                   </div>
                 )}
               </div>
-              {assessments.find(a => !a.video_id)?.refreshing_material_link && (
-                <div className="p-3 bg-gray-50 border-t border-gray-200 text-center">
-                  <a 
-                    href={assessments.find(a => !a.video_id)?.refreshing_material_link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-xs text-indigo-600 font-medium hover:underline"
-                  >
-                    Buka di tab baru (jika PDF tidak muncul)
-                  </a>
-                </div>
-              )}
+
+              {/* Mulai Ujian Refresing button placed exactly below the Material */}
+              {assessments.find(a => !a.video_id) && (() => {
+                const finalAssessment = assessments.find(a => !a.video_id);
+                const pastResult = finalAssessment ? assessmentResults.find(r => r.assessment_id === finalAssessment.id) : null;
+                return (
+                  <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-200 flex flex-col gap-4 text-left">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-indigo-50 rounded-xl text-indigo-600">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-gray-900 text-sm">MULAI UJIAN REFRESING</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">Silakan kerjakan ujian setelah mempelajari materi di atas.</p>
+                        </div>
+                      </div>
+                      {pastResult && (
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${pastResult.passed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                          {pastResult.passed ? 'LULUS ✓' : 'TIDAK LULUS ✗'}
+                        </span>
+                      )}
+                    </div>
+
+                    {pastResult && (
+                      <div className={`p-4 rounded-xl border text-xs leading-relaxed ${pastResult.passed ? 'bg-green-50 border-green-200 text-green-900' : 'bg-red-50 border-red-200 text-red-900'}`}>
+                        <strong>Hasil Terakhir Anda:</strong> Skor {Math.round(pastResult.score)}% - {pastResult.passed ? 'Selamat! Anda telah lulus ujian refresing.' : 'Anda belum lulus. Silakan ulangi ujian.'}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        navigate(`/course/${course.id}/assessment/${finalAssessment.id}/precheck`);
+                      }}
+                      className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-sm hover:shadow-indigo-200 flex items-center justify-center gap-2 text-sm"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>MULAI UJIAN REFRESING</span>
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="bg-gray-200 rounded-2xl aspect-video flex items-center justify-center text-gray-500">
@@ -777,7 +821,7 @@ export default function CourseView() {
                 )}
 
                 {/* Final Assessment Section */}
-                {!isUjianOrLatihan && assessments.find(a => !a.video_id) && (
+                {!isRefreshing && !isUjianOrLatihan && assessments.find(a => !a.video_id) && (
                   <button
                     onClick={() => {
                       const finalAssessment = assessments.find(a => !a.video_id);

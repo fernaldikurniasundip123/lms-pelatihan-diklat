@@ -95,6 +95,25 @@ export default function AssessmentView() {
             }
           }
         }
+
+        // Double guard block for REFRESING category: max 10 attempts or passed
+        if (cat.toUpperCase().trim() === 'REFRESING') {
+          const { data: results } = await supabase
+            .from('assessment_results')
+            .select('passed')
+            .eq('user_id', user.id)
+            .eq('course_id', courseId)
+            .eq('assessment_id', assessmentId);
+          
+          if (results) {
+            const passed = results.some(r => r.passed);
+            const totalCount = results.length;
+            if (passed || totalCount >= 10) {
+              navigate(`/course/${courseId}/assessment/${assessmentId}/precheck`);
+              return;
+            }
+          }
+        }
       }
 
       // Fetch questions
