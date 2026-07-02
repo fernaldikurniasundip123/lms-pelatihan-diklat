@@ -42,6 +42,10 @@ export default function AssessmentView() {
   }, [courseId, user]);
 
   useEffect(() => {
+    if (assessment && assessment.duration_minutes === 0) {
+      // Unlimited duration: do not start countdown
+      return;
+    }
     if (timeLeft > 0 && !result) {
       const timer = setInterval(() => setTimeLeft(t => t - 1), 1000);
       return () => clearInterval(timer);
@@ -49,6 +53,20 @@ export default function AssessmentView() {
       handleSubmit();
     }
   }, [timeLeft, result, assessment]);
+
+  useEffect(() => {
+    if (user && assessmentId && Object.keys(answers).length > 0) {
+      const localAnswersKey = `assessment_answers_${user.id}_${assessmentId}`;
+      localStorage.setItem(localAnswersKey, JSON.stringify(answers));
+    }
+  }, [answers, user, assessmentId]);
+
+  useEffect(() => {
+    if (user && assessmentId && Object.keys(lockedQuestions).length > 0) {
+      const localLockedKey = `assessment_locked_${user.id}_${assessmentId}`;
+      localStorage.setItem(localLockedKey, JSON.stringify(lockedQuestions));
+    }
+  }, [lockedQuestions, user, assessmentId]);
 
   const fetchAssessment = async () => {
     if (!courseId || !user) return;
@@ -139,8 +157,24 @@ export default function AssessmentView() {
 
       setAssessment(assessmentData);
       setQuestions(fetchedQuestions);
-      const durationSeconds = (assessmentData.duration_minutes || 60) * 60;
+      const isUnlimited = assessmentData.duration_minutes === 0;
+      const durationSeconds = isUnlimited ? -1 : (assessmentData.duration_minutes || 60) * 60;
       setTimeLeft(durationSeconds);
+
+      try {
+        const localAnswersKey = `assessment_answers_${user.id}_${assessmentId}`;
+        const localLockedKey = `assessment_locked_${user.id}_${assessmentId}`;
+        const savedAnswers = localStorage.getItem(localAnswersKey);
+        const savedLocked = localStorage.getItem(localLockedKey);
+        if (savedAnswers) {
+          setAnswers(JSON.parse(savedAnswers));
+        }
+        if (savedLocked) {
+          setLockedQuestions(JSON.parse(savedLocked));
+        }
+      } catch (e) {
+        console.error("Failed to load saved progress:", e);
+      }
     } catch (err) {
       console.error("Failed to fetch assessment:", err);
     }
@@ -191,6 +225,15 @@ export default function AssessmentView() {
         });
 
       if (insertError) throw insertError;
+
+      try {
+        const localAnswersKey = `assessment_answers_${user.id}_${assessmentId}`;
+        const localLockedKey = `assessment_locked_${user.id}_${assessmentId}`;
+        localStorage.removeItem(localAnswersKey);
+        localStorage.removeItem(localLockedKey);
+      } catch (e) {
+        console.error("Failed to clear saved progress:", e);
+      }
 
       setResult({
         status: passed ? 'LULUS' : 'TIDAK LULUS',
@@ -401,7 +444,7 @@ export default function AssessmentView() {
           </div>
           <div className="flex items-center gap-2 text-red-600 font-mono font-bold text-lg bg-red-50 px-4 py-2 rounded-lg border border-red-100">
             <Clock className="w-5 h-5" />
-            {formatTime(timeLeft)}
+            {assessment?.duration_minutes === 0 ? "Tidak dibatasi waktu" : formatTime(timeLeft)}
           </div>
         </div>
       </header>

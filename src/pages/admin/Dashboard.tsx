@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock, MessageSquare } from "lucide-react";
 import { GoogleGenAI } from "@google/genai";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
@@ -1488,9 +1488,171 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     }
   };
 
+  const [uploadingVideoQuestionsId, setUploadingVideoQuestionsId] = useState<string | null>(null);
+  const [viewingVideoQuestionsId, setViewingVideoQuestionsId] = useState<string | null>(null);
+
+  const handleUpdateVideoQuestionsMode = async (videoId: string, mode: string) => {
+    const { error } = await supabase
+      .from('videos')
+      .update({ video_questions_mode: mode })
+      .eq('id', videoId);
+
+    if (!error) {
+      setSelectedCourse((prev: any) => ({
+        ...prev,
+        videos: prev.videos.map((v: any) => v.id === videoId ? { ...v, video_questions_mode: mode } : v)
+      }));
+    } else {
+      if (error.message && error.message.includes('column "video_questions_mode"')) {
+        alert("Kolom 'video_questions_mode' belum dibuat di tabel 'videos' Supabase Anda.\n\nHarap jalankan SQL ini di dashboard Supabase Anda:\n\nALTER TABLE public.videos ADD COLUMN IF NOT EXISTS video_questions_mode text DEFAULT 'immediate';");
+      } else {
+        alert("Failed to update video questions mode: " + error.message);
+      }
+    }
+  };
+
+  const handleClearVideoQuestions = async (videoId: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus semua pertanyaan kuis untuk video ini?")) return;
+    const { error } = await supabase
+      .from('videos')
+      .update({ video_questions: [] })
+      .eq('id', videoId);
+
+    if (!error) {
+      alert("Semua pertanyaan kuis video berhasil dihapus.");
+      fetchCourses();
+      if (selectedCourse) {
+        const { data } = await supabase
+          .from('courses')
+          .select('*, videos(*), assessments(*)')
+          .eq('id', selectedCourse.id)
+          .single();
+        if (data) setSelectedCourse({ ...data, assessments: data.assessments || [] });
+      }
+    } else {
+      alert("Gagal menghapus pertanyaan kuis video: " + error.message);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !uploadingAssessmentId) return;
+    if (!file) return;
+
+    if (uploadingVideoQuestionsId) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          try {
+            const parsedQuestions = results.data.map((row: any, idx: number) => {
+              let timeSeconds = 0;
+              let timeStr = "";
+
+              const menitVal = row.menit || row.minute;
+              const detikVal = row.detik || row.second;
+
+              if (menitVal !== undefined && menitVal !== "") {
+                const min = parseInt(String(menitVal).trim()) || 0;
+                const sec = parseInt(String(detikVal || 0).trim()) || 0;
+                timeSeconds = min * 60 + sec;
+                timeStr = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+              } else {
+                const rawTime = String(row.time_in_video || row.menit_detik || row.waktu_kemunculan || row.waktu || row.time || "0").trim();
+                timeStr = rawTime;
+                if (rawTime.includes(":")) {
+                  const parts = rawTime.split(":");
+                  if (parts.length === 2) {
+                    timeSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                  } else if (parts.length === 3) {
+                    timeSeconds = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+                  }
+                } else if (rawTime.includes(".")) {
+                  const parts = rawTime.split(".");
+                  if (parts.length === 2) {
+                    timeSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                  }
+                } else {
+                  timeSeconds = parseInt(rawTime) || 0;
+                  const mins = Math.floor(timeSeconds / 60);
+                  const secs = timeSeconds % 60;
+                  timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+              }
+
+              const questionText = row.question || row.soal || row.pertanyaan || "";
+              const optA = row.option_a || row.pilihan_a || row.a || "";
+              const optB = row.option_b || row.pilihan_b || row.b || "";
+              const optC = row.option_c || row.pilihan_c || row.c || "";
+              const optD = row.option_d || row.pilihan_d || row.d || "";
+
+              const options = [optA, optB, optC, optD].map(o => String(o).trim()).filter(Boolean);
+              
+              const rawCorrect = String(row.correct_answer || row.jawaban_benar || row.jawaban || "a").trim().toLowerCase();
+              let correctIdx = -1;
+              if (rawCorrect === "a" || rawCorrect === "option_a" || rawCorrect === "pilihan_a") {
+                correctIdx = 0;
+              } else if (rawCorrect === "b" || rawCorrect === "option_b" || rawCorrect === "pilihan_b") {
+                correctIdx = 1;
+              } else if (rawCorrect === "c" || rawCorrect === "option_c" || rawCorrect === "pilihan_c") {
+                correctIdx = 2;
+              } else if (rawCorrect === "d" || rawCorrect === "option_d" || rawCorrect === "pilihan_d") {
+                correctIdx = 3;
+              } else {
+                correctIdx = options.findIndex(opt => opt.toLowerCase() === rawCorrect.toLowerCase());
+                if (correctIdx === -1) {
+                  const matchingVal = row[`option_${rawCorrect}`] || row[`pilihan_${rawCorrect}`] || row[rawCorrect];
+                  if (matchingVal) {
+                    correctIdx = options.indexOf(String(matchingVal).trim());
+                  }
+                }
+              }
+
+              if (correctIdx === -1) correctIdx = 0;
+
+              return {
+                id: `v_q_${Date.now()}_${idx}`,
+                time: timeSeconds,
+                time_str: timeStr,
+                question: questionText,
+                options: options,
+                correct_option_index: correctIdx
+              };
+            });
+
+            const { error } = await supabase
+              .from('videos')
+              .update({ video_questions: parsedQuestions })
+              .eq('id', uploadingVideoQuestionsId);
+
+            if (!error) {
+              alert("Video questions imported successfully!");
+              setUploadingVideoQuestionsId(null);
+              if (fileInputRef.current) fileInputRef.current.value = "";
+              fetchCourses();
+              if (selectedCourse) {
+                const { data } = await supabase
+                  .from('courses')
+                  .select('*, videos(*), assessments(*)')
+                  .eq('id', selectedCourse.id)
+                  .single();
+                if (data) setSelectedCourse({ ...data, assessments: data.assessments || [] });
+              }
+            } else {
+              if (error.message && error.message.includes('column "video_questions"')) {
+                alert("Kolom 'video_questions' belum dibuat di tabel 'videos' Supabase Anda.\n\nHarap jalankan SQL ini di dashboard Supabase Anda:\n\nALTER TABLE public.videos ADD COLUMN IF NOT EXISTS video_questions jsonb DEFAULT '[]'::jsonb;");
+              } else {
+                alert("Failed to import video questions: " + error.message);
+              }
+            }
+          } catch (err: any) {
+            alert("Error parsing CSV: " + err.message);
+          }
+        }
+      });
+      return;
+    }
+
+    if (!uploadingAssessmentId) return;
 
     Papa.parse(file, {
       header: true,
@@ -1555,6 +1717,17 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
     link.setAttribute("download", "assessment_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const downloadVideoQuestionsTemplate = () => {
+    const csvContent = "data:text/csv;charset=utf-8,menit,detik,pertanyaan,pilihan_a,pilihan_b,pilihan_c,pilihan_d,jawaban_benar\n1,30,Apa kepanjangan dari SAT?,Ship Security Officer,Ship Security Alert System,Security Awareness Training,Special Air Service,c\n3,15,Siapa yang bertanggung jawab atas keamanan kapal?,Master,SSO,PFSO,CSO,b";
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "video_questions_template.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -4433,6 +4606,110 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                               </button>
                             )}
                           </div>
+
+                          {/* Interactive Video Quiz (Kuis Tengah Video) */}
+                          <div className="pl-12 border-t border-gray-100 pt-3">
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-gray-800 text-sm">
+                              <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
+                                <div className="flex items-center gap-2">
+                                  <MessageSquare className="w-4 h-4 text-teal-600" />
+                                  <span className="font-bold text-teal-950">Kuis Tengah Video (Interactive Video Quiz)</span>
+                                </div>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-teal-100 text-teal-800 uppercase tracking-wider">
+                                  {(video.video_questions || []).length} Pertanyaan
+                                </span>
+                              </div>
+
+                              <div className="flex flex-col gap-3">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs font-bold text-gray-700 w-28 flex-shrink-0">Mode Kuis:</label>
+                                  <select 
+                                    value={video.video_questions_mode || 'immediate'} 
+                                    onChange={(e) => handleUpdateVideoQuestionsMode(video.id, e.target.value)}
+                                    className="text-xs bg-white border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-teal-500 focus:border-teal-500"
+                                  >
+                                    <option value="immediate">Tampilkan Jawaban Langsung (Koreksi Instan)</option>
+                                    <option value="end">Tampilkan Hasil di Akhir Video (Kuis Mandiri)</option>
+                                  </select>
+                                </div>
+
+                                <div className="flex gap-2">
+                                  <button 
+                                    type="button"
+                                    onClick={downloadVideoQuestionsTemplate}
+                                    className="flex-1 px-2 py-1.5 bg-white border border-teal-300 text-teal-800 rounded text-xs font-medium hover:bg-teal-50 flex items-center justify-center gap-1 transition-colors"
+                                  >
+                                    <Download className="w-3 h-3" /> Template
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      setUploadingVideoQuestionsId(video.id);
+                                      setUploadingAssessmentId(null);
+                                      fileInputRef.current?.click();
+                                    }}
+                                    className="flex-1 px-2 py-1.5 bg-teal-600 text-white rounded text-xs font-medium hover:bg-teal-700 flex items-center justify-center gap-1 transition-colors shadow-sm"
+                                  >
+                                    <Upload className="w-3 h-3" /> Import CSV
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      if (viewingVideoQuestionsId === video.id) {
+                                        setViewingVideoQuestionsId(null);
+                                      } else {
+                                        setViewingVideoQuestionsId(video.id);
+                                      }
+                                    }}
+                                    className="flex-1 px-2 py-1.5 bg-white border border-teal-300 text-teal-800 rounded text-xs font-medium hover:bg-teal-50 transition-colors"
+                                  >
+                                    {viewingVideoQuestionsId === video.id ? 'Hide' : 'View'}
+                                  </button>
+                                </div>
+
+                                {viewingVideoQuestionsId === video.id && (
+                                  <div className="bg-white border border-gray-150 rounded-lg p-3 space-y-3 mt-1 max-h-80 overflow-y-auto">
+                                    <div className="flex justify-between items-center border-b pb-1">
+                                      <span className="font-bold text-xs text-gray-700">Daftar Pertanyaan</span>
+                                      {(video.video_questions || []).length > 0 && (
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleClearVideoQuestions(video.id)}
+                                          className="text-[10px] text-red-600 font-bold hover:underline"
+                                        >
+                                          Hapus Semua
+                                        </button>
+                                      )}
+                                    </div>
+                                    {(video.video_questions || []).length > 0 ? (
+                                      <div className="space-y-2.5 divide-y divide-gray-100">
+                                        {(video.video_questions || []).map((q: any, idx: number) => (
+                                          <div key={q.id || idx} className={`text-xs ${idx > 0 ? 'pt-2.5' : ''}`}>
+                                            <div className="flex items-center gap-2 mb-1">
+                                              <span className="bg-teal-50 text-teal-800 px-1.5 py-0.5 rounded font-bold">
+                                                {q.time_str || `${Math.floor(q.time / 60)}:${(q.time % 60).toString().padStart(2, '0')}`}
+                                              </span>
+                                              <span className="font-bold text-gray-800">Pertanyaan {idx + 1}</span>
+                                            </div>
+                                            <p className="font-medium text-gray-900 mb-1">{q.question}</p>
+                                            <div className="grid grid-cols-2 gap-1 text-[10px] text-gray-500 pl-2">
+                                              {q.options.map((opt: string, oIdx: number) => (
+                                                <div key={oIdx} className={oIdx === q.correct_option_index ? 'text-green-700 font-bold' : ''}>
+                                                  {String.fromCharCode(65 + oIdx)}. {opt} {oIdx === q.correct_option_index ? '✓' : ''}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-gray-500 italic text-center py-2">Belum ada pertanyaan. Silakan import melalui CSV.</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
@@ -4638,7 +4915,25 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                   </div>
                                   <div>
                                     <label className="block text-xs font-medium text-gray-700">Duration (Minutes)</label>
-                                    <input type="number" min="1" value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <input 
+                                        type="number" 
+                                        min="0" 
+                                        value={durationMinutes} 
+                                        disabled={durationMinutes === 0}
+                                        onChange={e => setDurationMinutes(Number(e.target.value))} 
+                                        className="flex-1 px-2 py-1 border rounded bg-white disabled:bg-gray-100 disabled:text-gray-400 text-xs" 
+                                      />
+                                      <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 cursor-pointer">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={durationMinutes === 0} 
+                                          onChange={e => setDurationMinutes(e.target.checked ? 0 : 60)} 
+                                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <span>Tidak dibatasi waktu</span>
+                                      </label>
+                                    </div>
                                   </div>
                                   <div>
                                     <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
@@ -4678,7 +4973,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <p className="font-bold text-amber-900">LATIHAN UJIAN Configured</p>
-                                      <p className="text-sm mt-1">Passing Grade: {latihanAssessment.passing_score} | Duration: {latihanAssessment.duration_minutes}m</p>
+                                      <p className="text-sm mt-1">Passing Grade: {latihanAssessment.passing_score} | Duration: {latihanAssessment.duration_minutes === 0 ? "Tidak dibatasi waktu" : `${latihanAssessment.duration_minutes}m`}</p>
                                       <p className="text-sm mt-1 text-gray-700">
                                         Mandatory: {latihanAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {latihanAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {latihanAssessment.show_one_by_one ? 'Yes' : 'No'}
                                       </p>

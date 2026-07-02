@@ -6,7 +6,21 @@ import { supabase } from "../../lib/supabase";
 import AIChat from "../../components/AIChat";
 
 // Simple YouTube Iframe wrapper
-function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: { videoId: string, initialProgressPct: number, onProgress: (p: number, t: number) => void, onComplete: () => void }) {
+function YouTubePlayer({ 
+  videoId, 
+  initialProgressPct, 
+  onProgress, 
+  onComplete, 
+  videoQuestions = [], 
+  videoQuestionsMode = 'immediate' 
+}: { 
+  videoId: string, 
+  initialProgressPct: number, 
+  onProgress: (p: number, t: number) => void, 
+  onComplete: () => void,
+  videoQuestions?: any[],
+  videoQuestionsMode?: string
+}) {
   const playerRef = useRef<any>(null);
   const intervalRef = useRef<any>(null);
   const maxTimeWatched = useRef<number>(0);
@@ -14,10 +28,46 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
   const durationRef = useRef<number>(0);
   const lastIntervalTime = useRef<number>(0);
 
+  const [activeQuestion, setActiveQuestion] = useState<any>(null);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [isAnswerSubmitted, setIsAnswerSubmitted] = useState<boolean>(false);
+  const [answeredIds, setAnsweredIds] = useState<string[]>([]);
+  const [correctCount, setCorrectCount] = useState<number>(0);
+  const [showQuizEndSummary, setShowQuizEndSummary] = useState<boolean>(false);
+
+  // Refs to avoid stale closures in the video update interval
+  const answeredIdsRef = useRef<string[]>([]);
+  const activeQuestionRef = useRef<any>(null);
+  const videoQuestionsRef = useRef<any[]>(videoQuestions);
+  const videoQuestionsModeRef = useRef<string>(videoQuestionsMode);
+
   useEffect(() => {
-    // Reset maxTimeWatched when video changes
+    videoQuestionsRef.current = videoQuestions;
+    videoQuestionsModeRef.current = videoQuestionsMode;
+  }, [videoQuestions, videoQuestionsMode]);
+
+  const updateAnsweredIds = (newIds: string[]) => {
+    setAnsweredIds(newIds);
+    answeredIdsRef.current = newIds;
+  };
+
+  const updateActiveQuestion = (q: any) => {
+    setActiveQuestion(q);
+    activeQuestionRef.current = q;
+  };
+
+  useEffect(() => {
+    // Reset maxTimeWatched and state when video changes
     maxTimeWatched.current = 0;
     durationRef.current = 0;
+    setActiveQuestion(null);
+    setSelectedOption(null);
+    setIsAnswerSubmitted(false);
+    setAnsweredIds([]);
+    setCorrectCount(0);
+    setShowQuizEndSummary(false);
+    answeredIdsRef.current = [];
+    activeQuestionRef.current = null;
     
     // Load YouTube API
     if (!window.YT) {
@@ -75,6 +125,13 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                   }
                 }
 
+                // Check for interactive video questions
+                const nextQuestion = videoQuestionsRef.current.find(q => currentTime >= q.time && !answeredIdsRef.current.includes(q.id));
+                if (nextQuestion && !activeQuestionRef.current) {
+                  playerRef.current.pauseVideo();
+                  updateActiveQuestion(nextQuestion);
+                }
+
                 const percentage = duration > 0 ? (maxTimeWatched.current / duration) * 100 : 0;
                 onProgress(percentage, maxTimeWatched.current);
               }, 1000);
@@ -87,7 +144,12 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
                 // Consider video completed if it reaches 85% or is within 5 seconds of the end
                 if (percentage >= 85 || (duration - maxTimeWatched.current <= 5)) {
                   onProgress(100, duration);
-                  onComplete();
+                  if (videoQuestionsRef.current && videoQuestionsRef.current.length > 0) {
+                    playerRef.current.pauseVideo();
+                    setShowQuizEndSummary(true);
+                  } else {
+                    onComplete();
+                  }
                 } else {
                   // User skipped to the end, seek back to max watched time
                   playerRef.current?.seekTo(maxTimeWatched.current);
@@ -111,7 +173,143 @@ function YouTubePlayer({ videoId, initialProgressPct, onProgress, onComplete }: 
     };
   }, [videoId]);
 
-  return <div id={`youtube-player-${videoId}`} className="w-full h-full rounded-xl overflow-hidden shadow-lg"></div>;
+  return (
+    <div className="relative w-full h-full rounded-xl overflow-hidden shadow-lg bg-black flex flex-col justify-between">
+      <div id={`youtube-player-${videoId}`} className="w-full h-full"></div>
+
+      {activeQuestion && (
+        <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-4 z-20 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full text-gray-900 shadow-2xl border border-gray-100 flex flex-col gap-3.5">
+            <div className="flex items-center justify-between border-b pb-1.5">
+              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                Kuis Tengah Video ({activeQuestion.time_str || `Detik ${activeQuestion.time}`})
+              </span>
+              <span className="text-[10px] font-medium text-gray-500">
+                Mode: {videoQuestionsMode === 'immediate' ? 'Koreksi Langsung' : 'Hasil Akhir'}
+              </span>
+            </div>
+
+            <h4 className="font-bold text-sm md:text-base leading-snug">
+              {activeQuestion.question}
+            </h4>
+
+            <div className="flex flex-col gap-1.5">
+              {activeQuestion.options.map((option: string, index: number) => {
+                const isSelected = selectedOption === option;
+                const isCorrect = index === activeQuestion.correct_option_index;
+                let optionStyle = "border-gray-200 hover:bg-gray-50 text-gray-800";
+                
+                if (isAnswerSubmitted) {
+                  if (videoQuestionsMode === 'immediate') {
+                    if (isCorrect) {
+                      optionStyle = "border-green-300 bg-green-50 text-green-900 font-semibold";
+                    } else if (isSelected) {
+                      optionStyle = "border-red-300 bg-red-50 text-red-900";
+                    } else {
+                      optionStyle = "border-gray-150 bg-gray-50 text-gray-400";
+                    }
+                  } else {
+                    if (isSelected) {
+                      optionStyle = "border-indigo-500 bg-indigo-50 text-indigo-900 font-semibold";
+                    } else {
+                      optionStyle = "border-gray-150 bg-gray-50 text-gray-400";
+                    }
+                  }
+                } else if (isSelected) {
+                  optionStyle = "border-indigo-600 bg-indigo-50/50 text-indigo-950 font-semibold ring-2 ring-indigo-500/20";
+                }
+
+                return (
+                  <button
+                    key={index}
+                    disabled={isAnswerSubmitted}
+                    onClick={() => setSelectedOption(option)}
+                    className={`w-full text-left px-3.5 py-2.5 border rounded-xl text-xs transition-all flex items-center justify-between ${optionStyle}`}
+                  >
+                    <span>{option}</span>
+                    {isAnswerSubmitted && videoQuestionsMode === 'immediate' && isCorrect && (
+                      <span className="text-[10px] font-extrabold text-green-600 bg-green-100/80 px-2 py-0.5 rounded">BENAR</span>
+                    )}
+                    {isAnswerSubmitted && videoQuestionsMode === 'immediate' && isSelected && !isCorrect && (
+                      <span className="text-[10px] font-extrabold text-red-600 bg-red-100/80 px-2 py-0.5 rounded">SALAH</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t pt-2.5 mt-0.5">
+              {!isAnswerSubmitted ? (
+                <button
+                  type="button"
+                  disabled={!selectedOption}
+                  onClick={() => {
+                    if (!selectedOption) return;
+                    setIsAnswerSubmitted(true);
+                    const isCorrect = activeQuestion.options[activeQuestion.correct_option_index] === selectedOption;
+                    if (isCorrect) {
+                      setCorrectCount(c => c + 1);
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
+                >
+                  Kirim Jawaban
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextAnswered = [...answeredIds, activeQuestion.id];
+                    updateAnsweredIds(nextAnswered);
+                    updateActiveQuestion(null);
+                    setSelectedOption(null);
+                    setIsAnswerSubmitted(false);
+                    playerRef.current?.playVideo();
+                  }}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-xs hover:bg-green-700 transition-all shadow-sm"
+                >
+                  Lanjutkan Video
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showQuizEndSummary && (
+        <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-4 z-20">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-gray-900 shadow-2xl border border-gray-150 text-center flex flex-col gap-4 animate-scale-up">
+            <div className="w-12 h-12 bg-teal-50 rounded-full flex items-center justify-center text-teal-600 mx-auto">
+              <CheckCircle className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-teal-950">Kuis Video Selesai!</h3>
+              <p className="text-xs text-gray-500 mt-1">Anda telah menyelesaikan kuis interaktif dalam video ini.</p>
+            </div>
+            <div className="bg-teal-50 border border-teal-100 rounded-xl p-4">
+              <span className="block text-[10px] text-teal-800 font-bold uppercase tracking-wider">Hasil Jawaban Anda</span>
+              <span className="block text-2xl font-extrabold text-teal-950 mt-1">
+                {correctCount} / {videoQuestions.length}
+              </span>
+              <span className="block text-[10px] text-teal-700 mt-1 font-semibold">
+                Pertanyaan terjawab dengan benar
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuizEndSummary(false);
+                onComplete();
+              }}
+              className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl transition-all shadow-md text-xs"
+            >
+              Selesai & Lanjutkan Course
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function CourseView() {
@@ -517,6 +715,8 @@ export default function CourseView() {
                 initialProgressPct={activeVideo.progress_percentage || 0}
                 onProgress={handleProgress}
                 onComplete={handleComplete}
+                videoQuestions={activeVideo.video_questions || []}
+                videoQuestionsMode={activeVideo.video_questions_mode || 'immediate'}
               />
             </div>
           ) : isRefreshing ? (
