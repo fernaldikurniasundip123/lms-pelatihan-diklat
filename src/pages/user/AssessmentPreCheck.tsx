@@ -280,8 +280,7 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
     }
 
     if (!isUad && (user?.is_verified || latihanVerified === true) && attemptsInfo !== null) {
-      const isRefreshingCourse = courseCategory?.toUpperCase().trim() === 'REFRESING';
-      const maxAttemptsAllowed = isRefreshingCourse ? 10 : 3;
+      const maxAttemptsAllowed = 10;
       if (attemptsInfo.passed || attemptsInfo.count >= maxAttemptsAllowed) {
         // Stay here to show the message
       } else {
@@ -571,20 +570,17 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
           </div>
         );
       }
-      const isRefreshingCourse = courseCategory?.toUpperCase().trim() === 'REFRESING';
-      const maxAttemptsAllowed = isRefreshingCourse ? 10 : 3;
+      const maxAttemptsAllowed = 10;
       if (attemptsInfo.count >= maxAttemptsAllowed) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
             <div className="max-w-md w-full bg-white rounded-xl shadow-xl p-8 text-center font-sans">
               <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                {isRefreshingCourse ? "Batas Percobaan Habis" : "Maximum Attempts Reached"}
+                Batas Percobaan Habis
               </h2>
               <p className="text-gray-650 mb-6 font-medium">
-                {isRefreshingCourse 
-                  ? `Anda telah mencapai batas maksimal pengerjaan (${maxAttemptsAllowed} kali percobaan) untuk ujian ini.`
-                  : `You have reached the maximum number of attempts (${maxAttemptsAllowed}) for this assessment.`}
+                Anda telah mencapai batas maksimal pengerjaan (${maxAttemptsAllowed} kali percobaan) untuk ujian ini. / You have reached the maximum number of attempts (${maxAttemptsAllowed}) for this assessment.
               </p>
               <button onClick={() => navigate(`/course/${courseId}`)} className="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors">
                 Back to Course

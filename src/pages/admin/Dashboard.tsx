@@ -1711,6 +1711,21 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     }
   };
 
+  const handleClearAssessmentQuestions = async (assessmentId: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus seluruh soal dalam assessment ini? Tindakan ini tidak dapat dibatalkan.")) return;
+    const { error } = await supabase
+      .from('questions')
+      .delete()
+      .eq('assessment_id', assessmentId);
+
+    if (!error) {
+      alert("Semua soal berhasil dihapus.");
+      setAssessmentQuestions([]);
+    } else {
+      alert("Gagal menghapus semua soal: " + error.message);
+    }
+  };
+
   const downloadTemplate = () => {
     const csvContent = "data:text/csv;charset=utf-8,question,option_a,option_b,option_c,option_d,correct_answer,weight\nApa ibukota Indonesia?,Jakarta,Bandung,Surabaya,Medan,a,1\nBerapa 5+5?,8,9,10,11,c,1";
     const encodedUri = encodeURI(csvContent);
@@ -2355,11 +2370,22 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           </div>
         )}
 
-        {/* Section 3: Daftar Soal */}
-        <div className="space-y-3">
-          <h5 className="font-bold text-sm text-gray-900 border-b pb-2 mb-2">Daftar Soal ({assessmentQuestions.length})</h5>
-          {assessmentQuestions.length === 0 ? (
-            <p className="text-xs text-gray-500 italic">Belum ada soal dalam assessment ini. Silakan import CSV atau masukkan manual.</p>
+         {/* Section 3: Daftar Soal */}
+         <div className="space-y-3">
+           <div className="flex justify-between items-center border-b pb-2 mb-2">
+             <h5 className="font-bold text-sm text-gray-900">Daftar Soal ({assessmentQuestions.length})</h5>
+             {assessmentQuestions.length > 0 && (
+               <button 
+                 type="button"
+                 onClick={() => handleClearAssessmentQuestions(assessmentId)}
+                 className="px-2.5 py-1 text-[11px] font-semibold text-red-650 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
+               >
+                 Hapus Semua Soal
+               </button>
+             )}
+           </div>
+           {assessmentQuestions.length === 0 ? (
+             <p className="text-xs text-gray-500 italic">Belum ada soal dalam assessment ini. Silakan import CSV atau masukkan manual.</p>
           ) : (
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {assessmentQuestions.map((q, idx) => {
@@ -4502,59 +4528,152 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                           <div className="pl-12 border-t border-gray-100 pt-3">
                             {videoAssessment ? (
                               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-blue-800 text-sm">
-                                <div className="flex justify-between items-start mb-2">
-                                  <div>
-                                    <p className="font-medium">Assessment Configured</p>
-                                    <p className="text-xs mt-1">Passing Grade: {videoAssessment.passing_score} | Duration: {videoAssessment.duration_minutes}m</p>
-                                    <p className="text-xs mt-1 text-gray-700">
-                                      Mandatory: {videoAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {videoAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {videoAssessment.show_one_by_one ? 'Yes' : 'No'}
-                                    </p>
-                                    <p className="text-xs mt-1 text-red-600 font-medium">Strict Mode: {videoAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {videoAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {videoAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
-                                    {videoAssessment.audio_link && (
-                                      <p className="text-xs mt-1 truncate max-w-xs">
-                                        Audio: <a href={videoAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{videoAssessment.audio_link}</a>
-                                      </p>
-                                    )}
-                                    <div className="flex items-center gap-2 mt-2">
-                                      <input
-                                        type="checkbox"
-                                        id={`refreshing-video-assessment-${videoAssessment.id}`}
-                                        checked={videoAssessment.is_refreshing || false}
-                                        onChange={() => handleToggleAssessmentRefreshing(videoAssessment.id, videoAssessment.is_refreshing || false)}
-                                        className="rounded border-blue-300 text-blue-600 focus:ring-blue-500"
-                                      />
-                                      <label htmlFor={`refreshing-video-assessment-${videoAssessment.id}`} className="text-xs font-medium text-blue-800">Tersedia untuk Refresing</label>
+                                {editingAssessmentId === videoAssessment.id ? (
+                                  <form onSubmit={(e) => handleUpdateAssessment(e, videoAssessment.id)} className="space-y-3">
+                                    <div className="font-bold text-xs border-b pb-1 text-blue-950 border-blue-200">Edit Assessment Settings</div>
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-gray-700 uppercase">Passing Grade (0-100)</label>
+                                      <input type="number" min="0" max="100" value={passingGrade} onChange={e => setPassingGrade(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white text-xs text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
                                     </div>
-                                  </div>
-                                </div>
-                                <div className="flex gap-2 mt-2">
-                                  <button onClick={downloadTemplate} className="flex-1 px-2 py-1.5 bg-white border border-blue-300 rounded text-xs font-medium hover:bg-blue-100 flex items-center justify-center gap-1">
-                                    <Download className="w-3 h-3" /> Template
-                                  </button>
-                                  <button onClick={() => {
-                                    setUploadingAssessmentId(videoAssessment.id);
-                                    fileInputRef.current?.click();
-                                  }} className="flex-1 px-2 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center justify-center gap-1">
-                                    <Upload className="w-3 h-3" /> Import CSV
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      if (viewingQuestionsForAssessmentId === videoAssessment.id) {
-                                        setViewingQuestionsForAssessmentId(null);
-                                      } else {
-                                        setViewingQuestionsForAssessmentId(videoAssessment.id);
-                                        supabase.from('questions').select('*').eq('assessment_id', videoAssessment.id).order('order_num', { ascending: true })
-                                          .then(({ data }) => setAssessmentQuestions(data || []));
-                                      }
-                                    }} 
-                                    className="flex-1 px-2 py-1.5 bg-white border border-blue-300 rounded text-xs font-medium hover:bg-blue-100 transition-colors"
-                                  >
-                                    {viewingQuestionsForAssessmentId === videoAssessment.id ? 'Hide' : 'View'}
-                                  </button>
-                                </div>
-                                
-                                {viewingQuestionsForAssessmentId === videoAssessment.id && (
-                                  renderQuestionsEditor(videoAssessment.id)
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-gray-700 uppercase">Duration (Minutes)</label>
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <input 
+                                          type="number" 
+                                          min="0" 
+                                          value={durationMinutes} 
+                                          disabled={durationMinutes === 0}
+                                          onChange={e => setDurationMinutes(Number(e.target.value))} 
+                                          className="flex-1 px-2 py-1 border rounded bg-white disabled:bg-gray-100 disabled:text-gray-400 text-xs text-gray-900 focus:ring-blue-500 focus:border-blue-500" 
+                                        />
+                                        <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                                          <input 
+                                            type="checkbox" 
+                                            checked={durationMinutes === 0} 
+                                            onChange={e => setDurationMinutes(e.target.checked ? 0 : 60)} 
+                                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                          />
+                                          <span>Tanpa Batas</span>
+                                        </label>
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-gray-700 uppercase">Audio Link (Optional)</label>
+                                      <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white text-xs text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 mt-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <input type="checkbox" id={`isMandatory-${videoAssessment.id}`} checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600" />
+                                        <label htmlFor={`isMandatory-${videoAssessment.id}`} className="text-xs text-gray-700">Wajib (Mandatory)</label>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <input type="checkbox" id={`isStrictMode-${videoAssessment.id}`} checked={isStrictMode} onChange={e => setIsStrictMode(e.target.checked)} className="rounded border-gray-300 text-indigo-600" />
+                                        <label htmlFor={`isStrictMode-${videoAssessment.id}`} className="text-xs text-gray-700">Strict Mode</label>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <input type="checkbox" id={`isRandomized-${videoAssessment.id}`} checked={isRandomized} onChange={e => setIsRandomized(e.target.checked)} className="rounded border-gray-300 text-indigo-600" />
+                                        <label htmlFor={`isRandomized-${videoAssessment.id}`} className="text-xs text-gray-700">Acak Soal</label>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <input type="checkbox" id={`showOneByOne-${videoAssessment.id}`} checked={showOneByOne} onChange={e => setShowOneByOne(e.target.checked)} className="rounded border-gray-300 text-indigo-600" />
+                                        <label htmlFor={`showOneByOne-${videoAssessment.id}`} className="text-xs text-gray-700">Show 1by1</label>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 col-span-2">
+                                        <input type="checkbox" id={`preventCopypaste-${videoAssessment.id}`} checked={preventCopypaste} onChange={e => setPreventCopypaste(e.target.checked)} className="rounded border-gray-300 text-indigo-600" />
+                                        <label htmlFor={`preventCopypaste-${videoAssessment.id}`} className="text-xs text-gray-700">Anti Copy-Paste</label>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 col-span-2">
+                                        <input type="checkbox" id={`preventSplitScreen-${videoAssessment.id}`} checked={preventSplitScreen} onChange={e => setPreventSplitScreen(e.target.checked)} className="rounded border-gray-300 text-indigo-600" />
+                                        <label htmlFor={`preventSplitScreen-${videoAssessment.id}`} className="text-xs text-gray-700">Anti Split Screen</label>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2 pt-2">
+                                      <button type="button" onClick={() => setEditingAssessmentId(null)} className="flex-1 py-1 bg-gray-200 text-gray-800 rounded text-xs font-semibold hover:bg-gray-300">Cancel</button>
+                                      <button type="submit" className="flex-1 py-1 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Save</button>
+                                    </div>
+                                  </form>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-between items-start mb-2">
+                                      <div>
+                                        <p className="font-medium">Assessment Configured</p>
+                                        <p className="text-xs mt-1">Passing Grade: {videoAssessment.passing_score} | Duration: {videoAssessment.duration_minutes === 0 ? "Tidak dibatasi waktu" : `${videoAssessment.duration_minutes}m`}</p>
+                                        <p className="text-xs mt-1 text-gray-700">
+                                          Mandatory: {videoAssessment.is_mandatory ? 'Yes' : 'No'} | Acak: {videoAssessment.is_randomized ? 'Yes' : 'No'} | Show 1by1: {videoAssessment.show_one_by_one ? 'Yes' : 'No'}
+                                        </p>
+                                        <p className="text-xs mt-1 text-red-600 font-medium">Strict Mode: {videoAssessment.is_strict_mode ? 'Enabled' : 'Disabled'} | Anti-Copy: {videoAssessment.prevent_copypaste ? 'Enabled' : 'Disabled'} | Anti-Split: {videoAssessment.prevent_split_screen ? 'Enabled' : 'Disabled'}</p>
+                                        {videoAssessment.audio_link && (
+                                          <p className="text-xs mt-1 truncate max-w-xs">
+                                            Audio: <a href={videoAssessment.audio_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{videoAssessment.audio_link}</a>
+                                          </p>
+                                        )}
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <input
+                                            type="checkbox"
+                                            id={`refreshing-video-assessment-${videoAssessment.id}`}
+                                            checked={videoAssessment.is_refreshing || false}
+                                            onChange={() => handleToggleAssessmentRefreshing(videoAssessment.id, videoAssessment.is_refreshing || false)}
+                                            className="rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                                          />
+                                          <label htmlFor={`refreshing-video-assessment-${videoAssessment.id}`} className="text-xs font-medium text-blue-800">Tersedia untuk Refresing</label>
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                        <button
+                                          onClick={() => {
+                                            setPassingGrade(videoAssessment.passing_score || 70);
+                                            setDurationMinutes(videoAssessment.duration_minutes !== undefined ? videoAssessment.duration_minutes : 60);
+                                            setAudioLink(videoAssessment.audio_link || "");
+                                            setIsMandatory(videoAssessment.is_mandatory !== false);
+                                            setIsStrictMode(!!videoAssessment.is_strict_mode);
+                                            setIsRandomized(!!videoAssessment.is_randomized);
+                                            setShowOneByOne(!!videoAssessment.show_one_by_one);
+                                            setPreventCopypaste(!!videoAssessment.prevent_copypaste);
+                                            setPreventSplitScreen(!!videoAssessment.prevent_split_screen);
+                                            setEditingAssessmentId(videoAssessment.id);
+                                          }}
+                                          className="px-2.5 py-1 text-[11px] font-semibold border rounded transition-colors bg-white border-blue-300 text-blue-700 hover:bg-blue-50"
+                                        >
+                                          Edit Settings
+                                        </button>
+                                        <button 
+                                          onClick={() => handleDeleteAssessment(videoAssessment.id)} 
+                                          className="text-red-500 hover:text-red-700 text-[11px] font-semibold border border-red-100 hover:border-red-300 rounded px-2.5 py-1 transition-colors bg-white whitespace-nowrap"
+                                        >
+                                          Hapus
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2 mt-2">
+                                      <button onClick={downloadTemplate} className="flex-1 px-2 py-1.5 bg-white border border-blue-300 rounded text-xs font-medium hover:bg-blue-100 flex items-center justify-center gap-1">
+                                        <Download className="w-3 h-3" /> Template
+                                      </button>
+                                      <button onClick={() => {
+                                        setUploadingAssessmentId(videoAssessment.id);
+                                        fileInputRef.current?.click();
+                                      }} className="flex-1 px-2 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center justify-center gap-1">
+                                        <Upload className="w-3 h-3" /> Import CSV
+                                      </button>
+                                      <button 
+                                        onClick={() => {
+                                          if (viewingQuestionsForAssessmentId === videoAssessment.id) {
+                                            setViewingQuestionsForAssessmentId(null);
+                                          } else {
+                                            setViewingQuestionsForAssessmentId(videoAssessment.id);
+                                            supabase.from('questions').select('*').eq('assessment_id', videoAssessment.id).order('order_num', { ascending: true })
+                                              .then(({ data }) => setAssessmentQuestions(data || []));
+                                          }
+                                        }} 
+                                        className="flex-1 px-2 py-1.5 bg-white border border-blue-300 rounded text-xs font-medium hover:bg-blue-100 transition-colors"
+                                      >
+                                        {viewingQuestionsForAssessmentId === videoAssessment.id ? 'Hide' : 'View'}
+                                      </button>
+                                    </div>
+                                    
+                                    {viewingQuestionsForAssessmentId === videoAssessment.id && (
+                                      renderQuestionsEditor(videoAssessment.id)
+                                    )}
+                                  </>
                                 )}
                               </div>
                             ) : isCreatingAssessment && creatingAssessmentForVideoId === video.id ? (

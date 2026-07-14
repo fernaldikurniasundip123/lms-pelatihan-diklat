@@ -112,12 +112,24 @@ export default function Login() {
   }, [selectedCategory, courses]);
   const activeRefreshingPeriods = useMemo(() => {
     if (!selectedCourse?.refreshing_periods) return [];
+    
+    // Jika periodStart dan periodEnd ada di parameter link, batasi pilihan hanya untuk periode tersebut
+    if (periodStart && periodEnd) {
+      const matched = selectedCourse.refreshing_periods.filter((p: any) => p.start === periodStart && p.end === periodEnd);
+      if (matched.length > 0) {
+        return matched;
+      } else {
+        // Fallback jika tidak ada kecocokan di database
+        return [{ start: periodStart, end: periodEnd }];
+      }
+    }
+
     return selectedCourse.refreshing_periods.filter((p: any) => {
       const endDate = new Date(p.end);
       endDate.setHours(23, 59, 59, 999);
       return endDate.getTime() >= Date.now();
     });
-  }, [selectedCourse]);
+  }, [selectedCourse, periodStart, periodEnd]);
 
   const isBstOrKonvensi = selectedCourse && (
     selectedCourse.name.trim().toUpperCase() === 'BST' || 

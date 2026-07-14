@@ -114,8 +114,8 @@ export default function AssessmentView() {
           }
         }
 
-        // Double guard block for REFRESING category: max 10 attempts or passed
-        if (cat.toUpperCase().trim() === 'REFRESING') {
+        // Double guard block for all other categories: max 10 attempts or passed
+        if (cat.toUpperCase().trim() !== 'LATIHAN UJIAN' && cat.toUpperCase().trim() !== 'LATIHAN' && cat.toUpperCase().trim() !== 'LATIHAN UUAN') {
           const { data: results } = await supabase
             .from('assessment_results')
             .select('passed')
