@@ -170,6 +170,10 @@ export default function Login() {
 
     try {
       // Validasi awal
+      if (selectedCategory === "REFRESING" && isPeriodExpired) {
+        throw new Error("Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa.");
+      }
+
       if (courseId && !isAdminLogin) {
         if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "PEMBELAJARAN SINKRONUS ZOOM MEETING" && (!periodStart || !periodEnd)) {
           throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
@@ -489,8 +493,24 @@ export default function Login() {
     }
     return true;
   }, [selectedCategory, activeRefreshingPeriods, periodStart, periodEnd]);
+
+  const isPeriodPreFilled = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return !!(params.get('periodStart') && params.get('periodEnd'));
+  }, [location.search]);
+
+  const isPeriodExpired = useMemo(() => {
+    if (selectedCategory === "REFRESING" && periodEnd) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(periodEnd);
+      end.setHours(23, 59, 59, 999);
+      return today.getTime() > end.getTime();
+    }
+    return false;
+  }, [selectedCategory, periodEnd]);
   
-  const isSignInDisabled = isLoading || (selectedCategory === "REFRESING" && !isSelectedPeriodActive);
+  const isSignInDisabled = isLoading || (selectedCategory === "REFRESING" && (!isSelectedPeriodActive || isPeriodExpired));
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -509,6 +529,11 @@ export default function Login() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleLogin}>
+            {selectedCategory === "REFRESING" && isPeriodExpired && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm font-medium">
+                Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa. Anda tidak dapat melakukan login.
+              </div>
+            )}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
                 {error}
@@ -753,6 +778,7 @@ export default function Login() {
                           <select
                             id="refreshingPeriod"
                             value={`${periodStart}|${periodEnd}`}
+                            disabled={isPeriodPreFilled}
                             onChange={(e) => {
                               if (e.target.value && e.target.value !== '|') {
                                 const [start, end] = e.target.value.split('|');
@@ -763,7 +789,7 @@ export default function Login() {
                                 setPeriodEnd('');
                               }
                             }}
-                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
                           >
                             <option value="|">-- Pilih Periode --</option>
                             {activeRefreshingPeriods.map((p: any, idx: number) => (
