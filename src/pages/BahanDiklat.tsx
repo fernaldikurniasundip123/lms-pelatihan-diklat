@@ -191,7 +191,35 @@ export default function BahanDiklat() {
         throw new Error("File PDF tidak tersedia atau link rusak.");
       }
 
-      const loadingTask = pdfjsLib.getDocument(source as any);
+      let loadingTask;
+
+      if (
+        typeof source === "string" &&
+        (source.startsWith("data:") ||
+          (!source.startsWith("http://") && !source.startsWith("https://") && !source.startsWith("/")))
+      ) {
+        // Base64 Data URL or string -> Convert to Uint8Array for pdf.js
+        const base64Data = source.includes(",") ? source.split(",")[1] : source;
+        const binaryString = window.atob(base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        loadingTask = pdfjsLib.getDocument({
+          data: bytes,
+          cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/",
+          cMapPacked: true,
+        });
+      } else {
+        // HTTP / HTTPS URL
+        loadingTask = pdfjsLib.getDocument({
+          url: source,
+          cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/",
+          cMapPacked: true,
+        });
+      }
+
       const pdf = await loadingTask.promise;
 
       setPdfDoc(pdf);
