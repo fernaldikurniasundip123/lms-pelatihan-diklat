@@ -22,9 +22,9 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
-// Configure pdf.js worker URL
-if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
+// Configure pdf.js worker URL dynamically using matching library version
+if (typeof window !== "undefined") {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
 export default function BahanDiklat() {
@@ -208,14 +208,14 @@ export default function BahanDiklat() {
         }
         loadingTask = pdfjsLib.getDocument({
           data: bytes,
-          cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/",
+          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
           cMapPacked: true,
         });
       } else {
         // HTTP / HTTPS URL
         loadingTask = pdfjsLib.getDocument({
           url: source,
-          cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/",
+          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
           cMapPacked: true,
         });
       }
