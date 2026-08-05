@@ -7,6 +7,7 @@ import UserDashboard from "./pages/user/Dashboard";
 import CourseView from "./pages/user/CourseView";
 import AssessmentPreCheck from "./pages/user/AssessmentPreCheck";
 import AssessmentView from "./pages/user/AssessmentView";
+import BahanDiklat from "./pages/BahanDiklat";
 
 function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: "admin" | "user" | "admin2" | "admin_uad" }) {
   const { user, token } = useAuthStore();
@@ -30,6 +31,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/bahan-diklat" element={<BahanDiklat />} />
         
         {/* Admin Routes */}
         <Route path="/admin/*" element={

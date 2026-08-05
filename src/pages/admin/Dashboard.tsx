@@ -9,6 +9,7 @@ import autoTable from "jspdf-autotable";
 import { supabase } from "../../lib/supabase";
 import SinkronusSettings from "../../components/SinkronusSettings";
 import SinkronusReports from "../../components/SinkronusReports";
+import BahanDiklatManager from "../../components/BahanDiklatManager";
 
 export function parseQuestionText(rawText: string) {
   if (!rawText) return { text: "", imageUrl: null };
@@ -2562,6 +2563,12 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
               >
                 <Clock className="w-5 h-5" /> Laporan Sinkronus Zoom
               </button>
+              <button
+                onClick={() => setActiveTab("bahan-diklat")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "bahan-diklat" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <FileText className="w-5 h-5" /> Bahan Diklat Ketrampilan
+              </button>
             </>
           )}
         </nav>
@@ -3882,6 +3889,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
 
         {activeTab === "zoom-reports" && (
           <SinkronusReports />
+        )}
+
+        {activeTab === "bahan-diklat" && (
+          <BahanDiklatManager courses={courses} />
         )}
       </div>
 
