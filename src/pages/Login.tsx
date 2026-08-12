@@ -806,6 +806,42 @@ export default function Login() {
                       Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa.
                     </div>
                   )
+                ) : selectedCategory === "DIKLAT KETRAMPILAN (SHORT COURSE)" && selectedCourse && ((selectedCourse.diklat_periods && selectedCourse.diklat_periods.length > 0) || (selectedCourse.refreshing_periods && selectedCourse.refreshing_periods.length > 0)) ? (
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label htmlFor="diklatPeriodSelect" className="block text-sm font-medium text-gray-700">
+                        Periode Diklat (Pilih Periode)
+                      </label>
+                      <div className="mt-1">
+                        <select
+                          id="diklatPeriodSelect"
+                          value={periodStart && periodEnd ? `${periodStart}|${periodEnd}` : ""}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              const [start, end] = e.target.value.split('|');
+                              setPeriodStart(start);
+                              setPeriodEnd(end);
+                            } else {
+                              setPeriodStart('');
+                              setPeriodEnd('');
+                            }
+                          }}
+                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm font-medium"
+                        >
+                          <option value="">-- Pilih Periode Diklat --</option>
+                          {(selectedCourse.diklat_periods || selectedCourse.refreshing_periods || []).map((p: any, idx: number) => {
+                            const startStr = p.start ? (p.start.includes('-') ? p.start.split('-').reverse().join('/') : p.start) : '';
+                            const endStr = p.end ? (p.end.includes('-') ? p.end.split('-').reverse().join('/') : p.end) : '';
+                            return (
+                              <option key={idx} value={`${p.start}|${p.end}`}>
+                                {startStr} s/d {endStr}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   selectedCategory !== "UJIAN UAD" && selectedCategory !== "PEMBELAJARAN SINKRONUS ZOOM MEETING" && (
                     <div className="grid grid-cols-2 gap-4">

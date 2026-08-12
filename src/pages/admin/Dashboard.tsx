@@ -701,6 +701,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [audioLink, setAudioLink] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const periodFileInputRef = useRef<HTMLInputElement>(null);
+  const [diklatPeriods, setDiklatPeriods] = useState<any[]>([]);
+  const [coursePassingScore, setCoursePassingScore] = useState<number>(80);
+  const [isSavingPassingScore, setIsSavingPassingScore] = useState<boolean>(false);
 
   // Filters
   const [filterCategory, setFilterCategory] = useState("");
@@ -982,6 +986,35 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           if (ar.created_at) activityDates.add(ar.created_at.split('T')[0]);
         });
 
+        // Calculate average of all video progress percentages + assessment scores
+        const courseAssessments = assessmentsData?.filter((a: any) => a.course_id === en.course_id) || [];
+        const assessmentScoresList: number[] = [];
+        courseAssessments.forEach((ass: any) => {
+          const userResults = safeArData.filter((ar: any) => ar.user_id === en.user_id && ar.assessment_id === ass.id);
+          if (userResults && userResults.length > 0) {
+            const maxScore = Math.max(...userResults.map((r: any) => r.score || 0));
+            assessmentScoresList.push(maxScore);
+          } else {
+            assessmentScoresList.push(0);
+          }
+        });
+
+        const totalComponentCount = totalVideosForCourse + courseAssessments.length;
+        const totalComponentSum = totalProgressSum + assessmentScoresList.reduce((a, b) => a + b, 0);
+
+        let finalResultNumber = 0;
+        if (totalComponentCount > 0) {
+          finalResultNumber = Math.round(totalComponentSum / totalComponentCount);
+        } else if (bestScore !== null) {
+          finalResultNumber = Math.round(bestScore);
+        } else {
+          finalResultNumber = Math.round(avgVideo);
+        }
+
+        const minPassingThreshold = en.courses?.passing_score || en.courses?.minimum_final_score || 80;
+        const isFinalPassed = finalResultNumber >= minPassingThreshold;
+        const finalResultFormattedText = `${finalResultNumber} (${isFinalPassed ? 'LULUS' : 'TIDAK LULUS'})`;
+
         return {
           full_name: en.users?.full_name,
           identity_number: en.users?.identity_number,
@@ -1002,6 +1035,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           detailed_scores: detailedScores,
           detailed_statuses: detailedStatuses,
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
+          final_result_score: finalResultNumber,
+          is_final_lulus: isFinalPassed,
+          final_result_text: finalResultFormattedText,
+          min_pass_score: minPassingThreshold,
           assignment_link: en.assignment_link,
           live_photo_data: gv?.live_photo_url,
           initial_photo_data: oldestGv?.live_photo_url,
@@ -1154,6 +1191,8 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     setSelectedCourse(course);
     setMaterialLink(course.material_link || "");
     setRefreshingPeriods(course.refreshing_periods || []);
+    setDiklatPeriods(course.diklat_periods || course.refreshing_periods || []);
+    setCoursePassingScore(course.passing_score || course.minimum_final_score || 80);
     setIsManageModalOpen(true);
     setIsViewingQuestions(false);
     setAssessmentQuestions([]);
@@ -1222,6 +1261,248 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       console.error('Failed to copy', err);
       alert('Gagal menyalin link: ' + url);
     }
+  };
+
+  function parseExcelDate(val: any): string {
+    if (!val) return '';
+    if (val instanceof Date) {
+      return val.toISOString().split('T')[0];
+    }
+    if (typeof val === 'number') {
+      const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+      return date.toISOString().split('T')[0];
+    }
+    const str = String(val).trim();
+    if (!str) return '';
+
+    const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (ddmmyyyy) {
+      const day = ddmmyyyy[1].padStart(2, '0');
+      const month = ddmmyyyy[2].padStart(2, '0');
+      const year = ddmmyyyy[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    const yyyymmdd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if (yyyymmdd) {
+      const year = yyyymmdd[1];
+      const month = yyyymmdd[2].padStart(2, '0');
+      const day = yyyymmdd[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0];
+    }
+
+    return str;
+  }
+
+  const handleImportDiklatPeriods = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedCourse) return;
+
+    try {
+      let importedPeriods: { start: string; end: string }[] = [];
+
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const Papa = (await import('papaparse')).default;
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+            const rows = results.data;
+            rows.forEach((row: any) => {
+              const startVal = row['MULAI'] || row['Mulai'] || row['mulai'] || row['START'] || row['start'];
+              const endVal = row['SELESAI'] || row['Selesai'] || row['selesai'] || row['END'] || row['end'];
+              if (startVal && endVal) {
+                const start = parseExcelDate(startVal);
+                const end = parseExcelDate(endVal);
+                if (start && end) {
+                  importedPeriods.push({ start, end });
+                }
+              }
+            });
+            if (importedPeriods.length > 0) {
+              await saveDiklatPeriods(importedPeriods);
+            } else {
+              alert("Tidak ada data periode valid yang ditemukan. Pastikan kolom 'MULAI' dan 'SELESAI' terisi.");
+            }
+          }
+        });
+      } else {
+        const ExcelJS = (await import('exceljs')).default;
+        const buffer = await file.arrayBuffer();
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(buffer);
+        const worksheet = workbook.worksheets[0];
+
+        if (worksheet) {
+          let headers: Record<number, string> = {};
+          worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) {
+              row.eachCell((cell, colNumber) => {
+                headers[colNumber] = String(cell.value || '').trim().toUpperCase();
+              });
+            } else {
+              let rowObj: Record<string, any> = {};
+              row.eachCell((cell, colNumber) => {
+                const header = headers[colNumber];
+                if (header) {
+                  let val = cell.value;
+                  if (val && typeof val === 'object' && 'result' in val) {
+                    val = (val as any).result;
+                  }
+                  rowObj[header] = val;
+                }
+              });
+              const startVal = rowObj['MULAI'] || rowObj['Mulai'] || rowObj['mulai'] || rowObj['START'] || rowObj['start'];
+              const endVal = rowObj['SELESAI'] || rowObj['Selesai'] || rowObj['selesai'] || rowObj['END'] || rowObj['end'];
+              if (startVal && endVal) {
+                const start = parseExcelDate(startVal);
+                const end = parseExcelDate(endVal);
+                if (start && end) {
+                  importedPeriods.push({ start, end });
+                }
+              }
+            }
+          });
+        }
+
+        if (importedPeriods.length > 0) {
+          await saveDiklatPeriods(importedPeriods);
+        } else {
+          alert("Tidak ada data periode valid yang ditemukan. Pastikan kolom 'MULAI' dan 'SELESAI' terisi.");
+        }
+      }
+    } catch (err: any) {
+      console.error("Error importing periods:", err);
+      alert("Gagal membaca file Excel/CSV: " + (err.message || err));
+    }
+    if (e.target) e.target.value = "";
+  };
+
+  const saveDiklatPeriods = async (newPeriods: { start: string; end: string }[]) => {
+    if (!selectedCourse) return;
+    setIsSavingPeriods(true);
+    
+    const currentPeriods = selectedCourse.diklat_periods || selectedCourse.refreshing_periods || diklatPeriods || [];
+    const combined = [...currentPeriods, ...newPeriods];
+    
+    const uniqueMap = new Map();
+    combined.forEach(p => {
+      if (p.start && p.end) uniqueMap.set(`${p.start}|${p.end}`, p);
+    });
+    const finalPeriods = Array.from(uniqueMap.values());
+
+    let { error } = await supabase
+      .from('courses')
+      .update({ 
+        diklat_periods: finalPeriods,
+        refreshing_periods: finalPeriods
+      })
+      .eq('id', selectedCourse.id);
+
+    if (error) {
+      const { error: fbError } = await supabase
+        .from('courses')
+        .update({ refreshing_periods: finalPeriods })
+        .eq('id', selectedCourse.id);
+        
+      if (fbError) {
+        alert(`Gagal menyimpan periode. Error: ${fbError.message}`);
+        setIsSavingPeriods(false);
+        return;
+      }
+    }
+
+    setDiklatPeriods(finalPeriods);
+    setRefreshingPeriods(finalPeriods);
+    setSelectedCourse((prev: any) => ({ ...prev, diklat_periods: finalPeriods, refreshing_periods: finalPeriods }));
+    fetchCourses();
+    alert(`Berhasil menyimpan periode diklat! Total: ${finalPeriods.length} periode.`);
+    setIsSavingPeriods(false);
+  };
+
+  const handleRemoveDiklatPeriod = async (index: number) => {
+    const updated = diklatPeriods.filter((_, i) => i !== index);
+    if (!selectedCourse) return;
+    setIsSavingPeriods(true);
+
+    let { error } = await supabase
+      .from('courses')
+      .update({ 
+        diklat_periods: updated,
+        refreshing_periods: updated
+      })
+      .eq('id', selectedCourse.id);
+
+    if (error) {
+      await supabase
+        .from('courses')
+        .update({ refreshing_periods: updated })
+        .eq('id', selectedCourse.id);
+    }
+
+    setDiklatPeriods(updated);
+    setRefreshingPeriods(updated);
+    setSelectedCourse((prev: any) => ({ ...prev, diklat_periods: updated, refreshing_periods: updated }));
+    fetchCourses();
+    setIsSavingPeriods(false);
+  };
+
+  const downloadDiklatPeriodTemplate = async () => {
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const fileSaver = await import('file-saver');
+      const saveAs = fileSaver.default?.saveAs || fileSaver.saveAs || fileSaver.default;
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Periode Diklat');
+      
+      worksheet.columns = [
+        { header: 'NAMA COURSE', key: 'name', width: 20 },
+        { header: 'MULAI', key: 'start', width: 15 },
+        { header: 'SELESAI', key: 'end', width: 15 }
+      ];
+
+      const courseName = selectedCourse?.name || 'ACT';
+
+      worksheet.addRow({ name: courseName, start: '06/07/2026', end: '24/07/2026' });
+      worksheet.addRow({ name: courseName, start: '03/08/2026', end: '21/08/2026' });
+      worksheet.addRow({ name: courseName, start: '07/09/2026', end: '25/09/2026' });
+      worksheet.addRow({ name: courseName, start: '21/09/2026', end: '09/10/2026' });
+      worksheet.addRow({ name: courseName, start: '05/10/2026', end: '23/10/2026' });
+
+      worksheet.getRow(1).font = { bold: true };
+      
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, `Template_Periode_Diklat_${courseName}.xlsx`);
+    } catch (err: any) {
+      console.error("Error downloading template:", err);
+      alert("Gagal mengunduh template: " + err.message);
+    }
+  };
+
+  const handleSavePassingScore = async () => {
+    if (!selectedCourse) return;
+    setIsSavingPassingScore(true);
+    
+    let { error } = await supabase
+      .from('courses')
+      .update({ passing_score: coursePassingScore })
+      .eq('id', selectedCourse.id);
+
+    if (!error) {
+      alert("Batas minimal lulus final berhasil disimpan!");
+      setSelectedCourse((prev: any) => ({ ...prev, passing_score: coursePassingScore }));
+      fetchCourses();
+    } else {
+      alert("Gagal menyimpan batas minimal lulus: " + error.message);
+    }
+    setIsSavingPassingScore(false);
   };
 
   const handleAddVideo = async (e: React.FormEvent) => {
@@ -1855,6 +2136,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.detailed_scores || (r.final_score != null ? Math.round(r.final_score).toString() : '-'),
             r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || '-'), // Status (Foto Awal)
+            r.final_result_text || '-',
             '', // Live Photo (Foto Akhir) placeholder
             ''  // KTP placeholder
           ]);
@@ -1862,13 +2144,14 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
 
         autoTable(doc, {
           startY: 40,
-          head: [['User', 'Kelas', 'Course', 'Mata Kuliah', 'Periode', 'Video', 'Score', 'Status\n(Foto Awal)', 'Live Photo\n(Terbaru)', 'KTP']],
+          head: [['User', 'Kelas', 'Course', 'Mata Kuliah', 'Periode', 'Video', 'Score', 'Status\n(Foto Awal)', 'Final Result', 'Live Photo\n(Terbaru)', 'KTP']],
           body: bodyData,
           styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 25 },
           columnStyles: {
             7: { cellWidth: 25 }, // Status (Initial Photo)
-            8: { cellWidth: 25 }, // Live Photo (Latest Photo)
-            9: { cellWidth: 35 }  // KTP
+            8: { cellWidth: 25 }, // Final Result
+            9: { cellWidth: 25 }, // Live Photo (Latest Photo)
+            10: { cellWidth: 35 } // KTP
           },
           didDrawCell: (data) => {
             if (data.section === 'body') {
@@ -1876,10 +2159,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
               if (data.column.index === 7 && imgs?.initial) {
                 doc.addImage(imgs.initial, 'JPEG', data.cell.x + 2, data.cell.y + 8, 20, 16);
               }
-              if (data.column.index === 8 && imgs?.live) {
+              if (data.column.index === 9 && imgs?.live) {
                 doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
               }
-              if (data.column.index === 9 && imgs?.ktp) {
+              if (data.column.index === 10 && imgs?.ktp) {
                 doc.addImage(imgs.ktp, 'JPEG', data.cell.x + 2, data.cell.y + 2, 30, 16);
               }
             }
@@ -1965,6 +2248,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           { header: 'Link Tugas', key: 'assignment_link', width: 30 },
           { header: 'Nilai Assessment', key: 'score', width: 15 },
           { header: 'Status / Foto Awal', key: 'status', width: 25 },
+          { header: 'Final Result', key: 'final_result', width: 20 },
           { header: 'Foto Live (Terbaru)', key: 'live', width: 25 },
           { header: 'Foto KTP', key: 'ktp', width: 30 }
         ];
@@ -2019,7 +2303,8 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
-            status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || '-')
+            status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || '-'),
+            final_result: r.final_result_text || '-'
           };
         }
         
@@ -3823,13 +4108,14 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Link Tugas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Score</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider font-bold">Final Result</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verification</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filterReports(finalReports).length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={10} className="px-6 py-12 text-center text-sm text-gray-500">
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
@@ -3870,6 +4156,15 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                           </span>
                         ) : (
                           <span className="text-sm text-gray-500">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {report.final_result_text ? (
+                          <span className={`text-sm font-bold ${report.is_final_lulus ? 'text-green-600' : 'text-red-600'}`}>
+                            {report.final_result_text}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: (report.attendance_photos && report.attendance_photos.length > 0) ? report.attendance_photos[report.attendance_photos.length - 1] : report.live_photo_data, initial: report.initial_photo_data || report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
@@ -4411,6 +4706,113 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
               <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-8">
               {/* Left Column: Existing Videos & Material Link */}
               <div className="flex-1 space-y-8">
+                {/* Setting Batas Minimal Lulus Final Result */}
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <div className="flex justify-between items-center mb-1">
+                    <h4 className="font-semibold text-indigo-900 text-sm">Batas Minimal Kelulusan Final Result</h4>
+                  </div>
+                  <p className="text-xs text-indigo-700 mb-3">
+                    Set nilai rata-rata minimal (Video Progress + Assessment Score) untuk kelulusan Final Report. (Default: 80)
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="number" 
+                      min="0" 
+                      max="100" 
+                      value={coursePassingScore} 
+                      onChange={e => setCoursePassingScore(Number(e.target.value))} 
+                      className="w-28 border border-indigo-300 rounded px-3 py-1.5 text-sm font-bold text-gray-900 bg-white" 
+                      placeholder="80"
+                    />
+                    <button 
+                      type="button"
+                      onClick={handleSavePassingScore} 
+                      disabled={isSavingPassingScore} 
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded text-sm font-medium disabled:opacity-50"
+                    >
+                      {isSavingPassingScore ? 'Menyimpan...' : 'Simpan Batas Minimal'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Import & Pengaturan Periode Diklat Ketrampilan */}
+                {selectedCourse?.category === "DIKLAT KETRAMPILAN (SHORT COURSE)" && (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                      <div>
+                        <h4 className="font-semibold text-blue-900 text-sm">Pengaturan Periode Diklat Ketrampilan</h4>
+                        <p className="text-xs text-blue-700">Import Excel atau kelola periode untuk pendaftaran (Sign In) peserta.</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          type="button"
+                          onClick={downloadDiklatPeriodTemplate}
+                          className="bg-white text-blue-700 border border-blue-300 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+                          title="Download contoh format Excel periode diklat"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download Template Excel
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => periodFileInputRef.current?.click()}
+                          className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          Import Excel Periode
+                        </button>
+                        <input 
+                          type="file" 
+                          ref={periodFileInputRef} 
+                          accept=".xlsx, .xls, .csv" 
+                          onChange={handleImportDiklatPeriods} 
+                          className="hidden" 
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                      {diklatPeriods.map((period, idx) => (
+                        <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-blue-100">
+                          <span className="text-sm font-medium text-blue-900">
+                            {period.start ? (period.start.includes('-') ? period.start.split('-').reverse().join('/') : period.start) : period.start} s/d {period.end ? (period.end.includes('-') ? period.end.split('-').reverse().join('/') : period.end) : period.end}
+                          </span>
+                          <button type="button" onClick={() => handleRemoveDiklatPeriod(idx)} className="text-red-500 hover:text-red-700 p-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {diklatPeriods.length === 0 && (
+                        <p className="text-xs text-blue-600 italic">Belum ada periode yang diimport/disetting untuk diklat ini. Peserta akan memasukkan tanggal manual saat login.</p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1">
+                        <label className="block text-xs text-blue-700 font-medium mb-1">Mulai</label>
+                        <input type="date" value={newPeriodStart} onChange={e=>setNewPeriodStart(e.target.value)} className="w-full border-blue-200 rounded px-2 py-1.5 text-sm bg-white" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs text-blue-700 font-medium mb-1">Selesai</label>
+                        <input type="date" value={newPeriodEnd} onChange={e=>setNewPeriodEnd(e.target.value)} className="w-full border-blue-200 rounded px-2 py-1.5 text-sm bg-white" />
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={async () => {
+                          if (!newPeriodStart || !newPeriodEnd) return;
+                          await saveDiklatPeriods([{ start: newPeriodStart, end: newPeriodEnd }]);
+                          setNewPeriodStart("");
+                          setNewPeriodEnd("");
+                        }} 
+                        disabled={isSavingPeriods || !newPeriodStart || !newPeriodEnd} 
+                        className="bg-blue-600 text-white rounded px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 h-[34px]"
+                      >
+                        {isSavingPeriods ? '...' : 'Tambah'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Global Refreshing Config */}
                 <div className="p-4 bg-teal-50 border border-teal-200 rounded-lg">
                   <div className="flex justify-between items-center mb-4">
