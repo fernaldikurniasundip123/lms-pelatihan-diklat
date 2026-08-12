@@ -1191,7 +1191,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     setSelectedCourse(course);
     setMaterialLink(course.material_link || "");
     setRefreshingPeriods(course.refreshing_periods || []);
-    setDiklatPeriods(course.diklat_periods || course.refreshing_periods || []);
+    setDiklatPeriods(course.diklat_periods || []);
     setCoursePassingScore(course.passing_score || course.minimum_final_score || 80);
     setIsManageModalOpen(true);
     setIsViewingQuestions(false);
@@ -1387,7 +1387,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     if (!selectedCourse) return;
     setIsSavingPeriods(true);
     
-    const currentPeriods = selectedCourse.diklat_periods || selectedCourse.refreshing_periods || diklatPeriods || [];
+    const currentPeriods = selectedCourse.diklat_periods || diklatPeriods || [];
     const combined = [...currentPeriods, ...newPeriods];
     
     const uniqueMap = new Map();
@@ -1399,27 +1399,18 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     let { error } = await supabase
       .from('courses')
       .update({ 
-        diklat_periods: finalPeriods,
-        refreshing_periods: finalPeriods
+        diklat_periods: finalPeriods
       })
       .eq('id', selectedCourse.id);
 
     if (error) {
-      const { error: fbError } = await supabase
-        .from('courses')
-        .update({ refreshing_periods: finalPeriods })
-        .eq('id', selectedCourse.id);
-        
-      if (fbError) {
-        alert(`Gagal menyimpan periode. Error: ${fbError.message}`);
-        setIsSavingPeriods(false);
-        return;
-      }
+      alert(`Gagal menyimpan periode. Error: ${error.message}`);
+      setIsSavingPeriods(false);
+      return;
     }
 
     setDiklatPeriods(finalPeriods);
-    setRefreshingPeriods(finalPeriods);
-    setSelectedCourse((prev: any) => ({ ...prev, diklat_periods: finalPeriods, refreshing_periods: finalPeriods }));
+    setSelectedCourse((prev: any) => ({ ...prev, diklat_periods: finalPeriods }));
     fetchCourses();
     alert(`Berhasil menyimpan periode diklat! Total: ${finalPeriods.length} periode.`);
     setIsSavingPeriods(false);
@@ -1433,21 +1424,18 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     let { error } = await supabase
       .from('courses')
       .update({ 
-        diklat_periods: updated,
-        refreshing_periods: updated
+        diklat_periods: updated
       })
       .eq('id', selectedCourse.id);
 
     if (error) {
-      await supabase
-        .from('courses')
-        .update({ refreshing_periods: updated })
-        .eq('id', selectedCourse.id);
+      alert(`Gagal menghapus periode. Error: ${error.message}`);
+      setIsSavingPeriods(false);
+      return;
     }
 
     setDiklatPeriods(updated);
-    setRefreshingPeriods(updated);
-    setSelectedCourse((prev: any) => ({ ...prev, diklat_periods: updated, refreshing_periods: updated }));
+    setSelectedCourse((prev: any) => ({ ...prev, diklat_periods: updated }));
     fetchCourses();
     setIsSavingPeriods(false);
   };
