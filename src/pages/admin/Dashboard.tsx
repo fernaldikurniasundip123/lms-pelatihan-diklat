@@ -1724,7 +1724,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       prevent_copypaste: preventCopypaste,
       prevent_split_screen: preventSplitScreen,
       audio_link: audioLink || null,
-      max_questions: selectedCourse.category === "UJIAN UAD" ? maxQuestions : null,
+      max_questions: maxQuestions && maxQuestions > 0 ? maxQuestions : null,
       show_in_uad: selectedCourse.category === "UJIAN UAD" ? showInUad : null
     };
 
@@ -3320,6 +3320,89 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                 <Plus className="w-5 h-5" /> Add Examination
               </button>
             </div>
+
+            {/* Download Laporan Examination */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-8 space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <Download className="w-5 h-5 text-indigo-600" /> Download Laporan Examination (UJIAN UAD)
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Filter dan unduh hasil ujian Examination peserta dalam format Excel atau PDF</p>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => { setFilterCategory("UJIAN UAD"); downloadExcel('assessment'); }} 
+                    disabled={isGeneratingPDF}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  >
+                    <Download className="w-3.5 h-3.5" /> {isGeneratingPDF ? 'Generating...' : 'Download Excel'}
+                  </button>
+                  <button 
+                    onClick={() => { setFilterCategory("UJIAN UAD"); downloadPDF('assessment'); }} 
+                    disabled={isGeneratingPDF}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                  >
+                    <Download className="w-3.5 h-3.5" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tingkat Ujian</label>
+                  <select 
+                    value={filterTingkat} 
+                    onChange={e => { setFilterTingkat(e.target.value); setFilterCourseId(""); }} 
+                    className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white"
+                  >
+                    <option value="">Semua Tingkat</option>
+                    {['ANT I', 'ATT I', 'ANT II', 'ATT II', 'ANT III', 'ATT III', 'ANT IV', 'ATT IV', 'ANT V', 'ATT V'].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Mata Ujian</label>
+                  <select 
+                    value={filterCourseId} 
+                    onChange={e => setFilterCourseId(e.target.value)} 
+                    className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white"
+                  >
+                    <option value="">Semua Mata Ujian</option>
+                    {courses.filter(c => c.category === 'UJIAN UAD' && (!filterTingkat || c.description === filterTingkat)).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
+                  <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white">
+                    <option value="">Semua Kelas</option>
+                    {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                      <option key={letter} value={letter}>{letter}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat</label>
+                  <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
+                  <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white" />
+                </div>
+                <div>
+                  <button 
+                    onClick={() => { setFilterCategory("UJIAN UAD"); fetchReports(); }} 
+                    disabled={isLoadingReports}
+                    className={`w-full py-1.5 rounded-md text-xs font-semibold ${isLoadingReports ? 'bg-indigo-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                  >
+                    {isLoadingReports ? 'Memuat...' : 'Terapkan Filter'}
+                  </button>
+                </div>
+              </div>
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {courses.filter(c => c.category === "UJIAN UAD").map(course => (
@@ -3376,6 +3459,89 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
               >
                 <Plus className="w-5 h-5" /> Add Training Examination
               </button>
+            </div>
+
+            {/* Download Laporan Training Examination */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-8 space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <Download className="w-5 h-5 text-amber-600" /> Download Laporan Training Examination (LATIHAN UJIAN)
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Filter dan unduh hasil latihan mandiri peserta dalam format Excel atau PDF</p>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => { setFilterCategory("LATIHAN UJIAN"); downloadExcel('assessment'); }} 
+                    disabled={isGeneratingPDF}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  >
+                    <Download className="w-3.5 h-3.5" /> {isGeneratingPDF ? 'Generating...' : 'Download Excel'}
+                  </button>
+                  <button 
+                    onClick={() => { setFilterCategory("LATIHAN UJIAN"); downloadPDF('assessment'); }} 
+                    disabled={isGeneratingPDF}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-white ${isGeneratingPDF ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                  >
+                    <Download className="w-3.5 h-3.5" /> {isGeneratingPDF ? 'Generating PDF...' : 'Download PDF'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tingkat Latihan</label>
+                  <select 
+                    value={filterTingkat} 
+                    onChange={e => { setFilterTingkat(e.target.value); setFilterCourseId(""); }} 
+                    className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white"
+                  >
+                    <option value="">Semua Tingkat</option>
+                    {['ANT I', 'ATT I', 'ANT II', 'ATT II', 'ANT III', 'ATT III', 'ANT IV', 'ATT IV', 'ANT V', 'ATT V'].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Mata Latihan</label>
+                  <select 
+                    value={filterCourseId} 
+                    onChange={e => setFilterCourseId(e.target.value)} 
+                    className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white"
+                  >
+                    <option value="">Semua Mata Latihan</option>
+                    {courses.filter(c => c.category === 'LATIHAN UJIAN' && (!filterTingkat || c.description === filterTingkat)).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Kelas</label>
+                  <select value={filterClassName} onChange={e => setFilterClassName(e.target.value)} className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white">
+                    <option value="">Semua Kelas</option>
+                    {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => (
+                      <option key={letter} value={letter}>{letter}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Periode Diklat</label>
+                  <input type="date" value={filterPeriodStart} onChange={e => setFilterPeriodStart(e.target.value)} className="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Aktivitas Mulai</label>
+                  <input type="date" value={filterActivityStart} onChange={e => setFilterActivityStart(e.target.value)} className="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white" />
+                </div>
+                <div>
+                  <button 
+                    onClick={() => { setFilterCategory("LATIHAN UJIAN"); fetchReports(); }} 
+                    disabled={isLoadingReports}
+                    className={`w-full py-1.5 rounded-md text-xs font-semibold ${isLoadingReports ? 'bg-amber-400 text-white cursor-not-allowed' : 'bg-amber-600 text-white hover:bg-amber-700'}`}
+                  >
+                    {isLoadingReports ? 'Memuat...' : 'Terapkan Filter'}
+                  </button>
+                </div>
+              </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -4510,12 +4676,13 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                             <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
                             <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                           </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700">Jumlah Soal Ditampilkan (Isi 0 untuk tampilkan seluruh bank soal)</label>
+                            <input type="number" min="0" value={maxQuestions} onChange={e => setMaxQuestions(Number(e.target.value))} placeholder="0 = Tampilkan Semua Soal" className="w-full mt-1 px-2 py-1 border rounded bg-white text-xs" />
+                            <span className="text-[10px] text-gray-500 italic block mt-0.5">Misal: Jika ada 200 soal, isi 100 untuk hanya menampilkan 100 soal ke peserta (penilaian otomatis disesuaikan).</span>
+                          </div>
                           {selectedCourse.category === "UJIAN UAD" && (
                             <>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700">Jumlah Soal Maksimal yang Dikerjakan (Isi 0 untuk semua)</label>
-                                <input type="number" min="0" value={maxQuestions} onChange={e => setMaxQuestions(Number(e.target.value))} className="w-full mt-1 px-2 py-1 border rounded bg-white" />
-                              </div>
                               <div className="flex items-center gap-2 mt-2">
                                 <input type="checkbox" id="isCourseActiveEdit" checked={isCourseActive} onChange={e => setIsCourseActive(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
                                 <label htmlFor="isCourseActiveEdit" className="text-xs font-semibold text-indigo-950">Status Ujian UAD Aktif (Active Status)</label>
@@ -5267,6 +5434,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                     <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
                                     <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                                   </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Jumlah Soal Ditampilkan (Max Displayed Questions)</label>
+                                    <input type="number" min="0" value={maxQuestions} onChange={e => setMaxQuestions(Number(e.target.value))} placeholder="0 = Tampilkan Semua Soal" className="w-full mt-1 px-2 py-1 border rounded bg-white text-xs" />
+                                  </div>
                                   <div className="flex items-center gap-2 mt-2">
                                     <input type="checkbox" id="isMandatoryExamEditUAD" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
                                     <label htmlFor="isMandatoryExamEditUAD" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
@@ -5319,6 +5490,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                           setShowOneByOne(!!ujianAssessment.show_one_by_one);
                                           setPreventCopypaste(!!ujianAssessment.prevent_copypaste);
                                           setPreventSplitScreen(!!ujianAssessment.prevent_split_screen);
+                                          setMaxQuestions(ujianAssessment.max_questions || 0);
                                           setEditingAssessmentId(ujianAssessment.id);
                                         }}
                                         className="px-2.5 py-1 text-xs font-semibold border rounded transition-colors bg-white border-indigo-300 text-indigo-700 hover:bg-indigo-50"
@@ -5459,6 +5631,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                     <label className="block text-xs font-medium text-gray-700">Audio Link (Optional)</label>
                                     <input type="url" value={audioLink} onChange={e => setAudioLink(e.target.value)} placeholder="https://..." className="w-full mt-1 px-2 py-1 border rounded bg-white" />
                                   </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Jumlah Soal Ditampilkan (Max Displayed Questions)</label>
+                                    <input type="number" min="0" value={maxQuestions} onChange={e => setMaxQuestions(Number(e.target.value))} placeholder="0 = Tampilkan Semua Soal" className="w-full mt-1 px-2 py-1 border rounded bg-white text-xs" />
+                                  </div>
                                   <div className="flex items-center gap-2 mt-2">
                                     <input type="checkbox" id="isMandatoryExamEditLatihan" checked={isMandatory} onChange={e => setIsMandatory(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-white" />
                                     <label htmlFor="isMandatoryExamEditLatihan" className="text-xs font-medium text-gray-700">Wajib dikerjakan (Mandatory)</label>
@@ -5511,6 +5687,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                                           setShowOneByOne(!!latihanAssessment.show_one_by_one);
                                           setPreventCopypaste(!!latihanAssessment.prevent_copypaste);
                                           setPreventSplitScreen(!!latihanAssessment.prevent_split_screen);
+                                          setMaxQuestions(latihanAssessment.max_questions || 0);
                                           setEditingAssessmentId(latihanAssessment.id);
                                         }}
                                         className="px-2.5 py-1 text-xs font-semibold border rounded transition-colors bg-white border-amber-300 text-amber-700 hover:bg-amber-50"
