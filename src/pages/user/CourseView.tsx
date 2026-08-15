@@ -46,6 +46,26 @@ function YouTubePlayer({
     videoQuestionsModeRef.current = videoQuestionsMode;
   }, [videoQuestions, videoQuestionsMode]);
 
+  // Helper to vigorously exit browser / iframe fullscreen
+  const forceExitFullscreen = () => {
+    try {
+      const doc = document as any;
+      if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        } else if (doc.mozCancelFullScreen) {
+          doc.mozCancelFullScreen();
+        } else if (doc.msExitFullscreen) {
+          doc.msExitFullscreen();
+        }
+      }
+    } catch (e) {
+      console.error("Fullscreen exit error:", e);
+    }
+  };
+
   const updateAnsweredIds = (newIds: string[]) => {
     setAnsweredIds(newIds);
     answeredIdsRef.current = newIds;
@@ -54,7 +74,24 @@ function YouTubePlayer({
   const updateActiveQuestion = (q: any) => {
     setActiveQuestion(q);
     activeQuestionRef.current = q;
+    if (q) {
+      forceExitFullscreen();
+    }
   };
+
+  // Exit fullscreen whenever a question or summary becomes active
+  useEffect(() => {
+    if (activeQuestion || showQuizEndSummary) {
+      forceExitFullscreen();
+      const fsInterval = setInterval(() => {
+        const doc = document as any;
+        if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
+          forceExitFullscreen();
+        }
+      }, 300);
+      return () => clearInterval(fsInterval);
+    }
+  }, [activeQuestion, showQuizEndSummary]);
 
   useEffect(() => {
     // Reset maxTimeWatched and state when video changes
@@ -89,6 +126,13 @@ function YouTubePlayer({
         events: {
           onStateChange: (event: any) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
+              // If an active question is currently open, prevent video playback and exit fullscreen
+              if (activeQuestionRef.current) {
+                forceExitFullscreen();
+                playerRef.current?.pauseVideo();
+                return;
+              }
+
               if (intervalRef.current) clearInterval(intervalRef.current);
               
               lastIntervalTime.current = Date.now();
@@ -96,6 +140,13 @@ function YouTubePlayer({
               intervalRef.current = setInterval(() => {
                 if (!playerRef.current || !playerRef.current.getCurrentTime) return;
                 
+                // If question is active, freeze playback and exit fullscreen
+                if (activeQuestionRef.current) {
+                  forceExitFullscreen();
+                  playerRef.current?.pauseVideo();
+                  return;
+                }
+
                 const currentTime = playerRef.current.getCurrentTime();
                 const duration = playerRef.current.getDuration();
                 const now = Date.now();
@@ -128,6 +179,7 @@ function YouTubePlayer({
                 // Check for interactive video questions
                 const nextQuestion = videoQuestionsRef.current.find(q => currentTime >= q.time && !answeredIdsRef.current.includes(q.id));
                 if (nextQuestion && !activeQuestionRef.current) {
+                  forceExitFullscreen();
                   playerRef.current.pauseVideo();
                   updateActiveQuestion(nextQuestion);
                 }
@@ -145,6 +197,7 @@ function YouTubePlayer({
                 if (percentage >= 85 || (duration - maxTimeWatched.current <= 5)) {
                   onProgress(100, duration);
                   if (videoQuestionsRef.current && videoQuestionsRef.current.length > 0) {
+                    forceExitFullscreen();
                     playerRef.current.pauseVideo();
                     setShowQuizEndSummary(true);
                   } else {
@@ -178,7 +231,7 @@ function YouTubePlayer({
       <div id={`youtube-player-${videoId}`} className="w-full h-full"></div>
 
       {activeQuestion && (
-        <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-4 z-20 overflow-y-auto">
+        <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl p-5 max-w-md w-full text-gray-900 shadow-2xl border border-gray-100 flex flex-col gap-3.5">
             <div className="flex items-center justify-between border-b pb-1.5">
               <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full uppercase tracking-wider">

@@ -1404,7 +1404,11 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       .eq('id', selectedCourse.id);
 
     if (error) {
-      alert(`Gagal menyimpan periode. Error: ${error.message}`);
+      if (error.message && (error.message.includes('diklat_periods') || error.message.includes('schema cache') || error.message.includes('column'))) {
+        alert("Kolom 'diklat_periods' belum dibuat di tabel 'courses' database Supabase Anda.\n\nHarap buka tab SQL Editor di Dashboard Supabase Anda lalu jalankan perintah SQL berikut:\n\nALTER TABLE public.courses ADD COLUMN IF NOT EXISTS diklat_periods jsonb DEFAULT '[]'::jsonb;");
+      } else {
+        alert(`Gagal menyimpan periode. Error: ${error.message}`);
+      }
       setIsSavingPeriods(false);
       return;
     }
@@ -1429,7 +1433,11 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       .eq('id', selectedCourse.id);
 
     if (error) {
-      alert(`Gagal menghapus periode. Error: ${error.message}`);
+      if (error.message && (error.message.includes('diklat_periods') || error.message.includes('schema cache') || error.message.includes('column'))) {
+        alert("Kolom 'diklat_periods' belum dibuat di tabel 'courses' database Supabase Anda.\n\nHarap buka tab SQL Editor di Dashboard Supabase Anda lalu jalankan perintah SQL berikut:\n\nALTER TABLE public.courses ADD COLUMN IF NOT EXISTS diklat_periods jsonb DEFAULT '[]'::jsonb;");
+      } else {
+        alert(`Gagal menghapus periode. Error: ${error.message}`);
+      }
       setIsSavingPeriods(false);
       return;
     }
