@@ -91,10 +91,27 @@ export default function AssessmentView() {
         .eq('id', courseId)
         .single();
 
-      if (courseData) {
-        const cat = courseData.category || "";
-        setCourseCategory(cat);
+      let cat = courseData?.category || "";
 
+      const { data: eData } = await supabase
+        .from('enrollments')
+        .select('category')
+        .eq('user_id', user.id)
+        .eq('course_id', courseId)
+        .maybeSingle();
+
+      if (eData?.category) {
+        cat = eData.category;
+      } else {
+        const savedCat = localStorage.getItem("selected_login_category");
+        if (savedCat) {
+          cat = savedCat;
+        }
+      }
+
+      setCourseCategory(cat);
+
+      if (courseData) {
         // Double guard block: if Latihaan Ujian is locked, redirect to precheck immediately
         if (cat.toUpperCase().trim() === 'LATIHAN UJIAN' || cat.toUpperCase().trim() === 'LATIHAN' || cat.toUpperCase().trim() === 'LATIHAN UUAN') {
           const { data: results } = await supabase
@@ -408,6 +425,12 @@ export default function AssessmentView() {
   }
 
   if (result) {
+    const isRefreshing = 
+      (courseCategory || "").toUpperCase().trim() === 'REFRESING' || 
+      localStorage.getItem("selected_login_category") === 'REFRESING' ||
+      assessment?.is_refreshing === true;
+    const isPassed = result.status === 'LULUS';
+
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden text-center">
@@ -419,6 +442,16 @@ export default function AssessmentView() {
             )}
             <h2 className="text-3xl font-bold mb-2">{result.status}</h2>
             <p className="text-lg opacity-90">Score: {Math.round(result.score)} / 100</p>
+            {isRefreshing && isPassed && (
+              <div className="mt-5 pt-4 border-t border-green-500/60 flex flex-col gap-2">
+                <p className="text-yellow-300 font-bold text-base uppercase tracking-wide">
+                  {user?.name}
+                </p>
+                <p className="text-yellow-300 text-xs sm:text-sm font-semibold leading-relaxed">
+                  TINGGAL MENUNGGU TERBIT SERTIFIKAT KURANG LEBIH 2 MINGGU, BISA DILIHAT DARI STATUS DI HISTORI DIKLAT DI AKUN, APABILA &quot;SIAP DIAMBIL&quot; SERTIFIKAT SUDAH JADI DAN BISA DIKIRIMKAN
+                </p>
+              </div>
+            )}
           </div>
           <div className="p-8">
             <p className="text-gray-600 mb-6">Attempt #{result.attemptNumber}</p>
