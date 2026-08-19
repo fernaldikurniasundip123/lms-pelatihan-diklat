@@ -60,7 +60,7 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
     if (!course) return [];
     const periods: string[] = [];
 
-    // 1. diklat_periods from Kelola Konten
+    // 1. diklat_periods from Kelola Konten (Pengaturan Periode Diklat Ketrampilan)
     if (Array.isArray(course.diklat_periods)) {
       course.diklat_periods.forEach((p: any) => {
         if (typeof p === 'string' && p.trim()) {
@@ -77,25 +77,10 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
       });
     }
 
-    // 2. refreshing_periods from Kelola Konten
-    if (Array.isArray(course.refreshing_periods)) {
-      course.refreshing_periods.forEach((p: any) => {
-        if (typeof p === 'string' && p.trim()) {
-          periods.push(p.trim());
-        } else if (p && typeof p === 'object') {
-          const startStr = p.start ? (p.start.includes('-') ? p.start.split('-').reverse().join('/') : p.start) : '';
-          const endStr = p.end ? (p.end.includes('-') ? p.end.split('-').reverse().join('/') : p.end) : '';
-          if (startStr && endStr) {
-            periods.push(`${startStr} s/d ${endStr}`);
-          } else if (startStr || endStr) {
-            periods.push(startStr || endStr);
-          }
-        }
-      });
-    }
+    // Catatan: Periode Refresing (refreshing_periods) dikecualikan sesuai instruksi
 
-    // 3. period_start & period_end from course directly
-    if (course.period_start && course.period_end) {
+    // 2. period_start & period_end dari course langsung jika tidak memiliki list diklat_periods
+    if (periods.length === 0 && course.period_start && course.period_end) {
       const s = course.period_start.includes('-') ? course.period_start.split('-').reverse().join('/') : course.period_start;
       const e = course.period_end.includes('-') ? course.period_end.split('-').reverse().join('/') : course.period_end;
       const singleP = `${s} s/d ${e}`;

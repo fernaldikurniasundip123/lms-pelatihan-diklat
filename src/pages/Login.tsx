@@ -131,6 +131,58 @@ export default function Login() {
     });
   }, [selectedCourse, periodStart, periodEnd]);
 
+  // Periode Diklat Ketrampilan yang tersambung dari Kelola Konten
+  const availableDiklatPeriods = useMemo(() => {
+    if (!selectedCourse) return [];
+    const list: { start: string; end: string; label: string }[] = [];
+
+    if (Array.isArray(selectedCourse.diklat_periods)) {
+      selectedCourse.diklat_periods.forEach((p: any) => {
+        if (typeof p === 'string' && p.trim()) {
+          const parts = p.split(/\s+s\/d\s+|\s+-\s+/i);
+          if (parts.length === 2) {
+            list.push({
+              start: parts[0].trim(),
+              end: parts[1].trim(),
+              label: p.trim()
+            });
+          } else {
+            list.push({
+              start: p.trim(),
+              end: p.trim(),
+              label: p.trim()
+            });
+          }
+        } else if (p && typeof p === 'object') {
+          const rawStart = p.start || '';
+          const rawEnd = p.end || '';
+          const startStr = rawStart.includes('-') && rawStart.length === 10 ? rawStart.split('-').reverse().join('/') : rawStart;
+          const endStr = rawEnd.includes('-') && rawEnd.length === 10 ? rawEnd.split('-').reverse().join('/') : rawEnd;
+          const label = startStr && endStr ? `${startStr} s/d ${endStr}` : (startStr || endStr);
+          list.push({
+            start: rawStart || startStr,
+            end: rawEnd || endStr,
+            label
+          });
+        }
+      });
+    }
+
+    if (list.length === 0 && selectedCourse.period_start && selectedCourse.period_end) {
+      const rawStart = selectedCourse.period_start;
+      const rawEnd = selectedCourse.period_end;
+      const startStr = rawStart.includes('-') && rawStart.length === 10 ? rawStart.split('-').reverse().join('/') : rawStart;
+      const endStr = rawEnd.includes('-') && rawEnd.length === 10 ? rawEnd.split('-').reverse().join('/') : rawEnd;
+      list.push({
+        start: rawStart,
+        end: rawEnd,
+        label: `${startStr} s/d ${endStr}`
+      });
+    }
+
+    return list;
+  }, [selectedCourse]);
+
   const isBstOrKonvensi = selectedCourse && (
     selectedCourse.name.trim().toUpperCase() === 'BST' || 
     selectedCourse.name.trim().toUpperCase() === 'KONVENSI INTERNATIONAL'
@@ -175,8 +227,14 @@ export default function Login() {
       }
 
       if (courseId && !isAdminLogin) {
-        if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "PEMBELAJARAN SINKRONUS ZOOM MEETING" && (!periodStart || !periodEnd)) {
-          throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
+        if (selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN" && (!periodStart || !periodEnd)) {
+          if (availableDiklatPeriods.length > 0 || selectedCategory === "DIKLAT KETRAMPILAN (SHORT COURSE)" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") {
+            throw new Error("Periode Diklat harus dipilih");
+          } else if (selectedCategory === "REFRESING") {
+            throw new Error("Periode Refresing harus dipilih");
+          } else {
+            throw new Error("Periode Diklat Mulai dan Selesai harus diisi untuk pendaftaran pelatihan");
+          }
         }
         
         if (requiresSeafarerCode) {
@@ -459,7 +517,10 @@ export default function Login() {
   const filteredCourses = useMemo(() => {
     if (!selectedCategory) return courses;
     if (selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") {
-      return courses;
+      return courses.filter(c => {
+        const cat = (c.category || "").trim().toUpperCase();
+        return cat === "DIKLAT KETRAMPILAN (SHORT COURSE)" || cat.includes("KETRAMPILAN") || cat.includes("SHORT COURSE") || !c.category;
+      });
     }
     if (selectedCategory === "REFRESING") {
       return courses.filter(c => {
@@ -806,44 +867,76 @@ export default function Login() {
                       Pendaftaran untuk Pelatihan Refresing ini sudah ditutup atau periode link telah kadaluarsa.
                     </div>
                   )
-                ) : selectedCategory === "DIKLAT KETRAMPILAN (SHORT COURSE)" && selectedCourse && selectedCourse.diklat_periods && selectedCourse.diklat_periods.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label htmlFor="diklatPeriodSelect" className="block text-sm font-medium text-gray-700">
-                        Periode Diklat (Pilih Periode)
-                      </label>
-                      <div className="mt-1">
-                        <select
-                          id="diklatPeriodSelect"
-                          value={periodStart && periodEnd ? `${periodStart}|${periodEnd}` : ""}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              const [start, end] = e.target.value.split('|');
-                              setPeriodStart(start);
-                              setPeriodEnd(end);
-                            } else {
-                              setPeriodStart('');
-                              setPeriodEnd('');
-                            }
-                          }}
-                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm font-medium"
-                        >
-                          <option value="">-- Pilih Periode Diklat --</option>
-                          {(selectedCourse.diklat_periods || []).map((p: any, idx: number) => {
-                            const startStr = p.start ? (p.start.includes('-') ? p.start.split('-').reverse().join('/') : p.start) : '';
-                            const endStr = p.end ? (p.end.includes('-') ? p.end.split('-').reverse().join('/') : p.end) : '';
-                            return (
+                ) : (selectedCategory === "DIKLAT KETRAMPILAN (SHORT COURSE)" || selectedCategory === "PEMBELAJARAN SINKRONUS ZOOM MEETING") && selectedCourse ? (
+                  availableDiklatPeriods.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label htmlFor="diklatPeriodSelect" className="block text-sm font-medium text-gray-700">
+                          Periode Diklat (Pilih Periode)
+                        </label>
+                        <div className="mt-1">
+                          <select
+                            id="diklatPeriodSelect"
+                            required
+                            value={periodStart && periodEnd ? `${periodStart}|${periodEnd}` : ""}
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                const [start, end] = e.target.value.split('|');
+                                setPeriodStart(start);
+                                setPeriodEnd(end);
+                              } else {
+                                setPeriodStart('');
+                                setPeriodEnd('');
+                              }
+                            }}
+                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm font-medium"
+                          >
+                            <option value="">-- Pilih Periode Diklat --</option>
+                            {availableDiklatPeriods.map((p: any, idx: number) => (
                               <option key={idx} value={`${p.start}|${p.end}`}>
-                                {startStr} s/d {endStr}
+                                {p.label}
                               </option>
-                            );
-                          })}
-                        </select>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
+                          Periode Diklat Mulai
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="periodStart"
+                            name="periodStart"
+                            type="date"
+                            value={periodStart}
+                            onChange={(e) => setPeriodStart(e.target.value)}
+                            className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label htmlFor="periodEnd" className="block text-sm font-medium text-gray-700">
+                          Periode Diklat Selesai
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="periodEnd"
+                            name="periodEnd"
+                            type="date"
+                            value={periodEnd}
+                            onChange={(e) => setPeriodEnd(e.target.value)}
+                            className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
                 ) : (
-                  selectedCategory !== "UJIAN UAD" && selectedCategory !== "PEMBELAJARAN SINKRONUS ZOOM MEETING" && (
+                  selectedCategory !== "UJIAN UAD" && selectedCategory !== "LATIHAN UJIAN" && (
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="periodStart" className="block text-sm font-medium text-gray-700">
