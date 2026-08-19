@@ -19,6 +19,10 @@ interface Course {
   name: string;
   category: string;
   description?: string;
+  diklat_periods?: any[];
+  refreshing_periods?: any[];
+  period_start?: string;
+  period_end?: string;
 }
 
 export interface CourseMapping {
@@ -51,6 +55,57 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
   useEffect(() => {
     fetchConfigs();
   }, []);
+
+  const getCourseAvailablePeriods = (course: any): string[] => {
+    if (!course) return [];
+    const periods: string[] = [];
+
+    // 1. diklat_periods from Kelola Konten
+    if (Array.isArray(course.diklat_periods)) {
+      course.diklat_periods.forEach((p: any) => {
+        if (typeof p === 'string' && p.trim()) {
+          periods.push(p.trim());
+        } else if (p && typeof p === 'object') {
+          const startStr = p.start ? (p.start.includes('-') ? p.start.split('-').reverse().join('/') : p.start) : '';
+          const endStr = p.end ? (p.end.includes('-') ? p.end.split('-').reverse().join('/') : p.end) : '';
+          if (startStr && endStr) {
+            periods.push(`${startStr} s/d ${endStr}`);
+          } else if (startStr || endStr) {
+            periods.push(startStr || endStr);
+          }
+        }
+      });
+    }
+
+    // 2. refreshing_periods from Kelola Konten
+    if (Array.isArray(course.refreshing_periods)) {
+      course.refreshing_periods.forEach((p: any) => {
+        if (typeof p === 'string' && p.trim()) {
+          periods.push(p.trim());
+        } else if (p && typeof p === 'object') {
+          const startStr = p.start ? (p.start.includes('-') ? p.start.split('-').reverse().join('/') : p.start) : '';
+          const endStr = p.end ? (p.end.includes('-') ? p.end.split('-').reverse().join('/') : p.end) : '';
+          if (startStr && endStr) {
+            periods.push(`${startStr} s/d ${endStr}`);
+          } else if (startStr || endStr) {
+            periods.push(startStr || endStr);
+          }
+        }
+      });
+    }
+
+    // 3. period_start & period_end from course directly
+    if (course.period_start && course.period_end) {
+      const s = course.period_start.includes('-') ? course.period_start.split('-').reverse().join('/') : course.period_start;
+      const e = course.period_end.includes('-') ? course.period_end.split('-').reverse().join('/') : course.period_end;
+      const singleP = `${s} s/d ${e}`;
+      if (!periods.includes(singleP)) {
+        periods.push(singleP);
+      }
+    }
+
+    return Array.from(new Set(periods));
+  };
 
   const fetchConfigs = async () => {
     setLoading(true);
@@ -137,6 +192,9 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
   };
 
   const handleToggleCourse = (configId: string, courseId: string) => {
+    const targetCourse = courses.find(c => c.id === courseId);
+    const availablePeriods = getCourseAvailablePeriods(targetCourse);
+
     setZoomConfigs(zoomConfigs.map(item => {
       if (item.id === configId) {
         const mapping = getSelectedCourseMapping(item, courseId);
@@ -150,8 +208,8 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
             return cid !== courseId;
           });
         } else {
-          // Add default mapping with empty periods
-          updatedCourseIds = [...item.course_ids, { course_id: courseId, periods: [] }];
+          // Add mapping with all available periods connected from Kelola Konten by default
+          updatedCourseIds = [...item.course_ids, { course_id: courseId, periods: [...availablePeriods] }];
         }
         return { ...item, course_ids: updatedCourseIds };
       }
@@ -159,17 +217,39 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
     }));
   };
 
-  const handleUpdatePeriods = (configId: string, courseId: string, periodsText: string) => {
-    const periodsArray = periodsText.split(',')
-      .map(p => p.trim())
-      .filter(p => p.length > 0);
-
+  const handleTogglePeriod = (configId: string, courseId: string, periodStr: string) => {
     setZoomConfigs(zoomConfigs.map(item => {
       if (item.id === configId) {
         const updatedCourseIds = item.course_ids.map(c => {
           const cid = typeof c === 'string' ? c : c.course_id;
           if (cid === courseId) {
-            return { course_id: courseId, periods: periodsArray };
+            const currentPeriods = (typeof c === 'object' && Array.isArray(c.periods)) ? c.periods : [];
+            const isAlreadySelected = currentPeriods.includes(periodStr);
+            const newPeriods = isAlreadySelected 
+              ? currentPeriods.filter(p => p !== periodStr)
+              : [...currentPeriods, periodStr];
+            return { course_id: courseId, periods: newPeriods };
+          }
+          return c;
+        });
+        return { ...item, course_ids: updatedCourseIds };
+      }
+      return item;
+    }));
+  };
+
+  const handleToggleSelectAllPeriods = (configId: string, courseId: string, availablePeriods: string[]) => {
+    setZoomConfigs(zoomConfigs.map(item => {
+      if (item.id === configId) {
+        const updatedCourseIds = item.course_ids.map(c => {
+          const cid = typeof c === 'string' ? c : c.course_id;
+          if (cid === courseId) {
+            const currentPeriods = (typeof c === 'object' && Array.isArray(c.periods)) ? c.periods : [];
+            const isAllSelected = availablePeriods.length > 0 && availablePeriods.every(p => currentPeriods.includes(p));
+            return { 
+              course_id: courseId, 
+              periods: isAllSelected ? [] : [...availablePeriods] 
+            };
           }
           return c;
         });
@@ -368,45 +448,94 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
                 </div>
 
                 {/* Courses Checklist scrollbox */}
-                <div className="max-h-[280px] overflow-y-auto pr-1 space-y-2">
+                <div className="max-h-[340px] overflow-y-auto pr-1 space-y-2.5">
                   {filteredCoursesList.map(c => {
                     const mapping = getSelectedCourseMapping(config, c.id);
                     const isChecked = mapping !== null;
-                    const periodsValue = mapping?.periods ? mapping.periods.join(", ") : "";
+                    const availablePeriods = getCourseAvailablePeriods(c);
+                    const selectedPeriods = (mapping?.periods && Array.isArray(mapping.periods)) ? mapping.periods : [];
                     
                     return (
-                      <div key={c.id} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                      <div key={c.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleToggleCourse(config.id, c.id)}
-                          className={`w-full text-left px-3 py-2 text-xs flex justify-between items-center transition-all ${
+                          className={`w-full text-left px-3.5 py-2.5 text-xs flex justify-between items-center transition-all ${
                             isChecked 
-                              ? "bg-indigo-50/80 border-b border-indigo-200 font-semibold text-indigo-950" 
-                              : "hover:bg-slate-100 text-gray-700"
+                              ? "bg-indigo-50/90 border-b border-indigo-200 font-semibold text-indigo-950" 
+                              : "hover:bg-slate-50 text-gray-700"
                           }`}
                         >
                           <div>
                             <p className="font-bold text-gray-900 leading-snug">{c.name}</p>
                             <span className="text-[10px] text-gray-500 block uppercase font-mono tracking-wider">{c.category}</span>
                           </div>
-                          {isChecked && (
-                            <span className="bg-indigo-600 text-white rounded-full p-0.5">
-                              <Check className="w-3 h-3 stroke-[3px]" />
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {availablePeriods.length > 0 && (
+                              <span className="text-[10px] bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-full font-medium">
+                                {availablePeriods.length} Periode di Konten
+                              </span>
+                            )}
+                            {isChecked ? (
+                              <span className="bg-indigo-600 text-white rounded-full p-0.5">
+                                <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                              </span>
+                            ) : (
+                              <span className="w-4 h-4 rounded-full border border-gray-300 inline-block" />
+                            )}
+                          </div>
                         </button>
                         
                         {isChecked && (
-                          <div className="p-2 bg-indigo-50/20 border-t border-indigo-100 flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-indigo-900 uppercase tracking-wider block">Periode Diklat (pisahkan dengan koma):</label>
-                            <input
-                              type="text"
-                              value={periodsValue}
-                              onChange={(e) => handleUpdatePeriods(config.id, c.id, e.target.value)}
-                              placeholder="Misal: Angkatan I, Angkatan II, Juni 2026"
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
-                            />
+                          <div className="p-3 bg-indigo-50/30 border-t border-indigo-100 flex flex-col gap-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider block">
+                                Periode Diklat Terhubung ({selectedPeriods.length}/{availablePeriods.length} Aktif):
+                              </label>
+                              {availablePeriods.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleSelectAllPeriods(config.id, c.id, availablePeriods);
+                                  }}
+                                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline"
+                                >
+                                  {availablePeriods.every(p => selectedPeriods.includes(p)) ? "Batal Semua" : "Pilih Semua"}
+                                </button>
+                              )}
+                            </div>
+
+                            {availablePeriods.length > 0 ? (
+                              <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+                                {availablePeriods.map((periodStr, pIdx) => {
+                                  const isPeriodActive = selectedPeriods.includes(periodStr);
+                                  return (
+                                    <label
+                                      key={pIdx}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition ${
+                                        isPeriodActive
+                                          ? "bg-white border-indigo-400 text-indigo-950 font-bold shadow-xs"
+                                          : "bg-slate-50 border-gray-200 text-gray-600 hover:bg-slate-100"
+                                      }`}
+                                    >
+                                      <span className="font-mono text-[11px]">{periodStr}</span>
+                                      <input
+                                        type="checkbox"
+                                        checked={isPeriodActive}
+                                        onChange={() => handleTogglePeriod(config.id, c.id, periodStr)}
+                                        className="h-3.5 w-3.5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                      />
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 leading-relaxed">
+                                <strong>Info:</strong> Diklat ini belum memiliki periode yang disimpan pada menu <strong>Kelola Konten</strong> (Pengaturan Periode Diklat). Silakan atur periode di menu Kelola Konten agar otomatis muncul di sini.
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
