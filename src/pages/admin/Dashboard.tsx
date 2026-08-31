@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock, MessageSquare } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock, MessageSquare, Edit } from "lucide-react";
 import { GoogleGenAI } from "@google/genai";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
+import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../../lib/supabase";
@@ -215,6 +216,65 @@ export default function AdminDashboard() {
       setAssessmentQuestions(data || []);
     } else {
       alert("Gagal menghapus gambar: " + error.message);
+    }
+  };
+
+  // Question Inline Editing States
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [editQuestionText, setEditQuestionText] = useState("");
+  const [editOptionA, setEditOptionA] = useState("");
+  const [editOptionB, setEditOptionB] = useState("");
+  const [editOptionC, setEditOptionC] = useState("");
+  const [editOptionD, setEditOptionD] = useState("");
+  const [editCorrectOptionIndex, setEditCorrectOptionIndex] = useState(0);
+
+  const handleStartEditQuestion = (q: any) => {
+    const parsed = parseQuestionText(q.question_text);
+    setEditingQuestionId(q.id);
+    setEditQuestionText(parsed.text || "");
+    const opts = Array.isArray(q.options) ? q.options : [];
+    setEditOptionA(opts[0] || "");
+    setEditOptionB(opts[1] || "");
+    setEditOptionC(opts[2] || "");
+    setEditOptionD(opts[3] || "");
+    setEditCorrectOptionIndex(typeof q.correct_option_index === 'number' ? q.correct_option_index : 0);
+  };
+
+  const handleSaveEditQuestion = async (assessmentId: string) => {
+    if (!editingQuestionId) return;
+    const targetQ = assessmentQuestions.find(q => q.id === editingQuestionId);
+    if (!targetQ) return;
+
+    const { imageUrl } = parseQuestionText(targetQ.question_text);
+    const finalQuestionText = imageUrl 
+      ? `[QUESTION_IMAGE:${imageUrl}]${editQuestionText.trim()}`
+      : editQuestionText.trim();
+
+    const options = [editOptionA.trim(), editOptionB.trim(), editOptionC.trim(), editOptionD.trim()].filter(Boolean);
+
+    try {
+      const { error } = await supabase
+        .from('questions')
+        .update({
+          question_text: finalQuestionText,
+          options: options,
+          correct_option_index: editCorrectOptionIndex
+        })
+        .eq('id', editingQuestionId);
+
+      if (error) throw error;
+      alert("Perubahan soal berhasil disimpan!");
+      setEditingQuestionId(null);
+
+      // Refresh questions list
+      const { data } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('assessment_id', assessmentId)
+        .order('order_num', { ascending: true });
+      setAssessmentQuestions(data || []);
+    } catch (err: any) {
+      alert("Gagal mengupdate soal: " + err.message);
     }
   };
 
@@ -491,7 +551,8 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       const { data, error } = await supabase
         .from('allowed_seafarer_codes')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(10000);
       if (!error) {
         setAllowedSeafarerCodes(data || []);
       } else {
@@ -644,16 +705,34 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
         return;
       }
 
-      // Batch insert into supabase or fallback
+      // Batch insert into supabase in chunks of 500
       let successCount = 0;
-      for (const item of importedItems) {
+      const chunkSize = 500;
+      for (let i = 0; i < importedItems.length; i += chunkSize) {
+        const chunk = importedItems.slice(i, i + chunkSize);
         try {
           const { error } = await supabase
             .from('allowed_seafarer_codes')
-            .insert([item]);
-          if (!error) successCount++;
+            .upsert(chunk, { onConflict: 'code', ignoreDuplicates: true });
+          if (!error) {
+            successCount += chunk.length;
+          } else {
+            // Fallback to plain insert
+            const { error: insertErr } = await supabase
+              .from('allowed_seafarer_codes')
+              .insert(chunk);
+            if (!insertErr) successCount += chunk.length;
+          }
         } catch {
-          // Keep loop going
+          // If bulk fails, try individual insert for this chunk
+          for (const item of chunk) {
+            try {
+              const { error } = await supabase
+                .from('allowed_seafarer_codes')
+                .insert([item]);
+              if (!error) successCount++;
+            } catch {}
+          }
         }
       }
 
@@ -1932,43 +2011,167 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
 
     if (!uploadingAssessmentId) return;
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        const questions = results.data.map((row: any, idx: number) => {
-          const options = [row.option_a, row.option_b, row.option_c, row.option_d].filter(Boolean);
-          const correctAns = row[`option_${row.correct_answer?.toLowerCase()}`] || row.option_a;
-          const correctIdx = options.indexOf(correctAns);
-          
-          return {
-            assessment_id: uploadingAssessmentId,
-            question_text: row.question,
-            options: options,
-            correct_option_index: correctIdx >= 0 ? correctIdx : 0,
-            order_num: idx + 1
-          };
-        });
+    const parseRowsToQuestions = (rows: any[], targetAssessmentId: string) => {
+      return rows.map((row: any, idx: number) => {
+        // Robust question text extraction
+        const questionText = 
+          row.question || row.soal || row.pertanyaan || row.Question || row.SOAL || 
+          row['Pertanyaan'] || row['Soal'] || row['question_text'] ||
+          Object.entries(row).find(([k]) => {
+            const lk = k.toLowerCase().trim();
+            return lk === 'soal' || lk === 'pertanyaan' || lk === 'question' || lk.includes('pertanyaan');
+          })?.[1] || '';
 
-        const { error } = await supabase
-          .from('questions')
-          .insert(questions);
+        // Robust option extraction
+        const getOpt = (aliases: string[]) => {
+          for (const alias of aliases) {
+            if (row[alias] !== undefined && row[alias] !== null && String(row[alias]).trim() !== '') {
+              return String(row[alias]).trim();
+            }
+          }
+          const found = Object.entries(row).find(([k]) => {
+            const lk = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+            return aliases.some(a => a.toLowerCase().replace(/[^a-z0-9]/g, '') === lk);
+          });
+          return found ? String(found[1]).trim() : '';
+        };
 
-        if (!error) {
-          alert("Questions imported successfully!");
+        const optA = getOpt(['option_a', 'pilihan_a', 'a', 'A', 'Pilihan A', 'Option A', 'jawaban_a', 'opt_a']);
+        const optB = getOpt(['option_b', 'pilihan_b', 'b', 'B', 'Pilihan B', 'Option B', 'jawaban_b', 'opt_b']);
+        const optC = getOpt(['option_c', 'pilihan_c', 'c', 'C', 'Pilihan C', 'Option C', 'jawaban_c', 'opt_c']);
+        const optD = getOpt(['option_d', 'pilihan_d', 'd', 'D', 'Pilihan D', 'Option D', 'jawaban_d', 'opt_d']);
+
+        const options = [optA, optB, optC, optD].filter(Boolean);
+
+        // Robust correct answer extraction
+        const rawKey = 
+          row.correct_answer || row.jawaban_benar || row.kunci_jawaban || row.kunci || 
+          row.jawaban || row.correct || row.Answer || row.Key ||
+          Object.entries(row).find(([k]) => {
+            const lk = k.toLowerCase().trim();
+            return lk.includes('kunci') || lk.includes('correct') || lk.includes('jawaban_benar');
+          })?.[1] || '';
+
+        const cleanKey = String(rawKey || '').trim().toLowerCase();
+        let correctIdx = 0;
+
+        if (cleanKey === 'a' || cleanKey === '0' || cleanKey === '1') correctIdx = 0;
+        else if (cleanKey === 'b' || cleanKey === '2') correctIdx = 1;
+        else if (cleanKey === 'c' || cleanKey === '3') correctIdx = 2;
+        else if (cleanKey === 'd' || cleanKey === '4') correctIdx = 3;
+        else {
+          const foundIdx = options.findIndex(o => o.toLowerCase() === cleanKey);
+          if (foundIdx >= 0) correctIdx = foundIdx;
+        }
+
+        if (correctIdx >= options.length) correctIdx = 0;
+
+        return {
+          assessment_id: targetAssessmentId,
+          question_text: String(questionText || '').trim(),
+          options: options,
+          correct_option_index: correctIdx,
+          order_num: idx + 1
+        };
+      }).filter(q => q.question_text && q.options.length > 0);
+    };
+
+    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const buffer = e.target?.result as ArrayBuffer;
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.load(buffer);
+          const worksheet = workbook.worksheets[0];
+          if (!worksheet) {
+            alert("Worksheet Excel kosong!");
+            return;
+          }
+
+          const rawRows: any[] = [];
+          const headers: string[] = [];
+
+          worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) {
+              row.eachCell((cell, colNumber) => {
+                headers[colNumber] = cell.value ? String(cell.value).trim() : `col_${colNumber}`;
+              });
+            } else {
+              const rowData: Record<string, any> = {};
+              row.eachCell((cell, colNumber) => {
+                const header = headers[colNumber] || `col_${colNumber}`;
+                let cellVal = cell.value;
+                if (cellVal && typeof cellVal === 'object' && 'text' in cellVal) {
+                  cellVal = (cellVal as any).text;
+                } else if (cellVal && typeof cellVal === 'object' && 'result' in cellVal) {
+                  cellVal = (cellVal as any).result;
+                }
+                rowData[header] = cellVal !== undefined && cellVal !== null ? String(cellVal).trim() : '';
+              });
+              if (Object.values(rowData).some(v => v !== '')) {
+                rawRows.push(rowData);
+              }
+            }
+          });
+
+          const questions = parseRowsToQuestions(rawRows, uploadingAssessmentId);
+          if (questions.length === 0) {
+            alert("Tidak ada soal valid yang ditemukan dalam file Excel!");
+            return;
+          }
+
+          // Chunked insert in batches of 100
+          for (let i = 0; i < questions.length; i += 100) {
+            const chunk = questions.slice(i, i + 100);
+            await supabase.from('questions').insert(chunk);
+          }
+
+          alert(`Berhasil mengimpor ${questions.length} soal dari Excel!`);
           if (fileInputRef.current) fileInputRef.current.value = "";
           
-          // Fetch updated questions
           const { data } = await supabase
             .from('questions')
             .select('*')
             .eq('assessment_id', uploadingAssessmentId)
             .order('order_num', { ascending: true });
           setAssessmentQuestions(data || []);
-        } else {
-          alert("Failed to import questions.");
-          console.error(error);
+        } catch (err: any) {
+          alert("Gagal membaca file Excel: " + err.message);
         }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      delimitersToGuess: [',', ';', '\t', '|'],
+      complete: async (results) => {
+        const questions = parseRowsToQuestions(results.data, uploadingAssessmentId);
+
+        if (questions.length === 0) {
+          alert("Tidak ada soal valid yang ditemukan dalam file CSV! Pastikan header memiliki 'question' atau 'soal', serta 'option_a', 'option_b', dll.");
+          return;
+        }
+
+        // Chunked insert in batches of 100
+        for (let i = 0; i < questions.length; i += 100) {
+          const chunk = questions.slice(i, i + 100);
+          await supabase.from('questions').insert(chunk);
+        }
+
+        alert(`Berhasil mengimpor ${questions.length} soal!`);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        
+        // Fetch updated questions
+        const { data } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('assessment_id', uploadingAssessmentId)
+          .order('order_num', { ascending: true });
+        setAssessmentQuestions(data || []);
       }
     });
   };
@@ -2672,16 +2875,126 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {assessmentQuestions.map((q, idx) => {
                 const parsed = parseQuestionText(q.question_text);
+                const isEditingThis = editingQuestionId === q.id;
+
+                if (isEditingThis) {
+                  return (
+                    <div key={q.id} className="bg-indigo-50 border-2 border-indigo-400 rounded-lg p-4 shadow-sm space-y-3">
+                      <div className="flex justify-between items-center pb-2 border-b border-indigo-200">
+                        <span className="font-bold text-xs text-indigo-900">
+                          Edit Soal Nomor {idx + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setEditingQuestionId(null)}
+                          className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                        >
+                          Batal
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">Isi Soal</label>
+                        <textarea
+                          rows={2}
+                          value={editQuestionText}
+                          onChange={(e) => setEditQuestionText(e.target.value)}
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-gray-700 mb-0.5">Pilihan A</label>
+                          <input
+                            type="text"
+                            value={editOptionA}
+                            onChange={(e) => setEditOptionA(e.target.value)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-gray-700 mb-0.5">Pilihan B</label>
+                          <input
+                            type="text"
+                            value={editOptionB}
+                            onChange={(e) => setEditOptionB(e.target.value)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-gray-700 mb-0.5">Pilihan C</label>
+                          <input
+                            type="text"
+                            value={editOptionC}
+                            onChange={(e) => setEditOptionC(e.target.value)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-gray-700 mb-0.5">Pilihan D</label>
+                          <input
+                            type="text"
+                            value={editOptionD}
+                            onChange={(e) => setEditOptionD(e.target.value)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">Kunci Jawaban yang Benar</label>
+                        <select
+                          value={editCorrectOptionIndex}
+                          onChange={(e) => setEditCorrectOptionIndex(Number(e.target.value))}
+                          className="w-full px-2 py-1.5 border border-indigo-300 rounded text-xs bg-white font-semibold text-indigo-800"
+                        >
+                          <option value={0}>A - {editOptionA || '(Pilihan A)'}</option>
+                          <option value={1}>B - {editOptionB || '(Pilihan B)'}</option>
+                          <option value={2}>C - {editOptionC || '(Pilihan C)'}</option>
+                          <option value={3}>D - {editOptionD || '(Pilihan D)'}</option>
+                        </select>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditQuestion(assessmentId)}
+                          className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition shadow-sm"
+                        >
+                          Simpan Perubahan Soal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingQuestionId(null)}
+                          className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-xs font-medium"
+                        >
+                          Batal
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={q.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm relative">
-                    <button 
-                      onClick={() => handleDeleteQuestion(q.id)}
-                      className="absolute top-3 right-3 text-red-500 hover:text-red-700 p-1 bg-red-50 rounded-md"
-                      title="Hapus soal"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                    <p className="font-medium text-gray-900 text-xs pr-8 mb-2">
+                    <div className="absolute top-3 right-3 flex items-center gap-1">
+                      <button 
+                        onClick={() => handleStartEditQuestion(q)}
+                        className="text-indigo-600 hover:text-indigo-800 p-1 bg-indigo-50 rounded-md transition"
+                        title="Edit isi soal & pilihan"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="text-red-500 hover:text-red-700 p-1 bg-red-50 rounded-md transition"
+                        title="Hapus soal"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="font-medium text-gray-900 text-xs pr-16 mb-2">
                       {idx + 1}. {parsed.text}
                     </p>
                     {parsed.imageUrl && (
@@ -4652,7 +4965,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       {isManageModalOpen && selectedCourse && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+            <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
             <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Kelola Konten: {selectedCourse.name}</h3>

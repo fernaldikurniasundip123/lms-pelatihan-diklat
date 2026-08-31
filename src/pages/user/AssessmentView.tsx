@@ -151,25 +151,67 @@ export default function AssessmentView() {
         }
       }
 
-      // Fetch questions
+      // Fetch questions with high limit
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
         .select('*')
         .eq('assessment_id', assessmentData.id)
-        .order('order_num', { ascending: true });
+        .order('order_num', { ascending: true })
+        .limit(10000);
 
       if (questionsError) throw questionsError;
 
-      let fetchedQuestions = [...(questionsData || [])];
-      if (assessmentData.is_randomized) {
-        // Fisher-Yates shuffle for Randomized Assessment
-        for (let i = fetchedQuestions.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [fetchedQuestions[i], fetchedQuestions[j]] = [fetchedQuestions[j], fetchedQuestions[i]];
+      // Sanitize and ensure each question's options array is properly structured
+      const sanitizedQuestions = (questionsData || []).map(q => {
+        let opts = q.options;
+        if (typeof opts === 'string') {
+          try {
+            opts = JSON.parse(opts);
+          } catch {
+            opts = [];
+          }
+        }
+        if (!Array.isArray(opts)) opts = [];
+        return {
+          ...q,
+          options: opts.map((o: any) => String(o || '').trim()).filter(Boolean)
+        };
+      });
+
+      const localOrderKey = `assessment_order_${user.id}_${assessmentId}`;
+      let fetchedQuestions: any[] = [];
+
+      // Restore saved question order for ongoing attempt to avoid re-shuffling mid-exam on reload
+      const savedOrderStr = localStorage.getItem(localOrderKey);
+      if (savedOrderStr) {
+        try {
+          const savedIds: string[] = JSON.parse(savedOrderStr);
+          const map = new Map(sanitizedQuestions.map(q => [q.id, q]));
+          const reconstructed = savedIds.map(id => map.get(id)).filter(Boolean);
+          if (reconstructed.length > 0) {
+            fetchedQuestions = reconstructed;
+          }
+        } catch (e) {
+          console.error("Failed to restore saved question order:", e);
         }
       }
-      if (assessmentData.max_questions && assessmentData.max_questions > 0) {
-        fetchedQuestions = fetchedQuestions.slice(0, assessmentData.max_questions);
+
+      if (fetchedQuestions.length === 0) {
+        fetchedQuestions = [...sanitizedQuestions];
+        if (assessmentData.is_randomized) {
+          // Fisher-Yates shuffle for Randomized Assessment
+          for (let i = fetchedQuestions.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [fetchedQuestions[i], fetchedQuestions[j]] = [fetchedQuestions[j], fetchedQuestions[i]];
+          }
+        }
+        if (assessmentData.max_questions && assessmentData.max_questions > 0) {
+          fetchedQuestions = fetchedQuestions.slice(0, assessmentData.max_questions);
+        }
+        // Save current question order so refresh keeps the exact same set and order
+        try {
+          localStorage.setItem(localOrderKey, JSON.stringify(fetchedQuestions.map(q => q.id)));
+        } catch {}
       }
 
       setAssessment(assessmentData);
@@ -246,8 +288,10 @@ export default function AssessmentView() {
       try {
         const localAnswersKey = `assessment_answers_${user.id}_${assessmentId}`;
         const localLockedKey = `assessment_locked_${user.id}_${assessmentId}`;
+        const localOrderKey = `assessment_order_${user.id}_${assessmentId}`;
         localStorage.removeItem(localAnswersKey);
         localStorage.removeItem(localLockedKey);
+        localStorage.removeItem(localOrderKey);
       } catch (e) {
         console.error("Failed to clear saved progress:", e);
       }
