@@ -92,6 +92,35 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
     return Array.from(new Set(periods));
   };
 
+  const isValidUuid = (str: string) => {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  };
+
+  const initDefaultConfigs = () => {
+    const defaults: ZoomConfig[] = [
+      { id: crypto.randomUUID(), meeting_name: "Embed Link Zoom 1", zoom_link: "https://zoom.us/j/98765432101", course_ids: [] },
+      { id: crypto.randomUUID(), meeting_name: "Embed Link Zoom 2", zoom_link: "https://zoom.us/j/12345678902", course_ids: [] }
+    ];
+    setZoomConfigs(defaults);
+  };
+
+  const loadLocalConfigs = () => {
+    const stored = localStorage.getItem("local_zoom_settings");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setZoomConfigs(parsed.map((item: any) => ({
+          ...item,
+          id: isValidUuid(item.id) ? item.id : crypto.randomUUID()
+        })));
+      } catch {
+        initDefaultConfigs();
+      }
+    } else {
+      initDefaultConfigs();
+    }
+  };
+
   const fetchConfigs = async () => {
     setLoading(true);
     try {
@@ -104,41 +133,27 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
         throw error;
       }
       
+      setIsUsingLocalFallback(false);
+
       if (data && data.length > 0) {
-        setZoomConfigs(data.map((item: any) => ({
+        const mapped = data.map((item: any) => ({
           id: item.id,
           meeting_name: item.meeting_name,
           zoom_link: item.zoom_link,
           course_ids: Array.isArray(item.course_ids) ? item.course_ids : []
-        })));
-        setIsUsingLocalFallback(false);
+        }));
+        setZoomConfigs(mapped);
+        localStorage.setItem("local_zoom_settings", JSON.stringify(mapped));
       } else {
         // Initialize default Link 1 & Link 2 if empty
         initDefaultConfigs();
       }
     } catch (e) {
-      // Table doesn't exist error probably
+      console.warn("Table zoom_settings could not be fetched, checking local:", e);
       setIsUsingLocalFallback(true);
       loadLocalConfigs();
     } finally {
       setLoading(false);
-    }
-  };
-
-  const initDefaultConfigs = () => {
-    const defaults: ZoomConfig[] = [
-      { id: "1", meeting_name: "Embed Link Zoom 1", zoom_link: "https://zoom.us/j/98765432101", course_ids: [] },
-      { id: "2", meeting_name: "Embed Link Zoom 2", zoom_link: "https://zoom.us/j/12345678902", course_ids: [] }
-    ];
-    setZoomConfigs(defaults);
-  };
-
-  const loadLocalConfigs = () => {
-    const stored = localStorage.getItem("local_zoom_settings");
-    if (stored) {
-      setZoomConfigs(JSON.parse(stored));
-    } else {
-      initDefaultConfigs();
     }
   };
 
@@ -249,45 +264,48 @@ export default function SinkronusSettings({ courses }: SinkronusSettingsProps) {
     setStatusMsg(null);
 
     try {
-      if (isusingLocalFallback) {
-        localStorage.setItem("local_zoom_settings", JSON.stringify(zoomConfigs));
-        setStatusMsg({ type: "success", text: "Konfigurasi pembelajaran sinkronus zoom berhasil disimpan di LocalStorage!" });
-        setLoading(false);
-        return;
+      // Ensure all configs have valid UUIDs
+      const rowsToSave = zoomConfigs.map(config => ({
+        id: isValidUuid(config.id) ? config.id : crypto.randomUUID(),
+        meeting_name: config.meeting_name || "Zoom Meeting",
+        zoom_link: config.zoom_link || "",
+        course_ids: config.course_ids || []
+      }));
+
+      // 1. Save / Upsert to Supabase
+      const { error: upsertError } = await supabase
+        .from("zoom_settings")
+        .upsert(rowsToSave, { onConflict: "id" });
+
+      if (upsertError) throw upsertError;
+
+      // 2. Clean up any deleted zoom configs from database
+      const savedIds = rowsToSave.map(r => r.id);
+      const { data: existingAll } = await supabase.from("zoom_settings").select("id");
+      if (existingAll && existingAll.length > 0) {
+        const idsToDelete = existingAll
+          .filter(item => !savedIds.includes(item.id))
+          .map(item => item.id);
+        if (idsToDelete.length > 0) {
+          await supabase.from("zoom_settings").delete().in("id", idsToDelete);
+        }
       }
 
-      // Supabase Save attempt: We upsert row by row or overwrite.
-      // Easiest is to upsert
-      for (const config of zoomConfigs) {
-        const payload = {
-          meeting_name: config.meeting_name,
-          zoom_link: config.zoom_link,
-          course_ids: config.course_ids
-        };
-
-        // If UUID, we upsert, if numeric (like '1', '2' original defaults) we regenerate UUID
-        const isRealUuid = config.id.length > 5;
-        const targetId = isRealUuid ? config.id : crypto.randomUUID();
-
-        const { error } = await supabase
-          .from("zoom_settings")
-          .upsert([{
-            id: targetId,
-            ...payload
-          }], { onConflict: "id" });
-
-        if (error) throw error;
-      }
-
-      setStatusMsg({ type: "success", text: "Semua pengaturan Pembelajaran Sinkronus Zoom berhasil disinkronkan ke Database Supabase!" });
-      fetchConfigs(); // reload
+      // Update state and mirror to localStorage
+      setIsUsingLocalFallback(false);
+      setZoomConfigs(rowsToSave);
+      localStorage.setItem("local_zoom_settings", JSON.stringify(rowsToSave));
+      setStatusMsg({ 
+        type: "success", 
+        text: "Semua pengaturan Pembelajaran Sinkronus Zoom berhasil disimpan ke Database Supabase!" 
+      });
     } catch (err: any) {
       console.warn("Failed saving zoom configs to database. Saving locally instead:", err);
       setIsUsingLocalFallback(true);
       localStorage.setItem("local_zoom_settings", JSON.stringify(zoomConfigs));
       setStatusMsg({ 
         type: "success", 
-        text: "Penyimpanan Database dialihkan ke LocalStorage karena tabel di Supabase belum dimigrasi." 
+        text: "Pengaturan berhasil disimpan di penyimpanan lokal (LocalStorage)." 
       });
     } finally {
       setLoading(false);

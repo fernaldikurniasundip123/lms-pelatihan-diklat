@@ -2733,7 +2733,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
   return (
     <div className="min-h-screen bg-gray-100 flex">
       {/* Sidebar */}
-      <div className="w-64 bg-white shadow-md flex flex-col">
+      <div className="w-64 bg-white shadow-md flex flex-col print:hidden">
         <div className="p-6 border-b">
           <h1 className="text-2xl font-bold text-indigo-600 flex items-center gap-2">
             <Book className="w-6 h-6" /> LMS Admin
@@ -2868,7 +2868,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 p-8 overflow-auto">
+      <div className="flex-1 p-8 overflow-auto print:p-0 print:overflow-visible bg-gray-100 print:bg-white">
         {activeTab === "allowed-seafarer-codes" && (
           <div className="space-y-6">
             <div className="flex justify-between items-center pb-5 border-b">
