@@ -362,6 +362,7 @@ export default function UserDashboard() {
     const userClass = localStorage.getItem("selected_class") || (user as any)?.class_name || "KELAS UTAMA";
     const finalClassName = selectedPeriod ? `${userClass} (${selectedPeriod})` : userClass;
     
+    const nowIso = new Date().toISOString();
     const payload = {
       id: crypto.randomUUID(),
       user_id: user.id,
@@ -370,12 +371,12 @@ export default function UserDashboard() {
       class_name: finalClassName,
       course_id: courseId,
       course_name: courseName,
-      joined_at: new Date().toISOString(),
-      duration_seconds: 7200,    
-      camera_on_seconds: 7200,   
+      joined_at: nowIso,
+      duration_seconds: 0,    
+      camera_on_seconds: 0,   
       camera_off_seconds: 0,
-      mic_on_seconds: 1800,
-      last_active: new Date().toISOString()
+      mic_on_seconds: 0,
+      last_active: nowIso
     };
 
     try {
@@ -386,6 +387,13 @@ export default function UserDashboard() {
       logsArray.push(payload);
       localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
     }
+
+    // Save active direct zoom session tracker so duration can update
+    localStorage.setItem("active_direct_zoom_session", JSON.stringify({
+      id: payload.id,
+      joined_at: payload.joined_at,
+      course_id: courseId
+    }));
 
     window.open(zoomLink, "_blank");
     setSelectedZoomCourse(null);

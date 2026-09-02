@@ -548,22 +548,56 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
 
   const fetchAllowedSeafarerCodes = async () => {
     try {
-      const { data, error } = await supabase
+      // 1. Get exact total count first
+      const { count, error: countError } = await supabase
         .from('allowed_seafarer_codes')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10000);
-      if (!error) {
-        setAllowedSeafarerCodes(data || []);
+        .select('*', { count: 'exact', head: true });
+
+      const totalCount = count || 0;
+      const CHUNK_SIZE = 1000;
+      const MAX_LIMIT = 10000;
+      const limitToFetch = totalCount > 0 ? Math.min(totalCount, MAX_LIMIT) : MAX_LIMIT;
+      const numBatches = Math.max(1, Math.ceil(limitToFetch / CHUNK_SIZE));
+
+      // Fetch all chunks in parallel
+      const promises = [];
+      for (let i = 0; i < numBatches; i++) {
+        const from = i * CHUNK_SIZE;
+        const to = from + CHUNK_SIZE - 1;
+        promises.push(
+          supabase
+            .from('allowed_seafarer_codes')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        );
+      }
+
+      const results = await Promise.all(promises);
+      let combined: any[] = [];
+      for (const res of results) {
+        if (res.data && res.data.length > 0) {
+          combined = combined.concat(res.data);
+        }
+      }
+
+      if (combined.length > 0) {
+        setAllowedSeafarerCodes(combined);
+      } else if (totalCount === 0 && !countError) {
+        setAllowedSeafarerCodes([]);
       } else {
-        // Fallback to localStorage if table doesn't exist
+        // Fallback to localStorage if table doesn't exist or returns empty with error
         const local = localStorage.getItem('allowed_seafarer_codes');
         if (local) {
           setAllowedSeafarerCodes(JSON.parse(local));
         }
       }
     } catch (err) {
-      console.error(err);
+      console.error("fetchAllowedSeafarerCodes error:", err);
+      const local = localStorage.getItem('allowed_seafarer_codes');
+      if (local) {
+        setAllowedSeafarerCodes(JSON.parse(local));
+      }
     }
   };
 
@@ -2230,6 +2264,19 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
   };
 
   const filterReports = (reports: any[]) => {
+    // Map each identity_number to its longest (most complete) full_name
+    const completeNameMap = new Map<string, string>();
+    reports.forEach(r => {
+      const code = (r.identity_number || "").trim();
+      const name = (r.full_name || "").trim();
+      if (code && name) {
+        const existing = completeNameMap.get(code) || "";
+        if (name.length > existing.length) {
+          completeNameMap.set(code, name);
+        }
+      }
+    });
+
     return reports.filter(r => {
       if (user?.role === "admin_uad" && r.course_category !== "UJIAN UAD") return false;
       if (filterCourseId && r.course_id !== filterCourseId) return false;
@@ -2258,7 +2305,24 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       }
       
       return true;
-    }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
+    }).map(r => {
+      const code = (r.identity_number || "").trim();
+      const mostCompleteName = (code && completeNameMap.has(code)) ? completeNameMap.get(code)! : r.full_name;
+      return {
+        ...r,
+        full_name: mostCompleteName
+      };
+    }).sort((a, b) => {
+      const codeA = (a.identity_number || "").trim();
+      const codeB = (b.identity_number || "").trim();
+      const nameA = (a.full_name || "").trim();
+      const nameB = (b.full_name || "").trim();
+
+      if (codeA && codeB && codeA === codeB) {
+        return (a.course_name || "").localeCompare(b.course_name || "");
+      }
+      return nameA.localeCompare(nameB) || codeA.localeCompare(codeB);
+    });
   };
 
   const downloadPDF = async (type: 'video' | 'assessment' | 'final') => {
@@ -2294,19 +2358,32 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           ]),
         });
       } else if (type === 'assessment') {
-        autoTable(doc, {
-          startY: 40,
-          head: [['Name', 'Kode Pelaut', 'Course', 'Mata Kuliah', 'Periode Diklat', 'Score', 'Status', 'Attempt']],
-          body: filtered.map(r => [
-            r.full_name,
-            r.identity_number,
+        let prevIdentity = '';
+        const bodyRows = filtered.map(r => {
+          const code = (r.identity_number || '').trim();
+          const isSamePerson = code !== '' && code === prevIdentity;
+          prevIdentity = code;
+
+          const nameDisplay = isSamePerson ? '' : r.full_name;
+          const identityDisplay = isSamePerson ? '' : r.identity_number;
+          const periodDisplay = isSamePerson ? '' : `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`;
+
+          return [
+            nameDisplay,
+            identityDisplay,
             r.course_name,
             r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
-            `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
+            periodDisplay,
             r.detailed_scores || (r.final_score !== null ? Math.round(r.final_score).toString() : '-'),
             r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || 'BELUM MENGERJAKAN'),
             r.final_score !== null ? '#1' : '#0'
-          ]),
+          ];
+        });
+
+        autoTable(doc, {
+          startY: 40,
+          head: [['Name', 'Kode Pelaut', 'Course', 'Mata Kuliah', 'Periode Diklat', 'Score', 'Status', 'Attempt']],
+          body: bodyRows,
           styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 15 },
         });
       } else {
@@ -2462,6 +2539,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
+      let prevIdentityExcel = '';
       for (let i = 0; i < filtered.length; i++) {
         const r = filtered[i];
         let rowData: any = {};
@@ -2479,11 +2557,15 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             status: r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
           };
         } else if (type === 'assessment') {
+          const code = (r.identity_number || '').trim();
+          const isSamePerson = code !== '' && code === prevIdentityExcel;
+          prevIdentityExcel = code;
+
           rowData = {
             no: i + 1,
-            name: r.full_name,
-            nik: r.identity_number,
-            period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
+            name: isSamePerson ? '' : r.full_name,
+            nik: isSamePerson ? '' : r.identity_number,
+            period: isSamePerson ? '' : `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             course: r.course_name,
             mata_kuliah: r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
@@ -4347,40 +4429,55 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
-                  ) : filterReports(assessmentReports).map((report, idx) => (
-                    <tr key={idx}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{report.full_name}</div>
-                        <div className="text-sm text-gray-500">{report.identity_number}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.course_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {report.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (report.mata_kuliah || '-') : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {report.detailed_statuses ? (
-                          <div className="text-sm font-medium" dangerouslySetInnerHTML={{ __html: report.detailed_statuses }} />
-                        ) : report.assessment_status === 'LULUS' ? (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 flex items-center gap-1">
-                            <CheckCircle className="w-3 h-3" /> LULUS
-                          </span>
-                        ) : report.assessment_status === 'TIDAK LULUS' ? (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 flex items-center gap-1">
-                            <XCircle className="w-3 h-3" /> TIDAK LULUS
-                          </span>
-                        ) : (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 flex items-center gap-1">
-                            BELUM MENGERJAKAN
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.final_score !== null ? 1 : 0}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: (report.attendance_photos && report.attendance_photos.length > 0) ? report.attendance_photos[report.attendance_photos.length - 1] : report.live_photo_data, initial: report.initial_photo_data || report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
-                        View Photos
-                      </td>
-                    </tr>
-                  ))}
+                  ) : filterReports(assessmentReports).map((report, idx, arr) => {
+                    const prevReport = idx > 0 ? arr[idx - 1] : null;
+                    const code = (report.identity_number || '').trim();
+                    const prevCode = prevReport ? (prevReport.identity_number || '').trim() : '';
+                    const isSamePerson = code !== '' && code === prevCode;
+
+                    return (
+                      <tr key={idx} className={isSamePerson ? "bg-slate-50/40 border-t border-gray-100" : "border-t border-gray-200"}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {!isSamePerson ? (
+                            <>
+                              <div className="text-sm font-bold text-gray-900">{report.full_name}</div>
+                              <div className="text-xs text-gray-500 font-mono mt-0.5">{report.identity_number}</div>
+                            </>
+                          ) : (
+                            <div className="text-xs text-slate-400 font-medium pl-3 border-l-2 border-indigo-200">
+                              ↳ <span className="font-semibold text-slate-700">{report.full_name}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium">{report.course_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {report.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (report.mata_kuliah || '-') : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.detailed_statuses ? (
+                            <div className="text-sm font-medium" dangerouslySetInnerHTML={{ __html: report.detailed_statuses }} />
+                          ) : report.assessment_status === 'LULUS' ? (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> LULUS
+                            </span>
+                          ) : report.assessment_status === 'TIDAK LULUS' ? (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 flex items-center gap-1">
+                              <XCircle className="w-3 h-3" /> TIDAK LULUS
+                            </span>
+                          ) : (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 flex items-center gap-1">
+                              BELUM MENGERJAKAN
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{report.final_score !== null ? 1 : 0}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer" onClick={() => setPhotoModalData({ live: (report.attendance_photos && report.attendance_photos.length > 0) ? report.attendance_photos[report.attendance_photos.length - 1] : report.live_photo_data, initial: report.initial_photo_data || report.live_photo_data, ktp: report.ktp_photo_data, attendances: report.attendance_photos || [] })}>
+                          View Photos
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -42,11 +42,18 @@ interface CourseOption {
   name: string;
 }
 
+export interface SessionDetail {
+  joinTime: string;
+  leaveTime: string;
+  duration_seconds: number;
+}
+
 export interface DayTelemetry {
   dayIndex: number;
   dateKey: string;
   formattedDate: string;
   joinTimes: string[];
+  sessions: SessionDetail[];
   duration_seconds: number;
   camera_on_seconds: number;
   camera_off_seconds: number;
@@ -447,6 +454,7 @@ export default function SinkronusReports() {
       dayMap: Map<string, {
         dateKey: string;
         joinTimes: string[];
+        sessions: SessionDetail[];
         duration_seconds: number;
         camera_on_seconds: number;
         camera_off_seconds: number;
@@ -520,6 +528,7 @@ export default function SinkronusReports() {
         entry.dayMap.set(dateKey, {
           dateKey,
           joinTimes: [],
+          sessions: [],
           duration_seconds: 0,
           camera_on_seconds: 0,
           camera_off_seconds: 0,
@@ -527,15 +536,57 @@ export default function SinkronusReports() {
         });
       }
 
-      const dayData = entry.dayMap.get(dateKey)!;
-      const timeFormatted = formatShortTime(log.joined_at);
-      if (!dayData.joinTimes.includes(timeFormatted)) {
-        dayData.joinTimes.push(timeFormatted);
+      // Calculate time boundaries & durations
+      const joinDate = new Date(log.joined_at);
+      let durationSecs = Number(log.duration_seconds) || 0;
+      let camOnSecs = Number(log.camera_on_seconds) || 0;
+      let camOffSecs = Number(log.camera_off_seconds) || 0;
+      let micOnSecs = Number(log.mic_on_seconds) || 0;
+
+      // Determine leave time
+      let leaveDate: Date;
+      const logAny = log as any;
+      if (logAny.left_at) {
+        leaveDate = new Date(logAny.left_at);
+        const actualDiff = Math.max(0, Math.floor((leaveDate.getTime() - joinDate.getTime()) / 1000));
+        if (actualDiff > 0 && (durationSecs === 0 || durationSecs === 7200)) {
+          durationSecs = actualDiff;
+        }
+      } else if (log.last_active && new Date(log.last_active).getTime() > joinDate.getTime() + 1000) {
+        leaveDate = new Date(log.last_active);
+        const actualDiff = Math.max(0, Math.floor((leaveDate.getTime() - joinDate.getTime()) / 1000));
+        if (actualDiff > 0 && (durationSecs === 0 || durationSecs === 7200)) {
+          durationSecs = actualDiff;
+        }
+      } else if (durationSecs > 0) {
+        leaveDate = new Date(joinDate.getTime() + durationSecs * 1000);
+      } else {
+        leaveDate = joinDate;
       }
-      dayData.duration_seconds += (Number(log.duration_seconds) || 0);
-      dayData.camera_on_seconds += (Number(log.camera_on_seconds) || 0);
-      dayData.camera_off_seconds += (Number(log.camera_off_seconds) || 0);
-      dayData.mic_on_seconds += (Number(log.mic_on_seconds) || 0);
+
+      // If camera duration is 0 but participant stayed for a duration, match camOn to duration
+      if (camOnSecs === 0 && camOffSecs === 0 && durationSecs > 0) {
+        camOnSecs = durationSecs;
+      }
+
+      const joinFormatted = formatShortTime(log.joined_at);
+      const leaveFormatted = formatShortTime(leaveDate.toISOString());
+
+      const dayData = entry.dayMap.get(dateKey)!;
+      if (!dayData.joinTimes.includes(joinFormatted)) {
+        dayData.joinTimes.push(joinFormatted);
+      }
+
+      dayData.sessions.push({
+        joinTime: joinFormatted,
+        leaveTime: leaveFormatted,
+        duration_seconds: durationSecs
+      });
+
+      dayData.duration_seconds += durationSecs;
+      dayData.camera_on_seconds += camOnSecs;
+      dayData.camera_off_seconds += camOffSecs;
+      dayData.mic_on_seconds += micOnSecs;
     });
 
     const result: GroupedParticipantLog[] = [];
@@ -548,6 +599,7 @@ export default function SinkronusReports() {
           dateKey: dKey,
           formattedDate: formatShortDate(dKey),
           joinTimes: d.joinTimes,
+          sessions: d.sessions,
           duration_seconds: d.duration_seconds,
           camera_on_seconds: d.camera_on_seconds,
           camera_off_seconds: d.camera_off_seconds,
@@ -559,7 +611,7 @@ export default function SinkronusReports() {
       const totalCamOn = days.reduce((acc, d) => acc + d.camera_on_seconds, 0);
       const totalCamOff = days.reduce((acc, d) => acc + d.camera_off_seconds, 0);
       const totalMicOn = days.reduce((acc, d) => acc + d.mic_on_seconds, 0);
-      const totalEntries = days.reduce((acc, d) => acc + d.joinTimes.length, 0);
+      const totalEntries = days.reduce((acc, d) => acc + d.sessions.length, 0);
 
       result.push({
         key,
@@ -591,7 +643,7 @@ export default function SinkronusReports() {
       "Kelas",
       "Periode",
       "Jenis Diklat / Course",
-      "Waktu Gabung (Per Hari)",
+      "Waktu Gabung & Keluar (Per Hari)",
       "Total Durasi",
       "Cam ON",
       "Cam OFF",
@@ -601,7 +653,10 @@ export default function SinkronusReports() {
     ];
 
     const rows = groupedParticipants.map(item => {
-      const joinTimesText = item.days.map(d => `Hari ${d.dayIndex} (${d.formattedDate}): ${d.joinTimes.join(", ")}`).join(" | ");
+      const sessionTimesText = item.days.map(d => {
+        const sessList = d.sessions.map((s, idx) => `[Sesi ${idx + 1}: ${s.joinTime} - ${s.leaveTime}]`).join(", ");
+        return `Hari ${d.dayIndex} (${d.formattedDate}): ${sessList || d.joinTimes.join(", ")}`;
+      }).join(" | ");
       
       const durationText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.duration_seconds)}`).join(" | ") + 
         (item.days.length > 1 ? ` | Akumulasi: ${formatTime(item.total_duration_seconds)}` : '');
@@ -621,7 +676,7 @@ export default function SinkronusReports() {
         item.pureClass,
         item.period,
         item.course_name,
-        joinTimesText,
+        sessionTimesText,
         durationText,
         camOnText,
         camOffText,
@@ -860,7 +915,7 @@ export default function SinkronusReports() {
                 <th className="px-2 py-3 text-center">Kelas</th>
                 <th className="px-3 py-3 text-center">Periode</th>
                 <th className="px-3 py-3 text-left">Jenis Diklat / Course</th>
-                <th className="px-3 py-3 text-left">Waktu Gabung (Per Hari)</th>
+                <th className="px-3 py-3 text-left">Waktu Gabung &amp; Keluar (Per Hari)</th>
                 <th className="px-2 py-3 text-center">Total Durasi</th>
                 <th className="px-2 py-3 text-center text-emerald-800">Cam ON</th>
                 <th className="px-2 py-3 text-center text-red-800">Cam OFF</th>
@@ -904,17 +959,34 @@ export default function SinkronusReports() {
                       {participant.course_name}
                     </td>
 
-                    {/* 6. Waktu Gabung (Per Hari) */}
+                    {/* 6. Waktu Gabung & Keluar (Per Hari) */}
                     <td className="px-3 py-3">
-                      <div className="flex flex-col gap-1 min-w-[170px] print:min-w-0">
+                      <div className="flex flex-col gap-1 min-w-[200px] print:min-w-0">
                         {participant.days.map((day) => (
-                          <div key={day.dateKey} className="bg-slate-50 border border-slate-200 rounded p-1 text-[10px] font-mono print-day-card">
-                            <div className="font-bold text-slate-800 flex items-center gap-1">
+                          <div key={day.dateKey} className="bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-mono print-day-card">
+                            <div className="font-bold text-slate-800 flex items-center gap-1 mb-1">
                               <Calendar className="w-2.5 h-2.5 text-indigo-600 shrink-0 print:hidden" />
                               <span>Hari {day.dayIndex} ({day.formattedDate}) :</span>
                             </div>
-                            <div className="text-slate-600 pl-3 break-words leading-tight">
-                              {day.joinTimes.join(", ")}
+                            <div className="text-slate-700 pl-2 space-y-1 leading-tight">
+                              {day.sessions && day.sessions.length > 0 ? (
+                                day.sessions.map((sess, sIdx) => (
+                                  <div key={sIdx} className="flex flex-wrap items-center gap-1 text-[9.5px]">
+                                    {day.sessions.length > 1 && (
+                                      <span className="text-indigo-600 font-bold">• Sesi {sIdx + 1}:</span>
+                                    )}
+                                    <span className="bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded border border-emerald-200 font-bold print:border-none print:p-0">
+                                      Masuk: {sess.joinTime}
+                                    </span>
+                                    <span className="text-slate-400">s/d</span>
+                                    <span className="bg-rose-50 text-rose-800 px-1 py-0.5 rounded border border-rose-200 font-bold print:border-none print:p-0">
+                                      Keluar: {sess.leaveTime}
+                                    </span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-slate-600">{day.joinTimes.join(", ")}</div>
+                              )}
                             </div>
                           </div>
                         ))}

@@ -172,6 +172,7 @@ export default function ZoomClassroom({ courseId, courseName, user, onLeave }: Z
     // Extract metadata
     const userClass = localStorage.getItem("selected_class") || user.class_name || "KELAS SINKRONUS";
     const totalDuration = Math.floor((Date.now() - joinTimeRef.current) / 1000);
+    const nowIso = new Date().toISOString();
     
     const payload = {
       id: logIdRef.current,
@@ -182,11 +183,12 @@ export default function ZoomClassroom({ courseId, courseName, user, onLeave }: Z
       course_id: courseId,
       course_name: courseName,
       joined_at: new Date(joinTimeRef.current).toISOString(),
+      left_at: nowIso,
       duration_seconds: totalDuration,
       camera_on_seconds: cameraOnSeconds,
       camera_off_seconds: cameraOffSeconds,
       mic_on_seconds: micOnSeconds,
-      last_active: new Date().toISOString()
+      last_active: nowIso
     };
 
     try {
