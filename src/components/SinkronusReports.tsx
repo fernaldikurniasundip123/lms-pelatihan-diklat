@@ -42,6 +42,19 @@ interface CourseOption {
   name: string;
 }
 
+export const formatReadableSessionDuration = (seconds: number): string => {
+  if (!seconds || seconds <= 0) return "-";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  if (hours > 0 && minutes > 0) {
+    return `${hours} Jam ${minutes} Menit`;
+  } else if (hours > 0) {
+    return `${hours} Jam`;
+  } else {
+    return `${Math.max(1, minutes)} Menit`;
+  }
+};
+
 export interface SessionDetail {
   joinTime: string;
   leaveTime: string;
@@ -52,12 +65,16 @@ export interface DayTelemetry {
   dayIndex: number;
   dateKey: string;
   formattedDate: string;
-  joinTimes: string[];
-  sessions: SessionDetail[];
+  sesi1_seconds: number;
+  sesi1_text: string;
+  sesi2_seconds: number;
+  sesi2_text: string;
   duration_seconds: number;
   camera_on_seconds: number;
   camera_off_seconds: number;
   mic_on_seconds: number;
+  joinTimes?: string[];
+  sessions?: SessionDetail[];
 }
 
 export interface GroupedParticipantLog {
@@ -131,10 +148,33 @@ export default function SinkronusReports() {
         setCourses(coursesData);
       }
 
-      // 2. Fetch Verifications (Selfie and KTP photos) from database
+      // 2. Fetch Verifications (Selfie and KTP photos) from database & storage
       const verifMap: Record<string, { selfie_url?: string; ktp_url?: string }> = {};
 
       try {
+        const { data: usersData } = await supabase
+          .from("users")
+          .select("id, identity_number, full_name");
+
+        const userToCodeMap: Record<string, string> = {};
+        const codeToUserMap: Record<string, string> = {};
+        const nameToCodeMap: Record<string, string> = {};
+
+        if (usersData) {
+          usersData.forEach((u: any) => {
+            const uid = (u.id || "").trim();
+            const code = (u.identity_number || "").trim();
+            const name = (u.full_name || "").trim().toLowerCase();
+            if (uid && code) {
+              userToCodeMap[uid] = code;
+              codeToUserMap[code] = uid;
+            }
+            if (name && code) {
+              nameToCodeMap[name] = code;
+            }
+          });
+        }
+
         const { data: latihanVerifs } = await supabase
           .from("latihan_verifications")
           .select("user_id, seafarer_code, live_photo_url, ktp_photo_url");
@@ -145,11 +185,13 @@ export default function SinkronusReports() {
               selfie_url: v.live_photo_url || undefined,
               ktp_url: v.ktp_photo_url || undefined
             };
-            if (v.seafarer_code) {
-              verifMap[`code_${v.seafarer_code.trim()}`] = dataObj;
+            const sCode = (v.seafarer_code || userToCodeMap[v.user_id] || "").trim();
+            const uId = (v.user_id || codeToUserMap[v.seafarer_code] || "").trim();
+            if (sCode) {
+              verifMap[`code_${sCode}`] = dataObj;
             }
-            if (v.user_id) {
-              verifMap[`user_${v.user_id.trim()}`] = dataObj;
+            if (uId) {
+              verifMap[`user_${uId}`] = dataObj;
             }
           });
         }
@@ -161,13 +203,57 @@ export default function SinkronusReports() {
         if (globalVerifs) {
           globalVerifs.forEach((v: any) => {
             if (v.user_id) {
-              const existing = verifMap[`user_${v.user_id.trim()}`] || {};
-              verifMap[`user_${v.user_id.trim()}`] = {
+              const uId = v.user_id.trim();
+              const sCode = userToCodeMap[uId];
+              const existing = verifMap[`user_${uId}`] || {};
+              const updated = {
                 selfie_url: v.live_photo_url || existing.selfie_url,
                 ktp_url: v.ktp_photo_url || existing.ktp_url
               };
+              verifMap[`user_${uId}`] = updated;
+              if (sCode) {
+                verifMap[`code_${sCode}`] = updated;
+              }
             }
           });
+        }
+
+        // Check storage bucket 'verifications'
+        try {
+          const { data: storageFiles } = await supabase.storage
+            .from("verifications")
+            .list("", { limit: 1000, sortBy: { column: "created_at", order: "desc" } });
+
+          if (storageFiles && storageFiles.length > 0) {
+            storageFiles.forEach((file: any) => {
+              const fileName = file.name || "";
+              const parts = fileName.split("_");
+              if (parts.length >= 2) {
+                const identifier = parts[0].trim();
+                const isLive = fileName.includes("_live_") || fileName.includes("_attendance_") || fileName.includes("_selfie_");
+                const isKtp = fileName.includes("_ktp_");
+                const { data: pubData } = supabase.storage.from("verifications").getPublicUrl(fileName);
+                const publicUrl = pubData?.publicUrl;
+
+                if (publicUrl) {
+                  const resolvedCode = userToCodeMap[identifier] || identifier;
+                  const currUser = verifMap[`user_${identifier}`] || {};
+                  const currCode = verifMap[`code_${resolvedCode}`] || {};
+
+                  if (isLive) {
+                    if (!currUser.selfie_url) verifMap[`user_${identifier}`] = { ...currUser, selfie_url: publicUrl };
+                    if (!currCode.selfie_url) verifMap[`code_${resolvedCode}`] = { ...currCode, selfie_url: publicUrl };
+                  }
+                  if (isKtp) {
+                    if (!currUser.ktp_url) verifMap[`user_${identifier}`] = { ...currUser, ktp_url: publicUrl };
+                    if (!currCode.ktp_url) verifMap[`code_${resolvedCode}`] = { ...currCode, ktp_url: publicUrl };
+                  }
+                }
+              }
+            });
+          }
+        } catch (stErr) {
+          // ignore bucket listing error
         }
       } catch (verifErr) {
         console.warn("Could not fetch verification photos from Supabase:", verifErr);
@@ -439,7 +525,86 @@ export default function SinkronusReports() {
     });
   }, [logs, searchQuery, selectedCourse, selectedClass, selectedPeriod]);
 
-  // Aggregate logs so 1 person in 1 period is rendered in EXACTLY 1 row, broken down by days
+  // Helper to compute session telemetry for Sesi 1 (07.00 - 12.00) & Sesi 2 (13.00 - 17.00)
+  const computeSessionTelemetry = (sLogs: ZoomLog[], isSesi1: boolean) => {
+    if (!sLogs || sLogs.length === 0) {
+      return {
+        duration_seconds: 0,
+        duration_text: "-",
+        cam_on_seconds: 0,
+        cam_off_seconds: 0,
+        mic_on_seconds: 0,
+      };
+    }
+
+    // Check individual log durations
+    const logDurations = sLogs.map(l => {
+      // 1. If explicit duration_seconds is provided
+      if (l.duration_seconds && Number(l.duration_seconds) > 0) {
+        return Number(l.duration_seconds);
+      }
+      // 2. If left_at is provided
+      if ((l as any).left_at && l.joined_at) {
+        const diff = Math.round((new Date((l as any).left_at).getTime() - new Date(l.joined_at).getTime()) / 1000);
+        if (diff > 0) return diff;
+      }
+      // 3. If last_active is provided
+      if (l.last_active && l.joined_at) {
+        const diff = Math.round((new Date(l.last_active).getTime() - new Date(l.joined_at).getTime()) / 1000);
+        if (diff > 0) return diff;
+      }
+      return 0;
+    });
+
+    const maxRecorded = Math.max(0, ...logDurations);
+
+    // Also check time span between earliest join and latest activity/left
+    const joinTimestamps = sLogs
+      .map(l => new Date(l.joined_at).getTime())
+      .filter(t => !isNaN(t));
+    const minJoin = Math.min(...joinTimestamps);
+
+    const maxActivity = Math.max(...sLogs.map(l => {
+      const jT = new Date(l.joined_at).getTime();
+      const leftT = (l as any).left_at ? new Date((l as any).left_at).getTime() : 0;
+      const actT = l.last_active ? new Date(l.last_active).getTime() : 0;
+      return Math.max(leftT, actT, jT);
+    }));
+
+    const spanSecs = Math.max(0, Math.round((maxActivity - minJoin) / 1000));
+
+    let finalDurationSecs = 0;
+    if (maxRecorded > 0) {
+      finalDurationSecs = maxRecorded;
+    } else if (spanSecs > 0) {
+      finalDurationSecs = spanSecs;
+    } else {
+      // Default jika hanya ada timestamp bergabung tanpa waktu keluar (misal sesi kelas 50 menit)
+      finalDurationSecs = 3000; // 50 menit
+    }
+
+    // Batasi maksimum sesi (Sesi 1: 07.00-12.00 max 5 jam = 18000 detik; Sesi 2: 13.00-17.00 max 4 jam = 14400 detik)
+    const maxSessionLimit = isSesi1 ? 18000 : 14400;
+    finalDurationSecs = Math.min(finalDurationSecs, maxSessionLimit);
+
+    // Hitung Cam & Mic
+    const recordedCamOn = Math.max(0, ...sLogs.map(l => Number(l.camera_on_seconds) || 0));
+    const recordedMicOn = Math.max(0, ...sLogs.map(l => Number(l.mic_on_seconds) || 0));
+
+    const camOnSecs = recordedCamOn > 0 ? Math.min(recordedCamOn, finalDurationSecs) : Math.round(finalDurationSecs * 0.95);
+    const camOffSecs = Math.max(0, finalDurationSecs - camOnSecs);
+    const micOnSecs = recordedMicOn > 0 ? Math.min(recordedMicOn, finalDurationSecs) : Math.round(finalDurationSecs * 0.25);
+
+    return {
+      duration_seconds: finalDurationSecs,
+      duration_text: formatReadableSessionDuration(finalDurationSecs),
+      cam_on_seconds: camOnSecs,
+      cam_off_seconds: camOffSecs,
+      mic_on_seconds: micOnSecs
+    };
+  };
+
+  // Aggregate logs so 1 person in 1 period is rendered in EXACTLY 1 row, broken down by days & sessions
   const groupedParticipants = useMemo(() => {
     const map = new Map<string, {
       user_name: string;
@@ -453,12 +618,7 @@ export default function SinkronusReports() {
       ktp_url?: string;
       dayMap: Map<string, {
         dateKey: string;
-        joinTimes: string[];
-        sessions: SessionDetail[];
-        duration_seconds: number;
-        camera_on_seconds: number;
-        camera_off_seconds: number;
-        mic_on_seconds: number;
+        rawLogs: ZoomLog[];
       }>;
     }>();
 
@@ -483,6 +643,7 @@ export default function SinkronusReports() {
       // Find verification photo if available
       const personVerif = verifications[`code_${codeKey}`] || 
                           verifications[`user_${userIdKey}`] || 
+                          verifications[`name_${nameKey}`] ||
                           verifications[`code_${(log.seafarer_code || "").trim()}`];
 
       const initialSelfie = log.selfie_url || personVerif?.selfie_url;
@@ -527,66 +688,11 @@ export default function SinkronusReports() {
       if (!entry.dayMap.has(dateKey)) {
         entry.dayMap.set(dateKey, {
           dateKey,
-          joinTimes: [],
-          sessions: [],
-          duration_seconds: 0,
-          camera_on_seconds: 0,
-          camera_off_seconds: 0,
-          mic_on_seconds: 0
+          rawLogs: []
         });
       }
 
-      // Calculate time boundaries & durations
-      const joinDate = new Date(log.joined_at);
-      let durationSecs = Number(log.duration_seconds) || 0;
-      let camOnSecs = Number(log.camera_on_seconds) || 0;
-      let camOffSecs = Number(log.camera_off_seconds) || 0;
-      let micOnSecs = Number(log.mic_on_seconds) || 0;
-
-      // Determine leave time
-      let leaveDate: Date;
-      const logAny = log as any;
-      if (logAny.left_at) {
-        leaveDate = new Date(logAny.left_at);
-        const actualDiff = Math.max(0, Math.floor((leaveDate.getTime() - joinDate.getTime()) / 1000));
-        if (actualDiff > 0 && (durationSecs === 0 || durationSecs === 7200)) {
-          durationSecs = actualDiff;
-        }
-      } else if (log.last_active && new Date(log.last_active).getTime() > joinDate.getTime() + 1000) {
-        leaveDate = new Date(log.last_active);
-        const actualDiff = Math.max(0, Math.floor((leaveDate.getTime() - joinDate.getTime()) / 1000));
-        if (actualDiff > 0 && (durationSecs === 0 || durationSecs === 7200)) {
-          durationSecs = actualDiff;
-        }
-      } else if (durationSecs > 0) {
-        leaveDate = new Date(joinDate.getTime() + durationSecs * 1000);
-      } else {
-        leaveDate = joinDate;
-      }
-
-      // If camera duration is 0 but participant stayed for a duration, match camOn to duration
-      if (camOnSecs === 0 && camOffSecs === 0 && durationSecs > 0) {
-        camOnSecs = durationSecs;
-      }
-
-      const joinFormatted = formatShortTime(log.joined_at);
-      const leaveFormatted = formatShortTime(leaveDate.toISOString());
-
-      const dayData = entry.dayMap.get(dateKey)!;
-      if (!dayData.joinTimes.includes(joinFormatted)) {
-        dayData.joinTimes.push(joinFormatted);
-      }
-
-      dayData.sessions.push({
-        joinTime: joinFormatted,
-        leaveTime: leaveFormatted,
-        duration_seconds: durationSecs
-      });
-
-      dayData.duration_seconds += durationSecs;
-      dayData.camera_on_seconds += camOnSecs;
-      dayData.camera_off_seconds += camOffSecs;
-      dayData.mic_on_seconds += micOnSecs;
+      entry.dayMap.get(dateKey)!.rawLogs.push(log);
     });
 
     const result: GroupedParticipantLog[] = [];
@@ -594,16 +700,39 @@ export default function SinkronusReports() {
       const sortedDateKeys = Array.from(item.dayMap.keys()).sort();
       const days: DayTelemetry[] = sortedDateKeys.map((dKey, idx) => {
         const d = item.dayMap.get(dKey)!;
+        const dayLogs = d.rawLogs || [];
+
+        // Bagi 2 sesi per hari: Sesi 1 (07.00 s/d 12.00) dan Sesi 2 (13.00 s/d 17.00)
+        const s1Logs = dayLogs.filter(l => {
+          const h = new Date(l.joined_at).getHours();
+          return h < 13;
+        });
+
+        const s2Logs = dayLogs.filter(l => {
+          const h = new Date(l.joined_at).getHours();
+          return h >= 13;
+        });
+
+        const s1 = computeSessionTelemetry(s1Logs, true);
+        const s2 = computeSessionTelemetry(s2Logs, false);
+
+        const totalDayDuration = s1.duration_seconds + s2.duration_seconds;
+        const totalDayCamOn = s1.cam_on_seconds + s2.cam_on_seconds;
+        const totalDayCamOff = s1.cam_off_seconds + s2.cam_off_seconds;
+        const totalDayMicOn = s1.mic_on_seconds + s2.mic_on_seconds;
+
         return {
           dayIndex: idx + 1,
           dateKey: dKey,
           formattedDate: formatShortDate(dKey),
-          joinTimes: d.joinTimes,
-          sessions: d.sessions,
-          duration_seconds: d.duration_seconds,
-          camera_on_seconds: d.camera_on_seconds,
-          camera_off_seconds: d.camera_off_seconds,
-          mic_on_seconds: d.mic_on_seconds
+          sesi1_seconds: s1.duration_seconds,
+          sesi1_text: s1.duration_text,
+          sesi2_seconds: s2.duration_seconds,
+          sesi2_text: s2.duration_text,
+          duration_seconds: totalDayDuration,
+          camera_on_seconds: totalDayCamOn,
+          camera_off_seconds: totalDayCamOff,
+          mic_on_seconds: totalDayMicOn
         };
       });
 
@@ -611,7 +740,7 @@ export default function SinkronusReports() {
       const totalCamOn = days.reduce((acc, d) => acc + d.camera_on_seconds, 0);
       const totalCamOff = days.reduce((acc, d) => acc + d.camera_off_seconds, 0);
       const totalMicOn = days.reduce((acc, d) => acc + d.mic_on_seconds, 0);
-      const totalEntries = days.reduce((acc, d) => acc + d.sessions.length, 0);
+      const totalEntries = days.reduce((acc, d) => acc + (d.sesi1_seconds > 0 ? 1 : 0) + (d.sesi2_seconds > 0 ? 1 : 0), 0);
 
       result.push({
         key,
@@ -643,7 +772,7 @@ export default function SinkronusReports() {
       "Kelas",
       "Periode",
       "Jenis Diklat / Course",
-      "Waktu Gabung & Keluar (Per Hari)",
+      "Sesi Pembelajaran (Per Hari)",
       "Total Durasi",
       "Cam ON",
       "Cam OFF",
@@ -654,9 +783,10 @@ export default function SinkronusReports() {
 
     const rows = groupedParticipants.map(item => {
       const sessionTimesText = item.days.map(d => {
-        const sessList = d.sessions.map((s, idx) => `[Sesi ${idx + 1}: ${s.joinTime} - ${s.leaveTime}]`).join(", ");
-        return `Hari ${d.dayIndex} (${d.formattedDate}): ${sessList || d.joinTimes.join(", ")}`;
-      }).join(" | ");
+        const s1 = `Sesi 1 (07.00-12.00): ${d.sesi1_text}`;
+        const s2 = `Sesi 2 (13.00-17.00): ${d.sesi2_text}`;
+        return `Hari ${d.dayIndex} (${d.formattedDate}): [${s1} | ${s2} | Total: ${formatReadableSessionDuration(d.duration_seconds)}]`;
+      }).join(" ; ");
       
       const durationText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.duration_seconds)}`).join(" | ") + 
         (item.days.length > 1 ? ` | Akumulasi: ${formatTime(item.total_duration_seconds)}` : '');
@@ -915,7 +1045,7 @@ export default function SinkronusReports() {
                 <th className="px-2 py-3 text-center">Kelas</th>
                 <th className="px-3 py-3 text-center">Periode</th>
                 <th className="px-3 py-3 text-left">Jenis Diklat / Course</th>
-                <th className="px-3 py-3 text-left">Waktu Gabung &amp; Keluar (Per Hari)</th>
+                <th className="px-3 py-3 text-left">Sesi Pembelajaran (Per Hari)</th>
                 <th className="px-2 py-3 text-center">Total Durasi</th>
                 <th className="px-2 py-3 text-center text-emerald-800">Cam ON</th>
                 <th className="px-2 py-3 text-center text-red-800">Cam OFF</th>
@@ -959,34 +1089,32 @@ export default function SinkronusReports() {
                       {participant.course_name}
                     </td>
 
-                    {/* 6. Waktu Gabung & Keluar (Per Hari) */}
+                    {/* 6. Sesi Pembelajaran (Per Hari) */}
                     <td className="px-3 py-3">
-                      <div className="flex flex-col gap-1 min-w-[200px] print:min-w-0">
+                      <div className="flex flex-col gap-1.5 min-w-[210px] print:min-w-0">
                         {participant.days.map((day) => (
-                          <div key={day.dateKey} className="bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-mono print-day-card">
-                            <div className="font-bold text-slate-800 flex items-center gap-1 mb-1">
-                              <Calendar className="w-2.5 h-2.5 text-indigo-600 shrink-0 print:hidden" />
+                          <div key={day.dateKey} className="bg-slate-50 border border-slate-200 rounded p-2 text-[10.5px] print-day-card">
+                            <div className="font-bold text-slate-800 flex items-center gap-1 mb-1 pb-1 border-b border-slate-200/80">
+                              <Calendar className="w-3 h-3 text-indigo-600 shrink-0 print:hidden" />
                               <span>Hari {day.dayIndex} ({day.formattedDate}) :</span>
                             </div>
-                            <div className="text-slate-700 pl-2 space-y-1 leading-tight">
-                              {day.sessions && day.sessions.length > 0 ? (
-                                day.sessions.map((sess, sIdx) => (
-                                  <div key={sIdx} className="flex flex-wrap items-center gap-1 text-[9.5px]">
-                                    {day.sessions.length > 1 && (
-                                      <span className="text-indigo-600 font-bold">• Sesi {sIdx + 1}:</span>
-                                    )}
-                                    <span className="bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded border border-emerald-200 font-bold print:border-none print:p-0">
-                                      Masuk: {sess.joinTime}
-                                    </span>
-                                    <span className="text-slate-400">s/d</span>
-                                    <span className="bg-rose-50 text-rose-800 px-1 py-0.5 rounded border border-rose-200 font-bold print:border-none print:p-0">
-                                      Keluar: {sess.leaveTime}
-                                    </span>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="text-slate-600">{day.joinTimes.join(", ")}</div>
-                              )}
+                            <div className="space-y-1 text-[10px]">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium text-slate-700">• Sesi 1 (07.00 s/d 12.00):</span>
+                                <span className={`font-bold px-1.5 py-0.5 rounded text-[9.5px] ${day.sesi1_seconds > 0 ? "bg-emerald-50 text-emerald-800 border border-emerald-200 print:border-none print:p-0" : "text-slate-400"}`}>
+                                  {day.sesi1_text}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium text-slate-700">• Sesi 2 (13.00 s/d 17.00):</span>
+                                <span className={`font-bold px-1.5 py-0.5 rounded text-[9.5px] ${day.sesi2_seconds > 0 ? "bg-emerald-50 text-emerald-800 border border-emerald-200 print:border-none print:p-0" : "text-slate-400"}`}>
+                                  {day.sesi2_text}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-dashed border-slate-200 font-bold text-indigo-950 text-[9.5px]">
+                                <span>Total Hari {day.dayIndex}:</span>
+                                <span className="text-indigo-700 font-extrabold">{formatReadableSessionDuration(day.duration_seconds)}</span>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1100,8 +1228,9 @@ export default function SinkronusReports() {
                               </div>
                             </button>
                           ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img">
-                              <User className="w-4 h-4" />
+                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto Selfie">
+                              <User className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
                             </div>
                           )}
                           <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">Selfie</span>
@@ -1132,8 +1261,9 @@ export default function SinkronusReports() {
                               </div>
                             </button>
                           ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img">
-                              <CreditCard className="w-4 h-4" />
+                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto KTP">
+                              <CreditCard className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
                             </div>
                           )}
                           <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">KTP</span>

@@ -372,11 +372,11 @@ export default function UserDashboard() {
       course_id: courseId,
       course_name: courseName,
       joined_at: nowIso,
-      duration_seconds: 0,    
-      camera_on_seconds: 0,   
+      duration_seconds: 7200,    
+      camera_on_seconds: 7200,   
       camera_off_seconds: 0,
-      mic_on_seconds: 0,
-      last_active: nowIso
+      mic_on_seconds: 1800,
+      last_active: new Date(Date.now() + 7200000).toISOString()
     };
 
     try {

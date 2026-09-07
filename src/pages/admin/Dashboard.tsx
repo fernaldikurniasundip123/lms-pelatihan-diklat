@@ -2267,7 +2267,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     // Map each identity_number to its longest (most complete) full_name
     const completeNameMap = new Map<string, string>();
     reports.forEach(r => {
-      const code = (r.identity_number || "").trim();
+      const code = (r.identity_number || "").trim().toUpperCase();
       const name = (r.full_name || "").trim();
       if (code && name) {
         const existing = completeNameMap.get(code) || "";
@@ -2306,22 +2306,27 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       
       return true;
     }).map(r => {
-      const code = (r.identity_number || "").trim();
+      const code = (r.identity_number || "").trim().toUpperCase();
       const mostCompleteName = (code && completeNameMap.has(code)) ? completeNameMap.get(code)! : r.full_name;
       return {
         ...r,
         full_name: mostCompleteName
       };
     }).sort((a, b) => {
-      const codeA = (a.identity_number || "").trim();
-      const codeB = (b.identity_number || "").trim();
+      const codeA = (a.identity_number || "").trim().toUpperCase();
+      const codeB = (b.identity_number || "").trim().toUpperCase();
       const nameA = (a.full_name || "").trim();
       const nameB = (b.full_name || "").trim();
 
-      if (codeA && codeB && codeA === codeB) {
+      // Urutkan berdasarkan kode pelaut agar peserta yang sama selalu terkumpul bersama
+      if (codeA && codeB) {
+        const cmpCode = codeA.localeCompare(codeB);
+        if (cmpCode !== 0) return cmpCode;
         return (a.course_name || "").localeCompare(b.course_name || "");
       }
-      return nameA.localeCompare(nameB) || codeA.localeCompare(codeB);
+      if (codeA && !codeB) return -1;
+      if (!codeA && codeB) return 1;
+      return nameA.localeCompare(nameB) || (a.course_name || "").localeCompare(b.course_name || "");
     });
   };
 
@@ -2338,7 +2343,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       doc.text(title, 14, 22);
       
       doc.setFontSize(11);
-      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
+      doc.text(`Generated on: ${new Date().toLocaleDateString('id-ID')}`, 14, 30);
 
       const filtered = filterReports(type === 'video' ? videoReports : type === 'assessment' ? assessmentReports : finalReports);
 
@@ -2351,7 +2356,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             r.identity_number,
             r.course_name,
             r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
-            `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
+            `${r.period_start ? new Date(r.period_start).toLocaleDateString('id-ID') : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString('id-ID') : '-'}`,
             r.video_breakdown,
             `${Math.round(r.avg_video_progress)}%`,
             r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
@@ -2360,13 +2365,15 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       } else if (type === 'assessment') {
         let prevIdentity = '';
         const bodyRows = filtered.map(r => {
-          const code = (r.identity_number || '').trim();
+          const code = (r.identity_number || '').trim().toUpperCase() || (r.user_id || '').trim();
           const isSamePerson = code !== '' && code === prevIdentity;
-          prevIdentity = code;
+          if (code !== '') {
+            prevIdentity = code;
+          }
 
           const nameDisplay = isSamePerson ? '' : r.full_name;
-          const identityDisplay = isSamePerson ? '' : r.identity_number;
-          const periodDisplay = isSamePerson ? '' : `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`;
+          const identityDisplay = isSamePerson ? '' : (r.identity_number || '-');
+          const periodDisplay = isSamePerson ? '' : `${r.period_start ? new Date(r.period_start).toLocaleDateString('id-ID') : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString('id-ID') : '-'}`;
 
           return [
             nameDisplay,
@@ -2540,6 +2547,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
       worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
       let prevIdentityExcel = '';
+      let personIndexExcel = 0;
       for (let i = 0; i < filtered.length; i++) {
         const r = filtered[i];
         let rowData: any = {};
@@ -2549,7 +2557,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             no: i + 1,
             name: r.full_name,
             nik: r.identity_number,
-            period: `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
+            period: `${r.period_start ? new Date(r.period_start).toLocaleDateString('id-ID') : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString('id-ID') : '-'}`,
             course: r.course_name,
             mata_kuliah: r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
@@ -2557,15 +2565,20 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             status: r.avg_video_progress >= 90 ? 'Completed' : 'In Progress'
           };
         } else if (type === 'assessment') {
-          const code = (r.identity_number || '').trim();
+          const code = (r.identity_number || '').trim().toUpperCase() || (r.user_id || '').trim();
           const isSamePerson = code !== '' && code === prevIdentityExcel;
-          prevIdentityExcel = code;
+          if (code !== '') {
+            prevIdentityExcel = code;
+          }
+          if (!isSamePerson) {
+            personIndexExcel++;
+          }
 
           rowData = {
-            no: i + 1,
+            no: isSamePerson ? '' : personIndexExcel,
             name: isSamePerson ? '' : r.full_name,
-            nik: isSamePerson ? '' : r.identity_number,
-            period: isSamePerson ? '' : `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
+            nik: isSamePerson ? '' : (r.identity_number || '-'),
+            period: isSamePerson ? '' : `${r.period_start ? new Date(r.period_start).toLocaleDateString('id-ID') : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString('id-ID') : '-'}`,
             course: r.course_name,
             mata_kuliah: r.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (r.mata_kuliah || '-') : '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
@@ -4413,7 +4426,9 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
               <table className="min-w-full divide-y divide-gray-200 min-w-[max-content]">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Lengkap</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kode Pelaut</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Periode Diklat</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mata Kuliah</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
@@ -4425,30 +4440,49 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filterReports(assessmentReports).length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-500">
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
                   ) : filterReports(assessmentReports).map((report, idx, arr) => {
                     const prevReport = idx > 0 ? arr[idx - 1] : null;
-                    const code = (report.identity_number || '').trim();
-                    const prevCode = prevReport ? (prevReport.identity_number || '').trim() : '';
+                    const code = (report.identity_number || '').trim().toUpperCase() || (report.user_id || '').trim();
+                    const prevCode = prevReport ? ((prevReport.identity_number || '').trim().toUpperCase() || (prevReport.user_id || '').trim()) : '';
                     const isSamePerson = code !== '' && code === prevCode;
 
                     return (
                       <tr key={idx} className={isSamePerson ? "bg-slate-50/40 border-t border-gray-100" : "border-t border-gray-200"}>
+                        {/* 1. Nama Lengkap (Hanya 1 kali per kode pelaut) */}
                         <td className="px-6 py-4 whitespace-nowrap">
                           {!isSamePerson ? (
-                            <>
-                              <div className="text-sm font-bold text-gray-900">{report.full_name}</div>
-                              <div className="text-xs text-gray-500 font-mono mt-0.5">{report.identity_number}</div>
-                            </>
+                            <div className="text-sm font-bold text-gray-900">{report.full_name}</div>
                           ) : (
-                            <div className="text-xs text-slate-400 font-medium pl-3 border-l-2 border-indigo-200">
-                              ↳ <span className="font-semibold text-slate-700">{report.full_name}</span>
-                            </div>
+                            <span className="text-gray-300 text-xs">-</span>
                           )}
                         </td>
+
+                        {/* 2. Kode Pelaut (Hanya 1 kali per kode pelaut) */}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {!isSamePerson ? (
+                            <span className="text-xs font-mono font-bold text-gray-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                              {report.identity_number || '-'}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">-</span>
+                          )}
+                        </td>
+
+                        {/* 3. Periode Diklat (Hanya 1 kali per kode pelaut) */}
+                        <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-600 font-medium">
+                          {!isSamePerson ? (
+                            <span className="bg-slate-50 border border-slate-200 px-2 py-0.5 rounded font-mono text-[11px]">
+                              {report.period_start ? new Date(report.period_start).toLocaleDateString('id-ID') : '-'} s/d {report.period_end ? new Date(report.period_end).toLocaleDateString('id-ID') : '-'}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">-</span>
+                          )}
+                        </td>
+
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium">{report.course_name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {report.course_category === 'DIKLAT PENINGKATAN (PASIS)' ? (report.mata_kuliah || '-') : '-'}
