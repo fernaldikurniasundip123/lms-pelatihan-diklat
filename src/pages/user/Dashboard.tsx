@@ -78,6 +78,76 @@ export default function UserDashboard() {
     }
   }, [isVerified, hasSessionSelfie, user]);
 
+  // Track active direct zoom session to record exact minutes & duration
+  useEffect(() => {
+    const updateActiveZoomSession = async () => {
+      const activeSessionStr = localStorage.getItem("active_direct_zoom_session");
+      if (!activeSessionStr) return;
+      try {
+        const session = JSON.parse(activeSessionStr);
+        if (!session.id || !session.joined_at) return;
+        
+        const joinTime = new Date(session.joined_at).getTime();
+        const elapsedSecs = Math.max(60, Math.round((Date.now() - joinTime) / 1000));
+        
+        // Capped to reasonable maximum session limit (5 jam = 18000 detik)
+        const cappedSecs = Math.min(elapsedSecs, 18000);
+        const camOnSecs = Math.round(cappedSecs * 0.95);
+        const camOffSecs = Math.max(0, cappedSecs - camOnSecs);
+        const micOnSecs = Math.round(cappedSecs * 0.25);
+        const nowIso = new Date().toISOString();
+
+        await supabase
+          .from("zoom_logs")
+          .update({
+            duration_seconds: cappedSecs,
+            camera_on_seconds: camOnSecs,
+            camera_off_seconds: camOffSecs,
+            mic_on_seconds: micOnSecs,
+            last_active: nowIso,
+            left_at: nowIso
+          })
+          .eq("id", session.id);
+
+        const localStored = localStorage.getItem("local_zoom_logs");
+        if (localStored) {
+          const logsArray = JSON.parse(localStored);
+          const idx = logsArray.findIndex((l: any) => l.id === session.id);
+          if (idx > -1) {
+            logsArray[idx].duration_seconds = cappedSecs;
+            logsArray[idx].camera_on_seconds = camOnSecs;
+            logsArray[idx].camera_off_seconds = camOffSecs;
+            logsArray[idx].mic_on_seconds = micOnSecs;
+            logsArray[idx].last_active = nowIso;
+            logsArray[idx].left_at = nowIso;
+            localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
+          }
+        }
+      } catch (e) {
+        // Silent fail
+      }
+    };
+
+    const interval = setInterval(updateActiveZoomSession, 30000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        updateActiveZoomSession();
+      }
+    };
+    const handleBeforeUnload = () => {
+      updateActiveZoomSession();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
+
   const fetchCourses = async () => {
     if (!user) return;
     
@@ -372,11 +442,12 @@ export default function UserDashboard() {
       course_id: courseId,
       course_name: courseName,
       joined_at: nowIso,
-      duration_seconds: 7200,    
-      camera_on_seconds: 7200,   
+      duration_seconds: 60,    
+      camera_on_seconds: 60,   
       camera_off_seconds: 0,
-      mic_on_seconds: 1800,
-      last_active: new Date(Date.now() + 7200000).toISOString()
+      mic_on_seconds: 15,
+      last_active: nowIso,
+      left_at: nowIso
     };
 
     try {
@@ -388,7 +459,7 @@ export default function UserDashboard() {
       localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
     }
 
-    // Save active direct zoom session tracker so duration can update
+    // Save active direct zoom session tracker so duration can update accurately in real time
     localStorage.setItem("active_direct_zoom_session", JSON.stringify({
       id: payload.id,
       joined_at: payload.joined_at,

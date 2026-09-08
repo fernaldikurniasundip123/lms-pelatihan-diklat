@@ -3195,6 +3195,12 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
               >
                 <CheckCircle className="w-5 h-5" /> Final Reports
               </button>
+              <button
+                onClick={() => setActiveTab("zoom-reports")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "zoom-reports" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Clock className="w-5 h-5" /> Laporan Sinkronus Zoom
+              </button>
             </>
           ) : (
             <>
