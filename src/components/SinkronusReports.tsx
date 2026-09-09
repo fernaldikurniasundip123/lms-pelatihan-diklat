@@ -261,18 +261,35 @@ export default function SinkronusReports() {
 
       setVerifications(verifMap);
 
-      // 3. Fetch Zoom logs
+      // 3. Fetch Zoom logs (with high limit so it never truncates daily tracking)
       const { data: dbLogs, error } = await supabase
         .from("zoom_logs")
         .select("*")
-        .order("joined_at", { ascending: false });
+        .order("joined_at", { ascending: false })
+        .limit(50000);
 
       if (error) {
         throw error;
       }
 
       if (dbLogs) {
-        setLogs(dbLogs);
+        // Also check if there are any locally stored logs to merge
+        const localStored = localStorage.getItem("local_zoom_logs");
+        let mergedLogs = [...dbLogs];
+        if (localStored) {
+          try {
+            const localList: ZoomLog[] = JSON.parse(localStored);
+            const existingIds = new Set(dbLogs.map(l => l.id));
+            localList.forEach(l => {
+              if (!existingIds.has(l.id)) {
+                mergedLogs.unshift(l);
+              }
+            });
+          } catch (err) {
+            // ignore
+          }
+        }
+        setLogs(mergedLogs);
       }
     } catch (e) {
       console.warn("Table zoom_logs not found or setup is missing. Loading from LocalStorage & Mock Fallback...");

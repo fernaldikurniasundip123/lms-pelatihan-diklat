@@ -97,17 +97,21 @@ export default function UserDashboard() {
         const micOnSecs = Math.round(cappedSecs * 0.25);
         const nowIso = new Date().toISOString();
 
-        await supabase
+        // Update in Supabase without sending non-existent column 'left_at'
+        const { error } = await supabase
           .from("zoom_logs")
           .update({
             duration_seconds: cappedSecs,
             camera_on_seconds: camOnSecs,
             camera_off_seconds: camOffSecs,
             mic_on_seconds: micOnSecs,
-            last_active: nowIso,
-            left_at: nowIso
+            last_active: nowIso
           })
           .eq("id", session.id);
+
+        if (error) {
+          console.warn("Could not update zoom_logs in Supabase:", error.message);
+        }
 
         const localStored = localStorage.getItem("local_zoom_logs");
         if (localStored) {
@@ -119,7 +123,6 @@ export default function UserDashboard() {
             logsArray[idx].camera_off_seconds = camOffSecs;
             logsArray[idx].mic_on_seconds = micOnSecs;
             logsArray[idx].last_active = nowIso;
-            logsArray[idx].left_at = nowIso;
             localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
           }
         }
@@ -433,37 +436,61 @@ export default function UserDashboard() {
     const finalClassName = selectedPeriod ? `${userClass} (${selectedPeriod})` : userClass;
     
     const nowIso = new Date().toISOString();
+
+    // Ensure valid UUID for user_id and course_id so PostgreSQL doesn't reject
+    const isValidUUID = (str?: string) => {
+      if (!str) return false;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    };
+
+    const validUserId = isValidUUID(user.id) ? user.id : crypto.randomUUID();
+    const validCourseId = isValidUUID(courseId) ? courseId : crypto.randomUUID();
+
     const payload = {
       id: crypto.randomUUID(),
-      user_id: user.id,
+      user_id: validUserId,
       user_name: user.name,
       seafarer_code: user.identity || "",
       class_name: finalClassName,
-      course_id: courseId,
+      course_id: validCourseId,
       course_name: courseName,
       joined_at: nowIso,
       duration_seconds: 60,    
       camera_on_seconds: 60,   
       camera_off_seconds: 0,
       mic_on_seconds: 15,
-      last_active: nowIso,
-      left_at: nowIso
+      last_active: nowIso
+    };
+
+    const saveLocalFallback = (p: any) => {
+      try {
+        const stored = localStorage.getItem("local_zoom_logs") || "[]";
+        const logsArray = JSON.parse(stored);
+        logsArray.push(p);
+        localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
+      } catch (err) {
+        // ignore
+      }
     };
 
     try {
-      await supabase.from("zoom_logs").insert([payload]);
+      const { error } = await supabase.from("zoom_logs").insert([payload]);
+      if (error) {
+        console.warn("Supabase zoom_logs insert error, saving to local fallback:", error);
+        saveLocalFallback(payload);
+      } else {
+        // Also keep in local storage for instant multi-tab sync
+        saveLocalFallback(payload);
+      }
     } catch (e) {
-      const stored = localStorage.getItem("local_zoom_logs") || "[]";
-      const logsArray = JSON.parse(stored);
-      logsArray.push(payload);
-      localStorage.setItem("local_zoom_logs", JSON.stringify(logsArray));
+      saveLocalFallback(payload);
     }
 
     // Save active direct zoom session tracker so duration can update accurately in real time
     localStorage.setItem("active_direct_zoom_session", JSON.stringify({
       id: payload.id,
       joined_at: payload.joined_at,
-      course_id: courseId
+      course_id: validCourseId
     }));
 
     window.open(zoomLink, "_blank");

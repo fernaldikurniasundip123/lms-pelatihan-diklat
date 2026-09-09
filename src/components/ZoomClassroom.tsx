@@ -173,17 +173,24 @@ export default function ZoomClassroom({ courseId, courseName, user, onLeave }: Z
     const userClass = localStorage.getItem("selected_class") || user.class_name || "KELAS SINKRONUS";
     const totalDuration = Math.floor((Date.now() - joinTimeRef.current) / 1000);
     const nowIso = new Date().toISOString();
+
+    const isValidUUID = (str?: string) => {
+      if (!str) return false;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    };
+
+    const validUserId = isValidUUID(user.id) ? user.id : crypto.randomUUID();
+    const validCourseId = isValidUUID(courseId) ? courseId : crypto.randomUUID();
     
     const payload = {
       id: logIdRef.current,
-      user_id: user.id,
+      user_id: validUserId,
       user_name: user.name,
       seafarer_code: user.identity,
       class_name: userClass,
-      course_id: courseId,
+      course_id: validCourseId,
       course_name: courseName,
       joined_at: new Date(joinTimeRef.current).toISOString(),
-      left_at: nowIso,
       duration_seconds: totalDuration,
       camera_on_seconds: cameraOnSeconds,
       camera_off_seconds: cameraOffSeconds,
@@ -198,7 +205,10 @@ export default function ZoomClassroom({ courseId, courseName, user, onLeave }: Z
         .upsert([payload], { onConflict: "id" });
 
       if (error) {
+        console.warn("Supabase upsert error in ZoomClassroom:", error.message);
         // Fallback silently to localStorage
+        saveToLocalFallback(payload);
+      } else {
         saveToLocalFallback(payload);
       }
     } catch (e) {
