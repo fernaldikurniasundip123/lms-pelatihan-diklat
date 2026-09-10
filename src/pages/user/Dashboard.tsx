@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { Book, Video, FileText, PlayCircle, LogOut, Camera, Upload, CheckCircle, ExternalLink, Info, X } from "lucide-react";
+import { Book, Video, FileText, PlayCircle, LogOut, Camera, Upload, CheckCircle, ExternalLink, Info, X, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
 import { supabase } from "../../lib/supabase";
@@ -24,6 +24,7 @@ export default function UserDashboard() {
   const webcamRef = useRef<Webcam>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUadUser, setIsUadUser] = useState<boolean | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsVerified(user?.is_verified);
@@ -233,15 +234,38 @@ export default function UserDashboard() {
     navigate("/login");
   };
 
+  const handleCameraError = (err: any) => {
+    console.warn("Webcam error:", err);
+    if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+      setCameraError("Izin kamera ditolak. Silakan izinkan akses kamera di ikon gembok/setelan browser Anda, lalu refresh halaman ini.");
+    } else if (err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError") {
+      setCameraError("Kamera depan tidak ditemukan pada perangkat Anda.");
+    } else if (err?.name === "NotReadableError" || err?.name === "TrackStartError") {
+      setCameraError("Kamera sedang digunakan aplikasi lain (misal WhatsApp atau Zoom). Tutup aplikasi tersebut lalu coba lagi.");
+    } else {
+      setCameraError("Kamera tidak dapat diakses. Jika Anda membuka tautan dari WhatsApp, silakan tekan titik tiga (⋮) di pojok kanan atas lalu pilih 'Buka di Chrome' / browser utama.");
+    }
+  };
+
   const captureLivePhoto = async () => {
     try {
       // Get smaller screenshot natively from react-webcam to avoid memory crash
       const imageSrc = webcamRef.current?.getScreenshot({ width: 640, height: 480 });
       if (imageSrc) {
         setLivePhoto(imageSrc);
+        setCameraError(null);
+      } else {
+        // If imageSrc is null, camera is not streaming yet or blocked
+        const isWhatsapp = /WhatsApp/i.test(navigator.userAgent);
+        if (isWhatsapp) {
+          setCameraError("Kamera tidak merespon di browser WhatsApp. Silakan tekan titik tiga (⋮) di pojok kanan atas lalu pilih 'Buka di Chrome'.");
+        } else {
+          setCameraError("Kamera belum siap atau tidak aktif. Harap tunggu hingga wajah Anda terlihat di layar atau periksa izin kamera di browser Anda.");
+        }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Capture live photo error:", e);
+      setCameraError(`Gagal mengambil foto: ${e?.message || 'Pastikan izin kamera browser aktif'}`);
     }
   };
 
@@ -540,6 +564,8 @@ export default function UserDashboard() {
                   ref={webcamRef}
                   screenshotFormat="image/jpeg"
                   screenshotQuality={0.8}
+                  onUserMedia={() => setCameraError(null)}
+                  onUserMediaError={handleCameraError}
                   className={`w-full h-full object-cover ${livePhoto ? 'hidden' : 'block'}`}
                   videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
                 />
@@ -547,6 +573,16 @@ export default function UserDashboard() {
                   <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover absolute inset-0 z-10" />
                 )}
               </div>
+
+              {cameraError && !livePhoto && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-amber-950">Petunjuk Akses Kamera:</p>
+                    <p className="leading-relaxed text-amber-900">{cameraError}</p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3">
                 {!livePhoto ? (
@@ -628,6 +664,8 @@ export default function UserDashboard() {
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
                 screenshotQuality={0.8}
+                onUserMedia={() => setCameraError(null)}
+                onUserMediaError={handleCameraError}
                 className={`w-full h-full object-cover ${livePhoto ? 'hidden' : 'block'}`}
                 videoConstraints={{ facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }}
               />
@@ -635,6 +673,16 @@ export default function UserDashboard() {
                 <img src={livePhoto} alt="Live Capture" className="w-full h-full object-cover absolute inset-0 z-10" />
               )}
             </div>
+
+            {cameraError && !livePhoto && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold text-amber-950">Petunjuk Akses Kamera:</p>
+                  <p className="leading-relaxed text-amber-900">{cameraError}</p>
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-3">
               {!livePhoto ? (
@@ -888,11 +936,10 @@ export default function UserDashboard() {
                 </div>
               ) : retrievedZoomConfig ? (
                 <div className="space-y-4">
-                  {/* Option 1: Direct Zoom Link */}
                   <div className="border border-gray-200 rounded-xl p-4 hover:border-indigo-200 hover:bg-indigo-50/20 transition group">
                     <div className="flex justify-between items-start gap-4">
                       <div className="space-y-1">
-                        <h5 className="font-bold text-gray-800 text-sm group-hover:text-indigo-900 transition">Metode A: Gunakan Aplikasi Zoom Client (Rekomendasi)</h5>
+                        <h5 className="font-bold text-gray-800 text-sm group-hover:text-indigo-900 transition">Gunakan Aplikasi Zoom Client</h5>
                         <p className="text-xs text-gray-500 leading-normal">Buka langsung menggunakan aplikasi Zoom di Android, laptop atau komputer Anda. Bebas lag dan kualitas audio video terbaik.</p>
                         {retrievedZoomConfig.meeting_name && (
                           <div className="flex items-center gap-1.5 text-[10px] font-mono text-indigo-600 font-bold bg-indigo-50 mt-2 px-2 py-0.5 rounded w-max">
@@ -908,32 +955,13 @@ export default function UserDashboard() {
                       <ExternalLink className="w-4 h-4" /> Buka Aplikasi Zoom (Link Siap Pakai)
                     </button>
                   </div>
-
-                  {/* Option 2: Embed Web SDK Web Viewport */}
-                  <div className="border border-gray-200 rounded-xl p-4 hover:border-rose-200 hover:bg-rose-50/20 transition group">
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="space-y-1">
-                        <h5 className="font-bold text-gray-800 text-sm group-hover:text-rose-900 transition">Metode B: Web SDK Client (Simulasi Terintegrasi)</h5>
-                        <p className="text-xs text-gray-500 leading-normal">Tetap berada di dalam sistem LMS. Sistem akan menyalakan feed kamera, deteksi mic, dan log telemetry di tab browser ini secara real-time.</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setActiveZoomClass({ id: selectedZoomCourse.id, name: selectedZoomCourse.name });
-                        setSelectedZoomCourse(null);
-                      }}
-                      className="mt-4 w-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-1.5 transition duration-150"
-                    >
-                      <Video className="w-4 h-4" /> Masuk via Web SDK LMS (Tatap Muka Virtual)
-                    </button>
-                  </div>
                 </div>
               ) : null}
 
               <div className="bg-amber-50 rounded-lg p-3 border border-amber-200/50 flex gap-2.5 items-start">
                 <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] text-amber-800 leading-normal">
-                  <strong>Penting:</strong> Apapun metode yang Anda pilih, kehadiran Anda akan dicatat secara otomatis oleh sistem LMS untuk laporan kelulusan diklat sinkronus ke Dinas Perhubungan / Instruktur.
+                  <strong>Penting:</strong> Kehadiran Anda akan dicatat secara otomatis oleh sistem LMS untuk laporan kelulusan diklat sinkronus ke Dinas Perhubungan / Instruktur.
                 </p>
               </div>
             </div>
