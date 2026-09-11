@@ -66,6 +66,21 @@ export default function Login() {
     }
   };
 
+  const isZoomDirectLink = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const catParam = params.get('category')?.toUpperCase() || '';
+    const hasZoomParam = params.has('zoom') || params.has('sinkronus');
+    const isZoomPath = location.pathname === '/zoom' || location.pathname === '/sinkronus';
+    return (
+      isZoomPath ||
+      hasZoomParam ||
+      catParam === 'ZOOM' ||
+      catParam === 'SINKRONUS' ||
+      catParam === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' ||
+      catParam.includes('SINKRONUS ZOOM')
+    );
+  }, [location.search, location.pathname]);
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const catParam = params.get('category');
@@ -73,7 +88,9 @@ export default function Login() {
     const periodStartParam = params.get('periodStart');
     const periodEndParam = params.get('periodEnd');
     
-    if (catParam) {
+    if (isZoomDirectLink) {
+      setSelectedCategory("PEMBELAJARAN SINKRONUS ZOOM MEETING");
+    } else if (catParam) {
       setSelectedCategory(catParam);
     }
     if (courseParam) {
@@ -83,7 +100,7 @@ export default function Login() {
       setPeriodStart(periodStartParam);
       setPeriodEnd(periodEndParam);
     }
-  }, [location.search]);
+  }, [location.search, location.pathname, isZoomDirectLink]);
 
   const selectedCourse = courses.find(c => c.id === courseId);
 
@@ -671,21 +688,33 @@ export default function Login() {
               <>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <label htmlFor="selectedCategory" className="block text-sm font-medium text-gray-700">
-                      Jenis Pelatihan
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="selectedCategory" className="block text-sm font-medium text-gray-700">
+                        Jenis Pelatihan
+                      </label>
+                      {isZoomDirectLink && (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          Terkunci Sesuai Link
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-1">
                       <select
                         id="selectedCategory"
                         name="selectedCategory"
                         value={selectedCategory}
+                        disabled={isZoomDirectLink}
                         onChange={(e) => {
                           setSelectedCategory(e.target.value);
                           setSelectedTingkat("");
                           setCourseId(""); // reset course selection when category changes
                           setLoginMataKuliah("");
                         }}
-                        className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className={`block w-full px-3 py-2 border rounded-md shadow-sm sm:text-sm ${
+                          isZoomDirectLink
+                            ? "bg-slate-100 text-slate-800 border-slate-300 font-semibold cursor-not-allowed select-none"
+                            : "border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        }`}
                       >
                         <option value="">-- Pilih Jenis Pelatihan (Opsional untuk Admin) --</option>
                         <option value="DIKLAT KETRAMPILAN (SHORT COURSE)">DIKLAT KETRAMPILAN (SHORT COURSE)</option>

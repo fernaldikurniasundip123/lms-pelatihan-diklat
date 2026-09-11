@@ -31,6 +31,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/zoom" element={<Login />} />
+        <Route path="/sinkronus" element={<Login />} />
         <Route path="/bahan-diklat" element={<BahanDiklat />} />
         
         {/* Admin Routes */}
@@ -69,7 +71,7 @@ export default function App() {
         <Route path="/" element={
           (user?.role === "admin" || user?.role === "admin2" || user?.role === "admin_uad") ? <Navigate to="/admin" replace /> : 
           user?.role === "user" ? <Navigate to="/user" replace /> : 
-          <Navigate to="/login" replace />
+          <Navigate to={`/login${window.location.search}`} replace />
         } />
       </Routes>
     </BrowserRouter>
