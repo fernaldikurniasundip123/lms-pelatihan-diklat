@@ -319,6 +319,9 @@ export default function SinkronusReports() {
     normNameToCode: {}
   });
 
+  // Attendance map cache from storage (same as fetchAttendancesAsync in Final Report)
+  const attendanceMapRef = useRef<Record<string, string[]>>({});
+
   // Filters State
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCourse, setSelectedCourse] = useState("");
@@ -347,28 +350,103 @@ export default function SinkronusReports() {
     setErrorLocalAlert(false);
 
     try {
-      // 1. Fetch courses, users, zoom_logs, verifications, and storage files concurrently
+      // Helper function to fetch all rows with pagination exactly like Final Report in Dashboard.tsx
+      const fetchAll = async (queryBuilder: any) => {
+        let allData: any[] = [];
+        let from = 0;
+        const step = 1000;
+        let hasMore = true;
+        try {
+          while (hasMore) {
+            const { data, error } = await queryBuilder.range(from, from + step - 1);
+            if (error) {
+              console.warn("fetchAll warning:", error);
+              break;
+            }
+            if (data && data.length > 0) {
+              allData = [...allData, ...data];
+              from += step;
+              if (data.length < step) hasMore = false;
+            } else {
+              hasMore = false;
+            }
+          }
+        } catch (err) {
+          console.warn("fetchAll caught error:", err);
+        }
+        return allData;
+      };
+
+      // 1. Same exact query structure as Final Report in Dashboard.tsx:
+      // enrollQuery selects users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at))
+      const enrollQuery = supabase
+        .from('enrollments')
+        .select(`*, users!inner(id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)), courses!inner(id, name, category, description)`)
+        .order('created_at', { ascending: false });
+
+      const usersQuery = supabase
+        .from('users')
+        .select(`id, full_name, identity_number, class_name, global_verifications(live_photo_url, ktp_photo_url, created_at)`);
+
+      const zoomLogsQuery = supabase
+        .from('zoom_logs')
+        .select('*')
+        .order('joined_at', { ascending: false });
+
+      const coursesQuery = supabase
+        .from('courses')
+        .select('id, name')
+        .order('name', { ascending: true });
+
+      const latihanVerifsQuery = supabase
+        .from('latihan_verifications')
+        .select('user_id, seafarer_code, live_photo_url, ktp_photo_url, created_at')
+        .order('created_at', { ascending: true });
+
+      const storagePromise = supabase.storage
+        .from('verifications')
+        .list('', { limit: 10000, sortBy: { column: 'created_at', order: 'desc' } })
+        .catch(() => ({ data: [] }));
+
       const [
-        coursesRes,
-        usersRes,
-        zoomLogsRes,
-        globalVerifsRes,
-        latihanVerifsRes,
+        enrollData,
+        usersData,
+        zoomLogsData,
+        coursesData,
+        latihanVerifsData,
         storageFilesRes
       ] = await Promise.all([
-        supabase.from("courses").select("id, name").order("name", { ascending: true }),
-        supabase.from("users").select("id, identity_number, full_name").limit(50000),
-        supabase.from("zoom_logs").select("*").order("joined_at", { ascending: false }).limit(50000),
-        supabase.from("global_verifications").select("user_id, live_photo_url, ktp_photo_url, created_at").order("created_at", { ascending: true }).limit(50000),
-        supabase.from("latihan_verifications").select("user_id, seafarer_code, live_photo_url, ktp_photo_url, created_at").order("created_at", { ascending: true }).limit(50000),
-        supabase.storage.from("verifications").list("", { limit: 10000, sortBy: { column: "created_at", order: "asc" } }).catch(() => ({ data: [] }))
+        fetchAll(enrollQuery),
+        fetchAll(usersQuery),
+        fetchAll(zoomLogsQuery),
+        fetchAll(coursesQuery),
+        fetchAll(latihanVerifsQuery),
+        storagePromise
       ]);
 
-      if (coursesRes.data) {
-        setCourses(coursesRes.data);
+      if (coursesData && coursesData.length > 0) {
+        setCourses(coursesData);
       }
 
-      // 2. Build multi-directional cross-referencing maps from ALL available tables
+      // 2. Parse attendances from storage (same as fetchAttendancesAsync in Final Report Dashboard.tsx)
+      const allFiles = (storageFilesRes.data as any[]) || [];
+      const allAttendances = allFiles.filter((f: any) => f.name && f.name.includes('_login_attendance_'));
+      const attendanceMap: Record<string, string[]> = {};
+      allAttendances.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      allAttendances.forEach((file: any) => {
+        const parts = file.name.split('_');
+        if (parts.length >= 2) {
+          const userId = parts[0];
+          if (!attendanceMap[userId]) attendanceMap[userId] = [];
+          const { data: publicUrlData } = supabase.storage.from('verifications').getPublicUrl(file.name);
+          if (publicUrlData?.publicUrl) {
+            attendanceMap[userId].push(publicUrlData.publicUrl);
+          }
+        }
+      });
+      attendanceMapRef.current = attendanceMap;
+
+      // 3. Build multi-directional cross-referencing maps from ALL available tables
       const userToCodeMap: Record<string, string> = {};
       const codeToUserMap: Record<string, string> = {};
       const nameToCodeMap: Record<string, string> = {};
@@ -397,15 +475,20 @@ export default function SinkronusReports() {
         }
       };
 
-      // Populate from users table
-      if (usersRes.data) {
-        usersRes.data.forEach((u: any) => {
-          registerMapping(u.id, u.identity_number, u.full_name);
-        });
-      }
+      // Populate from usersData
+      usersData.forEach((u: any) => {
+        registerMapping(u.id, u.identity_number, u.full_name);
+      });
+
+      // Populate from enrollData users!inner
+      enrollData.forEach((en: any) => {
+        if (en.users) {
+          registerMapping(en.users.id, en.users.identity_number, en.users.full_name);
+        }
+      });
 
       // Populate & merge from zoom_logs table
-      const dbLogs = zoomLogsRes.data || [];
+      const dbLogs = zoomLogsData || [];
       const localStored = localStorage.getItem("local_zoom_logs");
       let mergedLogs = [...dbLogs];
       if (localStored) {
@@ -427,13 +510,11 @@ export default function SinkronusReports() {
       });
 
       // Populate & merge from latihan_verifications
-      if (latihanVerifsRes.data) {
-        latihanVerifsRes.data.forEach((v: any) => {
-          const rawCode = (v.seafarer_code || "").trim();
-          const cleanCode = rawCode.replace(/__PRAKTEK.*$/, "").trim();
-          registerMapping(v.user_id, cleanCode, undefined);
-        });
-      }
+      latihanVerifsData.forEach((v: any) => {
+        const rawCode = (v.seafarer_code || "").trim();
+        const cleanCode = rawCode.replace(/__PRAKTEK.*$/, "").trim();
+        registerMapping(v.user_id, cleanCode, undefined);
+      });
 
       userMappingsRef.current = {
         userToCode: userToCodeMap,
@@ -444,15 +525,15 @@ export default function SinkronusReports() {
         normNameToCode: normNameToCodeMap
       };
 
-      // 3. Build comprehensive Verification map
-      const verifMap: Record<string, { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }> = {};
+      // 4. Build comprehensive Verification map with exact Final Report resolution
+      const verifMap: Record<string, { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string; initial_photo?: string }> = {};
 
-      const saveToVerifMap = (keys: (string | null | undefined)[], data: Partial<{ selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }>) => {
+      const saveToVerifMap = (keys: (string | null | undefined)[], data: Partial<{ selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string; initial_photo?: string }>) => {
         const validKeys = keys.filter(Boolean) as string[];
         if (validKeys.length === 0) return;
 
         // Find any existing record in verifMap among the keys
-        let target: { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string } = { all_selfies: [] };
+        let target: { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string; initial_photo?: string } = { all_selfies: [] };
         for (const k of validKeys) {
           if (verifMap[k]) {
             target = { ...verifMap[k] };
@@ -477,6 +558,7 @@ export default function SinkronusReports() {
           selfie_url: ensurePublicUrl(data.selfie_url) || target.selfie_url,
           // KTP: Preserves initial upload
           ktp_url: target.ktp_url || ensurePublicUrl(data.ktp_url),
+          initial_photo: target.initial_photo || ensurePublicUrl(data.initial_photo),
           praktek_stip_1: ensurePublicUrl(data.praktek_stip_1) || target.praktek_stip_1,
           praktek_stip_2: ensurePublicUrl(data.praktek_stip_2) || target.praktek_stip_2,
           all_selfies: newAllSelfies
@@ -487,79 +569,114 @@ export default function SinkronusReports() {
         });
       };
 
-      // Process Global Verifications
-      if (globalVerifsRes.data) {
-        globalVerifsRes.data.forEach((v: any) => {
-          if (!v.user_id) return;
-          const rawUid = v.user_id.trim();
-          const sCode = userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
-          const uId = codeToUserMap[rawUid] || rawUid;
-          const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
-          const normN = normalizeName(uName);
+      // Process user global verifications exactly like Final Report in Dashboard.tsx
+      const processUserVerifications = (user: any) => {
+        if (!user) return;
+        const uId = (user.id || "").trim();
+        const sCode = (user.identity_number || "").trim();
+        const uName = (user.full_name || "").trim();
+        const normN = normalizeName(uName);
 
-          const keys = [
-            `user_${rawUid}`,
-            uId ? `user_${uId}` : null,
-            sCode ? `code_${sCode}` : null,
-            uName ? `name_${uName.toLowerCase().trim()}` : null,
-            normN ? `norm_${normN}` : null
-          ];
+        registerMapping(uId, sCode, uName);
 
+        // Sorting global verifications descending (newest first) exactly like Final Report in Dashboard.tsx
+        const gvs = user.global_verifications || [];
+        const sortedGvs = Array.isArray(gvs)
+          ? [...gvs].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          : [];
+        const gv = sortedGvs[0] || (Array.isArray(gvs) ? null : gvs);
+        const oldestGv = sortedGvs[sortedGvs.length - 1] || gv;
+
+        const live_photo_data = gv?.live_photo_url || null;
+        const initial_photo_data = oldestGv?.live_photo_url || null;
+        const ktp_photo_data = gv?.ktp_photo_url || oldestGv?.ktp_photo_url || null;
+
+        // User attendance photos from storage
+        const userAttendances: string[] = [];
+        if (uId && attendanceMap[uId]) userAttendances.push(...attendanceMap[uId]);
+        if (sCode && sCode !== "-" && attendanceMap[sCode]) userAttendances.push(...attendanceMap[sCode]);
+        const uniqueAttendances = Array.from(new Set(userAttendances));
+
+        // Exact Final Report resolution:
+        // - livePhoto: latest attendance photo if present, otherwise latest live_photo_data, otherwise initial_photo_data
+        // - initialPhoto: oldestGv live_photo_url (login verification)
+        // - ktpPhoto: gv ktp_photo_url || oldestGv ktp_photo_url
+        const latestAttendancePhoto = uniqueAttendances.length > 0 ? uniqueAttendances[uniqueAttendances.length - 1] : null;
+        const livePhotoToUse = latestAttendancePhoto || live_photo_data || initial_photo_data;
+        const initialPhotoToUse = initial_photo_data || live_photo_data;
+        const ktpPhotoToUse = ktp_photo_data;
+        const allSelfiesToUse = uniqueAttendances.length > 0 ? uniqueAttendances : (livePhotoToUse ? [livePhotoToUse] : []);
+
+        const keys = [
+          uId ? `user_${uId}` : null,
+          sCode && sCode !== "-" ? `code_${sCode}` : null,
+          uName ? `name_${uName.toLowerCase().trim()}` : null,
+          normN ? `norm_${normN}` : null
+        ];
+
+        saveToVerifMap(keys, {
+          selfie_url: livePhotoToUse || undefined,
+          ktp_url: ktpPhotoToUse || undefined,
+          initial_photo: initialPhotoToUse || undefined,
+          all_selfies: allSelfiesToUse
+        });
+      };
+
+      // 1. Process from enrollments users (master enrollment records with global_verifications)
+      enrollData.forEach((en: any) => {
+        if (en.users) processUserVerifications(en.users);
+      });
+
+      // 2. Process from users table
+      usersData.forEach((u: any) => {
+        processUserVerifications(u);
+      });
+
+      // 3. Process Latihan Verifications
+      latihanVerifsData.forEach((v: any) => {
+        const rawCode = (v.seafarer_code || "").trim();
+        const rawUid = (v.user_id || "").trim();
+        const cleanCode = rawCode.replace(/__PRAKTEK.*$/, "").trim();
+        const sCode = cleanCode || userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
+        const uId = rawUid || (sCode ? codeToUserMap[sCode] : "");
+        const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
+        const normN = normalizeName(uName);
+
+        const keys = [
+          cleanCode ? `code_${cleanCode}` : null,
+          sCode ? `code_${sCode}` : null,
+          rawUid ? `user_${rawUid}` : null,
+          uId ? `user_${uId}` : null,
+          uName ? `name_${uName.toLowerCase().trim()}` : null,
+          normN ? `norm_${normN}` : null
+        ];
+
+        if (rawCode.includes("__PRAKTEK")) {
+          if (rawCode.endsWith("__PRAKTEK_STIP")) {
+            saveToVerifMap(keys, {
+              praktek_stip_1: v.live_photo_url,
+              praktek_stip_2: v.ktp_photo_url
+            });
+          } else if (rawCode.endsWith("__PRAKTEK_1")) {
+            saveToVerifMap(keys, {
+              praktek_stip_1: v.live_photo_url || v.ktp_photo_url
+            });
+          } else if (rawCode.endsWith("__PRAKTEK_2")) {
+            saveToVerifMap(keys, {
+              praktek_stip_2: v.live_photo_url || v.ktp_photo_url
+            });
+          }
+        } else {
           saveToVerifMap(keys, {
             selfie_url: v.live_photo_url,
             ktp_url: v.ktp_photo_url
           });
-        });
-      }
+        }
+      });
 
-      // Process Latihan Verifications
-      if (latihanVerifsRes.data) {
-        latihanVerifsRes.data.forEach((v: any) => {
-          const rawCode = (v.seafarer_code || "").trim();
-          const rawUid = (v.user_id || "").trim();
-          const cleanCode = rawCode.replace(/__PRAKTEK.*$/, "").trim();
-          const sCode = cleanCode || userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
-          const uId = rawUid || (sCode ? codeToUserMap[sCode] : "");
-          const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
-          const normN = normalizeName(uName);
-
-          const keys = [
-            cleanCode ? `code_${cleanCode}` : null,
-            sCode ? `code_${sCode}` : null,
-            rawUid ? `user_${rawUid}` : null,
-            uId ? `user_${uId}` : null,
-            uName ? `name_${uName.toLowerCase().trim()}` : null,
-            normN ? `norm_${normN}` : null
-          ];
-
-          if (rawCode.includes("__PRAKTEK")) {
-            if (rawCode.endsWith("__PRAKTEK_STIP")) {
-              saveToVerifMap(keys, {
-                praktek_stip_1: v.live_photo_url,
-                praktek_stip_2: v.ktp_photo_url
-              });
-            } else if (rawCode.endsWith("__PRAKTEK_1")) {
-              saveToVerifMap(keys, {
-                praktek_stip_1: v.live_photo_url || v.ktp_photo_url
-              });
-            } else if (rawCode.endsWith("__PRAKTEK_2")) {
-              saveToVerifMap(keys, {
-                praktek_stip_2: v.live_photo_url || v.ktp_photo_url
-              });
-            }
-          } else {
-            saveToVerifMap(keys, {
-              selfie_url: v.live_photo_url,
-              ktp_url: v.ktp_photo_url
-            });
-          }
-        });
-      }
-
-      // Process Storage Files with accurate filename parsing
-      const storageFiles = (storageFilesRes.data as any[]) || [];
-      if (storageFiles.length > 0) {
-        storageFiles.forEach((file: any) => {
+      // 4. Process Storage Files with accurate filename parsing
+      if (allFiles.length > 0) {
+        allFiles.forEach((file: any) => {
           const fileName = file.name || "";
           if (!fileName) return;
 
@@ -1219,6 +1336,62 @@ export default function SinkronusReports() {
       const totalMicOn = days.reduce((acc, d) => acc + d.mic_on_seconds, 0);
       const totalEntries = days.reduce((acc, d) => acc + (d.sesi1_seconds > 0 ? 1 : 0) + (d.sesi2_seconds > 0 ? 1 : 0), 0);
 
+      // Ensure photo data is completely resolved from verifications and attendanceMapRef (same as Final Report)
+      const sCode = (item.seafarer_code && item.seafarer_code !== "-") ? item.seafarer_code : (userMappingsRef.current.userToCode[item.user_id || ""] || "");
+      const uId = item.user_id || (sCode ? userMappingsRef.current.codeToUser[sCode] : "");
+      const uName = item.user_name || "";
+      const normN = normalizeName(uName);
+
+      const checkKeys = [
+        uId ? `user_${uId}` : null,
+        sCode ? `code_${sCode}` : null,
+        uName ? `name_${uName.toLowerCase().trim()}` : null,
+        normN ? `norm_${normN}` : null
+      ].filter(Boolean) as string[];
+
+      let finalSelfie = item.selfie_url;
+      let finalKtp = item.ktp_url;
+      let finalPraktek1 = item.praktek_stip_1;
+      let finalPraktek2 = item.praktek_stip_2;
+      const finalAllSelfies = [...(item.all_selfies || [])];
+
+      for (const k of checkKeys) {
+        const v = verifications[k];
+        if (v) {
+          if (!finalKtp && v.ktp_url) finalKtp = v.ktp_url;
+          if (!finalSelfie && v.selfie_url) finalSelfie = v.selfie_url;
+          if (!finalPraktek1 && v.praktek_stip_1) finalPraktek1 = v.praktek_stip_1;
+          if (!finalPraktek2 && v.praktek_stip_2) finalPraktek2 = v.praktek_stip_2;
+          if (v.all_selfies) {
+            v.all_selfies.forEach(s => {
+              const pub = ensurePublicUrl(s);
+              if (pub && !finalAllSelfies.includes(pub)) finalAllSelfies.push(pub);
+            });
+          }
+        }
+      }
+
+      // Check attendanceMapRef directly if still missing
+      if (!finalSelfie || finalAllSelfies.length === 0) {
+        const atts = [
+          ...(uId && attendanceMapRef.current[uId] ? attendanceMapRef.current[uId] : []),
+          ...(sCode && attendanceMapRef.current[sCode] ? attendanceMapRef.current[sCode] : [])
+        ];
+        if (atts.length > 0) {
+          atts.forEach(a => {
+            const pub = ensurePublicUrl(a);
+            if (pub && !finalAllSelfies.includes(pub)) finalAllSelfies.push(pub);
+          });
+          if (!finalSelfie && finalAllSelfies.length > 0) {
+            finalSelfie = finalAllSelfies[finalAllSelfies.length - 1];
+          }
+        }
+      }
+
+      if (!finalSelfie && finalAllSelfies.length > 0) {
+        finalSelfie = finalAllSelfies[finalAllSelfies.length - 1];
+      }
+
       result.push({
         key,
         user_name: item.user_name,
@@ -1234,11 +1407,11 @@ export default function SinkronusReports() {
         total_camera_off_seconds: totalCamOff,
         total_mic_on_seconds: totalMicOn,
         total_entries: totalEntries,
-        selfie_url: item.selfie_url,
-        ktp_url: item.ktp_url,
-        all_selfies: item.all_selfies && item.all_selfies.length > 0 ? item.all_selfies : (item.selfie_url ? [item.selfie_url] : []),
-        praktek_stip_1: item.praktek_stip_1,
-        praktek_stip_2: item.praktek_stip_2
+        selfie_url: finalSelfie,
+        ktp_url: finalKtp,
+        all_selfies: finalAllSelfies.length > 0 ? finalAllSelfies : (finalSelfie ? [finalSelfie] : []),
+        praktek_stip_1: finalPraktek1,
+        praktek_stip_2: finalPraktek2
       });
     });
 
