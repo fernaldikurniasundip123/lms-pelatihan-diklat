@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { Book, Video, FileText, PlayCircle, LogOut, Camera, Upload, CheckCircle, ExternalLink, Info, X, AlertCircle } from "lucide-react";
+import { Book, Video, FileText, PlayCircle, LogOut, Camera, Upload, CheckCircle, ExternalLink, Info, X, AlertCircle, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
 import { supabase } from "../../lib/supabase";
 import ZoomClassroom from "../../components/ZoomClassroom";
+import UserParticipantReport from "../../components/UserParticipantReport";
+import UserPraktekStipUpload from "../../components/UserPraktekStipUpload";
 
 import { compressImage, compressImageFile } from "../../utils/imageCompression";
 
@@ -14,6 +16,7 @@ export default function UserDashboard() {
   const { user, logout, checkAuth } = useAuthStore();
   const navigate = useNavigate();
   const [courses, setCourses] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'courses' | 'report' | 'praktek_stip'>('courses');
 
   // Verification State
   const [isVerified, setIsVerified] = useState(user?.is_verified);
@@ -733,152 +736,240 @@ export default function UserDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">My Courses</h1>
-          <p className="text-gray-500 mt-1">Continue your learning journey</p>
+        {/* Navigation Tabs */}
+        <div className="flex flex-wrap gap-2.5 mb-8 border-b border-gray-200 pb-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('courses')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'courses'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+            }`}
+          >
+            <Book className="w-4 h-4" />
+            <span>Kursus Saya</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('report')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'report'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Hasil Laporan Kehadiran</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('praktek_stip')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'praktek_stip'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'bg-white text-amber-900 hover:bg-amber-50 border border-amber-300'
+            }`}
+          >
+            <Camera className="w-4 h-4 text-amber-500" />
+            <span>Upload Foto Praktek STIP (Maks. 2 Foto)</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {courses.map(course => (
-            <div key={course.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow flex flex-col">
-              <div className="p-6 flex-1">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-lg font-bold text-gray-900 leading-tight">{course.name}</h3>
-                  <div className="flex flex-col items-end gap-1">
-                    {course.isCompleted && (
-                      <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
-                        Completed
-                      </span>
-                    )}
-                    {course.enrollment_category === 'REFRESING' && (
-                      <span className="bg-teal-100 text-teal-800 text-xs px-2 py-1 rounded-full font-medium border border-teal-200">
-                        REFRESING
-                      </span>
-                    )}
-                    {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' && (
-                      <span className="bg-rose-100 text-rose-800 text-xs px-2 py-1 rounded-full font-medium border border-rose-300 animate-pulse">
-                        ZOOM SINKRONUS
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <p className="text-gray-600 text-sm mb-4 line-clamp-2">{course.description}</p>
-                
-                {course.enrollment_category === 'REFRESING' && course.period_start && (
-                  <div className="bg-teal-50 border border-teal-100 rounded-lg p-3 mb-4">
-                    <p className="text-xs text-teal-800 font-medium mb-1">Periode Refresing:</p>
-                    <p className="text-sm text-teal-900 mb-2">
-                       {new Date(course.period_start).toLocaleDateString('id-ID')} - {new Date(course.period_end).toLocaleDateString('id-ID')}
-                    </p>
-                    <p className="text-xs text-teal-800 font-medium mb-1">Hasil Nilai Akhir:</p>
-                    <p className="text-sm text-teal-900 font-bold">
-                       {course.score !== undefined && course.score !== null ? `${Math.round(course.score)}/100` : "Belum Mengerjakan"}
-                    </p>
-                  </div>
-                )}
-
-                {(course.enrollment_category === 'UJIAN UAD' || course.enrollment_category === 'LATIHAN UJIAN') && (
-                  <div className={`border rounded-lg p-3 mb-4 ${course.enrollment_category === 'UJIAN UAD' ? 'bg-indigo-50 border-indigo-100' : 'bg-amber-50 border-amber-100'}`}>
-                    <p className={`text-xs font-semibold mb-1 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-800' : 'text-amber-800'}`}>Periode Pelaksanaan:</p>
-                    <p className="text-sm text-gray-950 mb-2 font-semibold">
-                       {course.period_start ? `${new Date(course.period_start).toLocaleDateString('id-ID')} - ${new Date(course.period_end).toLocaleDateString('id-ID')}` : "Tidak Terbatas"}
-                    </p>
-                    <p className={`text-xs font-semibold mb-1 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-800' : 'text-amber-800'}`}>Hasil Nilai:</p>
-                    {course.score !== undefined && course.score !== null ? (
-                      <p className={`text-lg font-bold ${course.score >= 70 ? 'text-green-600' : 'text-red-600'}`}>
-                         {Math.round(course.score)}/100 <span className="text-xs font-semibold">({course.score >= 70 ? 'LULUS' : 'GAGAL'})</span>
-                      </p>
-                    ) : (
-                      <p className="text-sm text-gray-600 font-medium">Belum Mengerjakan</p>
-                    )}
-                  </div>
-                )}
-
-                {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' && (
-                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-3.5 mb-4">
-                    <p className="text-xs text-rose-800 font-bold mb-1 uppercase tracking-wider">Status Webinar virtual:</p>
-                    <p className="text-sm text-rose-950 font-black mb-2 animate-pulse flex items-center gap-1.5">
-                       <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block"></span>
-                       RUANG KELAS ZOOM LIVE
-                    </p>
-                    <p className="text-xs text-rose-800 font-bold mb-0.5">Petunjuk Sinkronus:</p>
-                    <p className="text-xs text-gray-600 leading-relaxed">
-                       Sistem akan mendeteksi presensi otomatis secara visual saat Anda menyalakan Kamera (Webcam) dan Microphone selama pembelajaran sinkronus berlangsung.
-                    </p>
-                  </div>
-                )}
-                
-                {course.enrollment_category !== 'UJIAN UAD' && course.enrollment_category !== 'LATIHAN UJIAN' && course.enrollment_category !== 'PEMBELAJARAN SINKRONUS ZOOM MEETING' ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center text-sm text-gray-500 gap-2">
-                      <Video className="w-4 h-4 text-indigo-500" />
-                      <span>{course.videos?.length || 0} Videos</span>
-                    </div>
-                    <div className="flex items-center text-sm text-gray-500 gap-2">
-                      <FileText className="w-4 h-4 text-indigo-500" />
-                      <span>1 Final Assessment</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center text-sm text-gray-500 gap-2">
-                      <FileText className={`w-4 h-4 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-500' : 'text-amber-500'}`} />
-                      <span>1 {course.enrollment_category}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div className="px-6 pb-6 mt-auto">
-                <div className="mb-4">
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>Overall Progress</span>
-                    <span>{Math.round(course.progress || 0)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
-                    <div 
-                      className={`h-2 rounded-full transition-all duration-500 ${course.enrollment_category === 'LATIHAN UJIAN' ? 'bg-amber-600' : 'bg-indigo-600'}`}
-                      style={{ width: `${course.progress || 0}%` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                 <button
-                  onClick={() => {
-                    if (course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING') {
-                      setSelectedZoomCourse({ id: course.id, name: course.name });
-                      fetchZoomConfigForCourse(course.id);
-                    } else {
-                      navigate(`/course/${course.id}`);
-                    }
-                  }}
-                  className={`w-full flex items-center justify-center gap-2 text-white py-2.5 rounded-xl font-medium transition-colors ${
-                    course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING'
-                      ? 'bg-rose-600 hover:bg-rose-700 animate-pulse font-bold tracking-wider'
-                      : course.enrollment_category === 'UJIAN UAD'
-                      ? 'bg-indigo-600 hover:bg-indigo-700'
-                      : course.enrollment_category === 'LATIHAN UJIAN'
-                      ? 'bg-amber-600 hover:bg-amber-700'
-                      : 'bg-indigo-600 hover:bg-indigo-700'
-                  }`}
-                >
-                  <PlayCircle className="w-5 h-5" />
-                  <span>
-                    {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING'
-                      ? "Masuk Kelas Zoom Meeting"
-                      : course.enrollment_category === 'UJIAN UAD'
-                      ? "Mulai Ujian"
-                      : course.enrollment_category === 'LATIHAN UJIAN'
-                      ? "Mulai Latihan"
-                      : course.progress > 0 
-                      ? "Continue Learning" 
-                      : "Start Course"}
-                  </span>
-                </button>
-              </div>
+        {activeTab === 'courses' && (
+          <div>
+            <div className="mb-8">
+              <h1 className="text-2xl font-bold text-gray-900">My Courses</h1>
+              <p className="text-gray-500 mt-1">Continue your learning journey</p>
             </div>
-          ))}
-        </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.map(course => (
+                <div key={course.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow flex flex-col">
+                  <div className="p-6 flex-1">
+                    <div className="flex justify-between items-start mb-4">
+                      <h3 className="text-lg font-bold text-gray-900 leading-tight">{course.name}</h3>
+                      <div className="flex flex-col items-end gap-1">
+                        {course.isCompleted && (
+                          <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
+                            Completed
+                          </span>
+                        )}
+                        {course.enrollment_category === 'REFRESING' && (
+                          <span className="bg-teal-100 text-teal-800 text-xs px-2 py-1 rounded-full font-medium border border-teal-200">
+                            REFRESING
+                          </span>
+                        )}
+                        {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' && (
+                          <span className="bg-rose-100 text-rose-800 text-xs px-2 py-1 rounded-full font-medium border border-rose-300 animate-pulse">
+                            ZOOM SINKRONUS
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-gray-600 text-sm mb-4 line-clamp-2">{course.description}</p>
+                    
+                    {course.enrollment_category === 'REFRESING' && course.period_start && (
+                      <div className="bg-teal-50 border border-teal-100 rounded-lg p-3 mb-4">
+                        <p className="text-xs text-teal-800 font-medium mb-1">Periode Refresing:</p>
+                        <p className="text-sm text-teal-900 mb-2">
+                           {new Date(course.period_start).toLocaleDateString('id-ID')} - {new Date(course.period_end).toLocaleDateString('id-ID')}
+                        </p>
+                        <p className="text-xs text-teal-800 font-medium mb-1">Hasil Nilai Akhir:</p>
+                        <p className="text-sm text-teal-900 font-bold">
+                           {course.score !== undefined && course.score !== null ? `${Math.round(course.score)}/100` : "Belum Mengerjakan"}
+                        </p>
+                      </div>
+                    )}
+
+                    {(course.enrollment_category === 'UJIAN UAD' || course.enrollment_category === 'LATIHAN UJIAN') && (
+                      <div className={`border rounded-lg p-3 mb-4 ${course.enrollment_category === 'UJIAN UAD' ? 'bg-indigo-50 border-indigo-100' : 'bg-amber-50 border-amber-100'}`}>
+                        <p className={`text-xs font-semibold mb-1 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-800' : 'text-amber-800'}`}>Periode Pelaksanaan:</p>
+                        <p className="text-sm text-gray-950 mb-2 font-semibold">
+                           {course.period_start ? `${new Date(course.period_start).toLocaleDateString('id-ID')} - ${new Date(course.period_end).toLocaleDateString('id-ID')}` : "Tidak Terbatas"}
+                        </p>
+                        <p className={`text-xs font-semibold mb-1 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-800' : 'text-amber-800'}`}>Hasil Nilai:</p>
+                        {course.score !== undefined && course.score !== null ? (
+                          <p className={`text-lg font-bold ${course.score >= 70 ? 'text-green-600' : 'text-red-600'}`}>
+                             {Math.round(course.score)}/100 <span className="text-xs font-semibold">({course.score >= 70 ? 'LULUS' : 'GAGAL'})</span>
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-600 font-medium">Belum Mengerjakan</p>
+                        )}
+                      </div>
+                    )}
+
+                    {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING' && (
+                      <div className="bg-rose-50 border border-rose-100 rounded-xl p-3.5 mb-4">
+                        <p className="text-xs text-rose-800 font-bold mb-1 uppercase tracking-wider">Status Webinar virtual:</p>
+                        <p className="text-sm text-rose-950 font-black mb-2 animate-pulse flex items-center gap-1.5">
+                           <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block"></span>
+                           RUANG KELAS ZOOM LIVE
+                        </p>
+                        <p className="text-xs text-rose-800 font-bold mb-0.5">Petunjuk Sinkronus:</p>
+                        <p className="text-xs text-gray-600 leading-relaxed">
+                           Sistem akan mendeteksi presensi otomatis secara visual saat Anda menyalakan Kamera (Webcam) dan Microphone selama pembelajaran sinkronus berlangsung.
+                        </p>
+                        <div className="pt-2.5 mt-2.5 border-t border-rose-200/80 flex flex-col gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveTab('report');
+                            }}
+                            className="text-left text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-indigo-50/70 hover:bg-indigo-100/70 transition cursor-pointer"
+                          >
+                            <span>Lihat Hasil Laporan Presensi Saya</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveTab('praktek_stip');
+                            }}
+                            className="text-left text-xs font-bold text-amber-800 hover:text-amber-950 flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-amber-50/70 hover:bg-amber-100/70 transition cursor-pointer"
+                          >
+                            <span>Upload Foto Praktek Diklat di STIP (2 Foto)</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {course.enrollment_category !== 'UJIAN UAD' && course.enrollment_category !== 'LATIHAN UJIAN' && course.enrollment_category !== 'PEMBELAJARAN SINKRONUS ZOOM MEETING' ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center text-sm text-gray-500 gap-2">
+                          <Video className="w-4 h-4 text-indigo-500" />
+                          <span>{course.videos?.length || 0} Videos</span>
+                        </div>
+                        <div className="flex items-center text-sm text-gray-500 gap-2">
+                          <FileText className="w-4 h-4 text-indigo-500" />
+                          <span>1 Final Assessment</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center text-sm text-gray-500 gap-2">
+                          <FileText className={`w-4 h-4 ${course.enrollment_category === 'UJIAN UAD' ? 'text-indigo-500' : 'text-amber-500'}`} />
+                          <span>1 {course.enrollment_category}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="px-6 pb-6 mt-auto">
+                    <div className="mb-4">
+                      <div className="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>Overall Progress</span>
+                        <span>{Math.round(course.progress || 0)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full transition-all duration-500 ${course.enrollment_category === 'LATIHAN UJIAN' ? 'bg-amber-600' : 'bg-indigo-600'}`}
+                          style={{ width: `${course.progress || 0}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    
+                     <button
+                      onClick={() => {
+                        if (course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING') {
+                          setSelectedZoomCourse({ id: course.id, name: course.name });
+                          fetchZoomConfigForCourse(course.id);
+                        } else {
+                          navigate(`/course/${course.id}`);
+                        }
+                      }}
+                      className={`w-full flex items-center justify-center gap-2 text-white py-2.5 rounded-xl font-medium transition-colors ${
+                        course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING'
+                          ? 'bg-rose-600 hover:bg-rose-700 animate-pulse font-bold tracking-wider'
+                          : course.enrollment_category === 'UJIAN UAD'
+                          ? 'bg-indigo-600 hover:bg-indigo-700'
+                          : course.enrollment_category === 'LATIHAN UJIAN'
+                          ? 'bg-amber-600 hover:bg-amber-700'
+                          : 'bg-indigo-600 hover:bg-indigo-700'
+                      }`}
+                    >
+                      <PlayCircle className="w-5 h-5" />
+                      <span>
+                        {course.enrollment_category === 'PEMBELAJARAN SINKRONUS ZOOM MEETING'
+                          ? "Masuk Kelas Zoom Meeting"
+                          : course.enrollment_category === 'UJIAN UAD'
+                          ? "Mulai Ujian"
+                          : course.enrollment_category === 'LATIHAN UJIAN'
+                          ? "Mulai Latihan"
+                          : course.progress > 0 
+                          ? "Continue Learning" 
+                          : "Start Course"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'report' && (
+          <UserParticipantReport
+            userId={user?.id || ""}
+            userName={user?.name || ""}
+            seafarerCode={user?.identity || ""}
+            onNavigateToUpload={() => setActiveTab('praktek_stip')}
+          />
+        )}
+
+        {activeTab === 'praktek_stip' && (
+          <UserPraktekStipUpload
+            userId={user?.id || ""}
+            userName={user?.name || ""}
+            seafarerCode={user?.identity || ""}
+            onNavigateToReport={() => setActiveTab('report')}
+          />
+        )}
       </main>
 
       {/* Zoom Connection Option Modal */}

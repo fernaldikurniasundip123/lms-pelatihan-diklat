@@ -14,10 +14,27 @@ import {
   Eye,
   User,
   CreditCard,
+  Camera,
   X,
   Printer
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+
+const getBase64ImageFromUrl = async (imageUrl: string): Promise<string | null> => {
+  try {
+    const res = await fetch(imageUrl);
+    const blob = await res.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error("Failed to load image for excel", e);
+    return null;
+  }
+};
 
 interface ZoomLog {
   id: string;
@@ -93,13 +110,17 @@ export interface GroupedParticipantLog {
   total_entries: number;
   selfie_url?: string;
   ktp_url?: string;
+  all_selfies?: string[];
+  praktek_stip_1?: string;
+  praktek_stip_2?: string;
 }
 
 export default function SinkronusReports() {
   const [logs, setLogs] = useState<ZoomLog[]>([]);
   const [courses, setCourses] = useState<CourseOption[]>([]);
-  const [verifications, setVerifications] = useState<Record<string, { selfie_url?: string; ktp_url?: string }>>({});
+  const [verifications, setVerifications] = useState<Record<string, { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }>>({});
   const [loading, setLoading] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [errorLocalAlert, setErrorLocalAlert] = useState(false);
 
   // Photo modal state
@@ -149,7 +170,8 @@ export default function SinkronusReports() {
       }
 
       // 2. Fetch Verifications (Selfie and KTP photos) from database & storage
-      const verifMap: Record<string, { selfie_url?: string; ktp_url?: string }> = {};
+      // User requirement: KTP from initial upload only, Selfie latest on dashboard/PDF, all selfies in Excel
+      const verifMap: Record<string, { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }> = {};
 
       try {
         const { data: usersData } = await supabase
@@ -175,41 +197,30 @@ export default function SinkronusReports() {
           });
         }
 
-        const { data: latihanVerifs } = await supabase
-          .from("latihan_verifications")
-          .select("user_id, seafarer_code, live_photo_url, ktp_photo_url");
-
-        if (latihanVerifs) {
-          latihanVerifs.forEach((v: any) => {
-            const dataObj = {
-              selfie_url: v.live_photo_url || undefined,
-              ktp_url: v.ktp_photo_url || undefined
-            };
-            const sCode = (v.seafarer_code || userToCodeMap[v.user_id] || "").trim();
-            const uId = (v.user_id || codeToUserMap[v.seafarer_code] || "").trim();
-            if (sCode) {
-              verifMap[`code_${sCode}`] = dataObj;
-            }
-            if (uId) {
-              verifMap[`user_${uId}`] = dataObj;
-            }
-          });
-        }
-
+        // Global Verifications: order by created_at ascending so oldest is first (initial KTP)
         const { data: globalVerifs } = await supabase
           .from("global_verifications")
-          .select("user_id, live_photo_url, ktp_photo_url");
+          .select("user_id, live_photo_url, ktp_photo_url, created_at")
+          .order("created_at", { ascending: true });
 
         if (globalVerifs) {
           globalVerifs.forEach((v: any) => {
             if (v.user_id) {
               const uId = v.user_id.trim();
               const sCode = userToCodeMap[uId];
-              const existing = verifMap[`user_${uId}`] || {};
+              const existingU = verifMap[`user_${uId}`] || { all_selfies: [] };
+
+              const allSelfies = [...(existingU.all_selfies || [])];
+              if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
+                allSelfies.push(v.live_photo_url);
+              }
+
               const updated = {
-                selfie_url: v.live_photo_url || existing.selfie_url,
-                ktp_url: v.ktp_photo_url || existing.ktp_url
+                selfie_url: v.live_photo_url || existingU.selfie_url, // Overwrites with later created_at (latest selfie)
+                ktp_url: existingU.ktp_url || v.ktp_photo_url, // Preserves oldest KTP (initial upload)
+                all_selfies: allSelfies
               };
+
               verifMap[`user_${uId}`] = updated;
               if (sCode) {
                 verifMap[`code_${sCode}`] = updated;
@@ -218,11 +229,39 @@ export default function SinkronusReports() {
           });
         }
 
-        // Check storage bucket 'verifications'
+        // Latihan Verifications fallback
+        const { data: latihanVerifs } = await supabase
+          .from("latihan_verifications")
+          .select("user_id, seafarer_code, live_photo_url, ktp_photo_url, created_at")
+          .order("created_at", { ascending: true });
+
+        if (latihanVerifs) {
+          latihanVerifs.forEach((v: any) => {
+            const sCode = (v.seafarer_code || userToCodeMap[v.user_id] || "").trim();
+            const uId = (v.user_id || codeToUserMap[v.seafarer_code] || "").trim();
+            const existing = (uId ? verifMap[`user_${uId}`] : null) || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
+
+            const allSelfies = [...(existing.all_selfies || [])];
+            if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
+              allSelfies.push(v.live_photo_url);
+            }
+
+            const updated = {
+              selfie_url: v.live_photo_url || existing.selfie_url,
+              ktp_url: existing.ktp_url || v.ktp_photo_url,
+              all_selfies: allSelfies
+            };
+
+            if (sCode) verifMap[`code_${sCode}`] = updated;
+            if (uId) verifMap[`user_${uId}`] = updated;
+          });
+        }
+
+        // Check storage bucket 'verifications' for extra attendance selfies and KTP files
         try {
           const { data: storageFiles } = await supabase.storage
             .from("verifications")
-            .list("", { limit: 1000, sortBy: { column: "created_at", order: "desc" } });
+            .list("", { limit: 10000, sortBy: { column: "created_at", order: "asc" } });
 
           if (storageFiles && storageFiles.length > 0) {
             storageFiles.forEach((file: any) => {
@@ -232,21 +271,40 @@ export default function SinkronusReports() {
                 const identifier = parts[0].trim();
                 const isLive = fileName.includes("_live_") || fileName.includes("_attendance_") || fileName.includes("_selfie_");
                 const isKtp = fileName.includes("_ktp_");
+                const isPraktek1 = fileName.includes("_praktek_stip_1_");
+                const isPraktek2 = fileName.includes("_praktek_stip_2_");
                 const { data: pubData } = supabase.storage.from("verifications").getPublicUrl(fileName);
                 const publicUrl = pubData?.publicUrl;
 
                 if (publicUrl) {
                   const resolvedCode = userToCodeMap[identifier] || identifier;
-                  const currUser = verifMap[`user_${identifier}`] || {};
-                  const currCode = verifMap[`code_${resolvedCode}`] || {};
+                  const currUser = verifMap[`user_${identifier}`] || { all_selfies: [] };
+                  const currCode = verifMap[`code_${resolvedCode}`] || { all_selfies: [] };
 
                   if (isLive) {
-                    if (!currUser.selfie_url) verifMap[`user_${identifier}`] = { ...currUser, selfie_url: publicUrl };
-                    if (!currCode.selfie_url) verifMap[`code_${resolvedCode}`] = { ...currCode, selfie_url: publicUrl };
+                    const uSelfies = [...(currUser.all_selfies || [])];
+                    if (!uSelfies.includes(publicUrl)) uSelfies.push(publicUrl);
+                    
+                    // Because sorted ascending, subsequent isLive photos become latest
+                    verifMap[`user_${identifier}`] = { ...currUser, selfie_url: publicUrl, all_selfies: uSelfies };
+                    verifMap[`code_${resolvedCode}`] = { ...currCode, selfie_url: publicUrl, all_selfies: uSelfies };
                   }
                   if (isKtp) {
+                    // Initial upload only (keep first/oldest KTP seen)
                     if (!currUser.ktp_url) verifMap[`user_${identifier}`] = { ...currUser, ktp_url: publicUrl };
                     if (!currCode.ktp_url) verifMap[`code_${resolvedCode}`] = { ...currCode, ktp_url: publicUrl };
+                  }
+                  if (isPraktek1) {
+                    currUser.praktek_stip_1 = publicUrl;
+                    currCode.praktek_stip_1 = publicUrl;
+                    verifMap[`user_${identifier}`] = currUser;
+                    verifMap[`code_${resolvedCode}`] = currCode;
+                  }
+                  if (isPraktek2) {
+                    currUser.praktek_stip_2 = publicUrl;
+                    currCode.praktek_stip_2 = publicUrl;
+                    verifMap[`user_${identifier}`] = currUser;
+                    verifMap[`code_${resolvedCode}`] = currCode;
                   }
                 }
               }
@@ -254,6 +312,28 @@ export default function SinkronusReports() {
           }
         } catch (stErr) {
           // ignore bucket listing error
+        }
+
+        // Also merge local STIP practice uploads for instant cross-tab visibility
+        try {
+          const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
+          Object.keys(localPraktek).forEach((uid) => {
+            const pData = localPraktek[uid];
+            const sCode = userToCodeMap[uid] || pData.seafarer_code || "";
+            const currUser = verifMap[`user_${uid}`] || { all_selfies: [] };
+            if (pData.photo1) currUser.praktek_stip_1 = pData.photo1;
+            if (pData.photo2) currUser.praktek_stip_2 = pData.photo2;
+            verifMap[`user_${uid}`] = currUser;
+
+            if (sCode) {
+              const currCode = verifMap[`code_${sCode}`] || { all_selfies: [] };
+              if (pData.photo1) currCode.praktek_stip_1 = pData.photo1;
+              if (pData.photo2) currCode.praktek_stip_2 = pData.photo2;
+              verifMap[`code_${sCode}`] = currCode;
+            }
+          });
+        } catch (localPrkErr) {
+          // ignore
         }
       } catch (verifErr) {
         console.warn("Could not fetch verification photos from Supabase:", verifErr);
@@ -651,6 +731,9 @@ export default function SinkronusReports() {
       user_id?: string;
       selfie_url?: string;
       ktp_url?: string;
+      all_selfies?: string[];
+      praktek_stip_1?: string;
+      praktek_stip_2?: string;
       dayMap: Map<string, {
         dateKey: string;
         rawLogs: ZoomLog[];
@@ -682,7 +765,10 @@ export default function SinkronusReports() {
                           verifications[`code_${(log.seafarer_code || "").trim()}`];
 
       const initialSelfie = log.selfie_url || personVerif?.selfie_url;
-      const initialKtp = log.ktp_url || personVerif?.ktp_url;
+      const initialKtp = personVerif?.ktp_url || log.ktp_url;
+      const initialSelfiesList = personVerif?.all_selfies ? [...personVerif.all_selfies] : (log.selfie_url ? [log.selfie_url] : []);
+      const initialPraktek1 = personVerif?.praktek_stip_1;
+      const initialPraktek2 = personVerif?.praktek_stip_2;
 
       if (!map.has(groupKey)) {
         map.set(groupKey, {
@@ -695,11 +781,14 @@ export default function SinkronusReports() {
           user_id: log.user_id,
           selfie_url: initialSelfie,
           ktp_url: initialKtp,
+          all_selfies: initialSelfiesList,
+          praktek_stip_1: initialPraktek1,
+          praktek_stip_2: initialPraktek2,
           dayMap: new Map()
         });
       } else {
         // Jika kode pelaut sama (misal "MUH AMRAN" & "MUHAMMAD AMRAN"), pilih nama yang lebih lengkap / panjang
-        const entry = map.get(groupKey)!;
+        const entry = map.get(groupKey)! as any;
         if (currentName.length > entry.user_name.length) {
           entry.user_name = currentName;
         }
@@ -709,11 +798,32 @@ export default function SinkronusReports() {
         if ((!entry.pureClass || entry.pureClass === "-") && pureClass && pureClass !== "-") {
           entry.pureClass = pureClass;
         }
-        if (!entry.selfie_url && initialSelfie) {
+        // Always prefer the latest selfie
+        if (log.selfie_url) {
+          entry.selfie_url = log.selfie_url;
+          if (!entry.all_selfies) entry.all_selfies = [];
+          if (!entry.all_selfies.includes(log.selfie_url)) {
+            entry.all_selfies.push(log.selfie_url);
+          }
+        } else if (!entry.selfie_url && initialSelfie) {
           entry.selfie_url = initialSelfie;
         }
+        // KTP: Preserved from initial upload only
         if (!entry.ktp_url && initialKtp) {
           entry.ktp_url = initialKtp;
+        }
+        // STIP photos
+        if (!entry.praktek_stip_1 && initialPraktek1) {
+          entry.praktek_stip_1 = initialPraktek1;
+        }
+        if (!entry.praktek_stip_2 && initialPraktek2) {
+          entry.praktek_stip_2 = initialPraktek2;
+        }
+        if (personVerif?.all_selfies) {
+          if (!entry.all_selfies) entry.all_selfies = [];
+          personVerif.all_selfies.forEach(s => {
+            if (!entry.all_selfies.includes(s)) entry.all_selfies.push(s);
+          });
         }
       }
 
@@ -792,14 +902,270 @@ export default function SinkronusReports() {
         total_mic_on_seconds: totalMicOn,
         total_entries: totalEntries,
         selfie_url: item.selfie_url,
-        ktp_url: item.ktp_url
+        ktp_url: item.ktp_url,
+        all_selfies: item.all_selfies && item.all_selfies.length > 0 ? item.all_selfies : (item.selfie_url ? [item.selfie_url] : []),
+        praktek_stip_1: item.praktek_stip_1,
+        praktek_stip_2: item.praktek_stip_2
       });
     });
+
+    // Sort alphabetically by participant user_name (A-Z) sesuai instruksi: "namanya sesuai abjad jangan acak"
+    result.sort((a, b) => a.user_name.localeCompare(b.user_name, 'id', { sensitivity: 'base' }));
 
     return result;
   }, [filteredLogs, verifications]);
 
-  // Export to standard CSV
+  // Export to Excel with embedded photos as actual images (exceljs)
+  const handleExportExcel = async () => {
+    if (groupedParticipants.length === 0) {
+      alert("Tidak ada data untuk diekspor.");
+      return;
+    }
+
+    setIsExportingExcel(true);
+    try {
+      // Dynamic imports for ExcelJS and file-saver
+      const ExcelJS = (await import("exceljs")).default;
+      const { saveAs } = (await import("file-saver"));
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Laporan Sinkronus Zoom", {
+        views: [{ showGridLines: true }]
+      });
+
+      // Find max number of selfie photos among participants to create columns for all selfies
+      let maxSelfieCount = 1;
+      groupedParticipants.forEach(p => {
+        const count = p.all_selfies && p.all_selfies.length > 0 ? p.all_selfies.length : (p.selfie_url ? 1 : 0);
+        if (count > maxSelfieCount) maxSelfieCount = count;
+      });
+
+      // Build header columns
+      const columns = [
+        { header: "No", key: "no", width: 6 },
+        { header: "Nama Peserta", key: "user_name", width: 28 },
+        { header: "Kode Pelaut (Identity)", key: "seafarer_code", width: 22 },
+        { header: "Kelas", key: "class_name", width: 14 },
+        { header: "Periode", key: "period", width: 18 },
+        { header: "Jenis Diklat / Course", key: "course_name", width: 28 },
+        { header: "Sesi Pembelajaran (Per Hari)", key: "sessions", width: 50 },
+        { header: "Total Durasi", key: "duration", width: 22 },
+        { header: "Cam ON", key: "cam_on", width: 18 },
+        { header: "Cam OFF", key: "cam_off", width: 18 },
+        { header: "Mic ON", key: "mic_on", width: 18 },
+        { header: "Foto KTP (Awal)", key: "ktp_photo", width: 22 },
+        { header: "Foto Praktek STIP 1", key: "praktek_stip_1", width: 22 },
+        { header: "Foto Praktek STIP 2", key: "praktek_stip_2", width: 22 }
+      ];
+
+      // Add dynamic columns for each selfie
+      for (let sIdx = 1; sIdx <= maxSelfieCount; sIdx++) {
+        columns.push({
+          header: maxSelfieCount === 1 ? "Foto Selfie" : `Foto Selfie ${sIdx}`,
+          key: `selfie_${sIdx}`,
+          width: 22
+        });
+      }
+
+      worksheet.columns = columns;
+
+      // Style header row
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      headerRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF1E293B" } // Slate 800
+      };
+      headerRow.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      headerRow.height = 32;
+
+      // Populate rows and embed images
+      for (let i = 0; i < groupedParticipants.length; i++) {
+        const item = groupedParticipants[i];
+        const rowNumber = i + 2;
+
+        const sessionTimesText = item.days.map(d => {
+          const s1 = `Sesi 1 (07.00-12.00): ${d.sesi1_text}`;
+          const s2 = `Sesi 2 (13.00-17.00): ${d.sesi2_text}`;
+          return `Hari ${d.dayIndex} (${d.formattedDate}): [${s1} | ${s2} | Total: ${formatReadableSessionDuration(d.duration_seconds)}]`;
+        }).join("\n");
+
+        const durationText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.duration_seconds)}`).join("\n") + 
+          (item.days.length > 1 ? `\nAkumulasi: ${formatTime(item.total_duration_seconds)}` : '');
+
+        const camOnText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.camera_on_seconds)}`).join("\n") + 
+          (item.days.length > 1 ? `\nTotal ON: ${formatTime(item.total_camera_on_seconds)}` : '');
+
+        const camOffText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.camera_off_seconds)}`).join("\n") + 
+          (item.days.length > 1 ? `\nTotal OFF: ${formatTime(item.total_camera_off_seconds)}` : '');
+
+        const micOnText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.mic_on_seconds)}`).join("\n") + 
+          (item.days.length > 1 ? `\nTotal MIC: ${formatTime(item.total_mic_on_seconds)}` : '');
+
+        const rowData: Record<string, any> = {
+          no: i + 1,
+          user_name: item.user_name,
+          seafarer_code: item.seafarer_code || "-",
+          class_name: item.pureClass,
+          period: item.period,
+          course_name: item.course_name,
+          sessions: sessionTimesText,
+          duration: durationText,
+          cam_on: camOnText,
+          cam_off: camOffText,
+          mic_on: micOnText,
+          ktp_photo: item.ktp_url ? "" : "Tidak Ada",
+          praktek_stip_1: item.praktek_stip_1 ? "" : "Tidak Ada",
+          praktek_stip_2: item.praktek_stip_2 ? "" : "Tidak Ada"
+        };
+
+        for (let sIdx = 1; sIdx <= maxSelfieCount; sIdx++) {
+          rowData[`selfie_${sIdx}`] = "";
+        }
+
+        const row = worksheet.addRow(rowData);
+        row.height = 90; // Generous height for embedded photo previews
+
+        row.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+        row.getCell(2).alignment = { vertical: "middle", horizontal: "left", wrapText: true }; // Nama
+        row.getCell(6).alignment = { vertical: "middle", horizontal: "left", wrapText: true }; // Course
+        row.getCell(7).alignment = { vertical: "middle", horizontal: "left", wrapText: true }; // Sesi
+
+        // Add subtle borders
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFE2E8F0" } },
+            left: { style: "thin", color: { argb: "FFE2E8F0" } },
+            bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+            right: { style: "thin", color: { argb: "FFE2E8F0" } }
+          };
+        });
+
+        // 1. Embed KTP photo (Col index 11: 0-based col index 11 -> Col 12)
+        if (item.ktp_url) {
+          try {
+            const ktpBase64 = await getBase64ImageFromUrl(item.ktp_url);
+            if (ktpBase64) {
+              const base64Data = ktpBase64.split(",")[1];
+              const ext = ktpBase64.includes("image/png") ? "png" : "jpeg";
+              const imageId = workbook.addImage({
+                base64: base64Data,
+                extension: ext as any
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: 11.1, row: rowNumber - 1 + 0.1 },
+                ext: { width: 110, height: 75 },
+                editAs: "oneCell"
+              });
+            } else {
+              row.getCell(12).value = "Gagal Muat Foto";
+            }
+          } catch (e) {
+            console.warn("Could not embed KTP image in Excel:", e);
+            row.getCell(12).value = "Gagal Muat Foto";
+          }
+        }
+
+        // 2. Embed STIP Praktek Photo 1 (Col index 12 -> Col 13)
+        if (item.praktek_stip_1) {
+          try {
+            const stip1Base64 = await getBase64ImageFromUrl(item.praktek_stip_1);
+            if (stip1Base64) {
+              const base64Data = stip1Base64.split(",")[1];
+              const ext = stip1Base64.includes("image/png") ? "png" : "jpeg";
+              const imageId = workbook.addImage({
+                base64: base64Data,
+                extension: ext as any
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: 12.1, row: rowNumber - 1 + 0.1 },
+                ext: { width: 110, height: 75 },
+                editAs: "oneCell"
+              });
+            } else {
+              row.getCell(13).value = "Gagal Muat Foto";
+            }
+          } catch (e) {
+            row.getCell(13).value = "Gagal Muat Foto";
+          }
+        }
+
+        // 3. Embed STIP Praktek Photo 2 (Col index 13 -> Col 14)
+        if (item.praktek_stip_2) {
+          try {
+            const stip2Base64 = await getBase64ImageFromUrl(item.praktek_stip_2);
+            if (stip2Base64) {
+              const base64Data = stip2Base64.split(",")[1];
+              const ext = stip2Base64.includes("image/png") ? "png" : "jpeg";
+              const imageId = workbook.addImage({
+                base64: base64Data,
+                extension: ext as any
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: 13.1, row: rowNumber - 1 + 0.1 },
+                ext: { width: 110, height: 75 },
+                editAs: "oneCell"
+              });
+            } else {
+              row.getCell(14).value = "Gagal Muat Foto";
+            }
+          } catch (e) {
+            row.getCell(14).value = "Gagal Muat Foto";
+          }
+        }
+
+        // 4. Embed all selfie photos (Col index 14 + sIdx)
+        const selfiesToEmbed = item.all_selfies && item.all_selfies.length > 0 
+          ? item.all_selfies 
+          : (item.selfie_url ? [item.selfie_url] : []);
+
+        for (let sIdx = 0; sIdx < maxSelfieCount; sIdx++) {
+          const colIndexZero = 14 + sIdx;
+          const colNumberOne = colIndexZero + 1;
+          const sUrl = selfiesToEmbed[sIdx];
+
+          if (sUrl) {
+            try {
+              const selfieBase64 = await getBase64ImageFromUrl(sUrl);
+              if (selfieBase64) {
+                const base64Data = selfieBase64.split(",")[1];
+                const ext = selfieBase64.includes("image/png") ? "png" : "jpeg";
+                const imageId = workbook.addImage({
+                  base64: base64Data,
+                  extension: ext as any
+                });
+                worksheet.addImage(imageId, {
+                  tl: { col: colIndexZero + 0.1, row: rowNumber - 1 + 0.1 },
+                  ext: { width: 110, height: 75 },
+                  editAs: "oneCell"
+                });
+              } else {
+                row.getCell(colNumberOne).value = "Gagal Muat Foto";
+              }
+            } catch (e) {
+              console.warn("Could not embed selfie image in Excel:", e);
+              row.getCell(colNumberOne).value = "Gagal Muat Foto";
+            }
+          } else {
+            row.getCell(colNumberOne).value = sIdx === 0 ? "Tidak Ada" : "-";
+          }
+        }
+      }
+
+      // Generate and trigger download
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      saveAs(blob, `Laporan_Pembelajaran_Sinkronus_Zoom_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (exportErr) {
+      console.error("Gagal mengekspor laporan Excel:", exportErr);
+      alert("Terjadi kesalahan saat memproses ekspor Excel dengan foto.");
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  // Export to standard CSV fallback
   const handleExportCSV = () => {
     const headers = [
       "Nama Peserta",
@@ -966,20 +1332,25 @@ export default function SinkronusReports() {
           <div className="flex flex-wrap gap-2 flex-shrink-0">
             <button
               onClick={fetchLogsAndOptions}
-              disabled={loading}
+              disabled={loading || isExportingExcel}
               className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition border border-gray-300 shadow-sm"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Muat Ulang
             </button>
             <button
-              onClick={handleExportCSV}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
+              onClick={handleExportExcel}
+              disabled={isExportingExcel || loading}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
+              title="Unduh Excel lengkap dengan seluruh lampiran foto selfie & KTP tertanam"
             >
-              <Download className="w-4 h-4" /> Ekspor Excel (CSV)
+              <Download className={`w-4 h-4 ${isExportingExcel ? "animate-bounce" : ""}`} /> 
+              {isExportingExcel ? "Memproses Foto Excel..." : "Unduh Excel (Foto Lampiran)"}
             </button>
             <button
               onClick={handlePrintPDF}
+              disabled={isExportingExcel}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
+              title="Cetak atau simpan sebagai PDF laporan resmi"
             >
               <Printer className="w-4 h-4" /> Cetak PDF Laporan
             </button>
@@ -1086,6 +1457,7 @@ export default function SinkronusReports() {
                 <th className="px-2 py-3 text-center text-red-800">Cam OFF</th>
                 <th className="px-2 py-3 text-center text-yellow-800">Mic ON</th>
                 <th className="px-3 py-3 text-center">Foto Selfie &amp; KTP</th>
+                <th className="px-3 py-3 text-center">Foto Praktek STIP</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-150 font-medium text-gray-650">
@@ -1268,7 +1640,7 @@ export default function SinkronusReports() {
                               <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
                             </div>
                           )}
-                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">Selfie</span>
+                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" title="Foto selfie presensi paling terakhir">Selfie Terakhir</span>
                         </div>
 
                         {/* KTP thumbnail */}
@@ -1277,13 +1649,13 @@ export default function SinkronusReports() {
                             <button
                               type="button"
                               onClick={() => setSelectedPhotoModal({
-                                title: "Foto KTP Identitas",
+                                title: "Foto KTP Identitas (Upload Awal)",
                                 url: participant.ktp_url!,
                                 userName: participant.user_name,
                                 seafarerCode: participant.seafarer_code
                               })}
                               className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-emerald-200 hover:border-emerald-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
-                              title="Klik untuk memperbesar Foto KTP"
+                              title="Klik untuk memperbesar Foto KTP (Upload Awal)"
                             >
                               <img
                                 src={participant.ktp_url}
@@ -1301,7 +1673,78 @@ export default function SinkronusReports() {
                               <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
                             </div>
                           )}
-                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">KTP</span>
+                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" title="Foto KTP dari unggahan pertama">KTP Awal</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* 12. Foto Praktek STIP */}
+                    <td className="px-3 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {/* Praktek 1 */}
+                        <div className="flex flex-col items-center">
+                          {participant.praktek_stip_1 ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhotoModal({
+                                title: "Foto Dokumentasi Praktek di STIP (Foto #1)",
+                                url: participant.praktek_stip_1!,
+                                userName: participant.user_name,
+                                seafarerCode: participant.seafarer_code
+                              })}
+                              className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-amber-300 hover:border-amber-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
+                              title="Klik untuk memperbesar Foto Praktek STIP #1"
+                            >
+                              <img
+                                src={participant.praktek_stip_1}
+                                alt="Praktek 1"
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
+                                <Eye className="w-3.5 h-3.5 text-white" />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto Praktek 1">
+                              <Camera className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
+                            </div>
+                          )}
+                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">Praktek 1</span>
+                        </div>
+
+                        {/* Praktek 2 */}
+                        <div className="flex flex-col items-center">
+                          {participant.praktek_stip_2 ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhotoModal({
+                                title: "Foto Dokumentasi Praktek di STIP (Foto #2)",
+                                url: participant.praktek_stip_2!,
+                                userName: participant.user_name,
+                                seafarerCode: participant.seafarer_code
+                              })}
+                              className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-amber-300 hover:border-amber-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
+                              title="Klik untuk memperbesar Foto Praktek STIP #2"
+                            >
+                              <img
+                                src={participant.praktek_stip_2}
+                                alt="Praktek 2"
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
+                                <Eye className="w-3.5 h-3.5 text-white" />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto Praktek 2">
+                              <Camera className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
+                            </div>
+                          )}
+                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">Praktek 2</span>
                         </div>
                       </div>
                     </td>
@@ -1312,7 +1755,7 @@ export default function SinkronusReports() {
               
               {groupedParticipants.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
+                  <td colSpan={12} className="py-12 text-center text-gray-400 font-medium">
                     <Filter className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                     Belum ada data rekam presensi sinkronus zoom yang cocok dengan filter saringan.
                   </td>
