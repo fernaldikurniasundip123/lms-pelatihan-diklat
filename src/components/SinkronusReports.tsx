@@ -23,87 +23,87 @@ import { supabase } from "../lib/supabase";
 
 interface SafeThumbnailProps {
   src?: string | null;
+  fallbackSrcs?: (string | null | undefined)[];
   alt: string;
   title: string;
   borderColor: string;
   hoverBorderColor: string;
-  onClick: () => void;
+  onClick: (activeUrl?: string) => void;
   icon: React.ElementType;
   fallbackLabel?: string;
   subLabel: string;
   subLabelTitle?: string;
 }
 
-function SafeThumbnail({
-  src,
-  alt,
-  title,
-  borderColor,
-  hoverBorderColor,
-  onClick,
-  icon: Icon,
-  fallbackLabel = "Belum Ada",
-  subLabel,
-  subLabelTitle
-}: SafeThumbnailProps) {
-  const [hasError, setHasError] = useState(false);
+// Ensure full public URL from Supabase storage or external link
+const ensurePublicUrl = (urlOrPath?: string | null): string | null => {
+  if (!urlOrPath || typeof urlOrPath !== "string") return null;
+  const trimmed = urlOrPath.trim();
+  if (!trimmed || trimmed === "null" || trimmed === "undefined") return null;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.replace(/^verifications\//, "");
+  const { data } = supabase.storage.from("verifications").getPublicUrl(cleanPath);
+  return data?.publicUrl || trimmed;
+};
 
-  useEffect(() => {
-    setHasError(false);
-  }, [src]);
+// Normalize name string for robust cross-referencing (removes dots, extra spaces, etc.)
+const normalizeName = (str?: string): string => {
+  if (!str) return "";
+  return str.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+};
 
-  const isValidPhoto = Boolean(
-    src && 
-    !hasError && 
-    src.trim() !== "" && 
-    src !== "null" && 
-    src !== "undefined"
+// Accurately parse storage file name to extract user identifier and photo type
+const parseStorageFileName = (fileName: string): {
+  identifier: string;
+  isLive: boolean;
+  isKtp: boolean;
+  isPraktek1: boolean;
+  isPraktek2: boolean;
+} => {
+  const clean = (fileName || "").replace(/\.[^/.]+$/, "");
+  const isPraktek1 = clean.includes("praktek_stip_1");
+  const isPraktek2 = clean.includes("praktek_stip_2");
+  const isKtp = !isPraktek1 && !isPraktek2 && (clean.startsWith("ktp_") || clean.includes("_ktp"));
+  const isLive = !isPraktek1 && !isPraktek2 && !isKtp && (
+    clean.startsWith("selfie_") ||
+    clean.includes("_live") ||
+    clean.includes("_attendance") ||
+    clean.includes("_selfie")
   );
 
-  return (
-    <div className="flex flex-col items-center">
-      {isValidPhoto ? (
-        <button
-          type="button"
-          onClick={onClick}
-          className={`relative group block w-10 h-10 rounded-lg overflow-hidden border-2 ${borderColor} hover:${hoverBorderColor} transition shadow-xs cursor-pointer focus:outline-none print-img`}
-          title={title}
-        >
-          <img
-            src={src!}
-            alt={alt}
-            className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-            onError={() => setHasError(true)}
-          />
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
-            <Eye className="w-3.5 h-3.5 text-white" />
-          </div>
-        </button>
-      ) : (
-        <div 
-          className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" 
-          title={hasError ? "Foto gagal dimuat dari server" : `Belum ada ${alt}`}
-        >
-          <Icon className="w-3.5 h-3.5 text-slate-400" />
-          <span className="text-[7.5px] text-slate-400 leading-tight">
-            {hasError ? "Gagal" : fallbackLabel}
-          </span>
-        </div>
-      )}
-      <span 
-        className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" 
-        title={subLabelTitle || subLabel}
-      >
-        {subLabel}
-      </span>
-    </div>
-  );
-}
+  let id = "";
+  if (isPraktek1) {
+    id = clean.replace(/^praktek_stip_1_/, "").split("_")[0];
+  } else if (isPraktek2) {
+    id = clean.replace(/^praktek_stip_2_/, "").split("_")[0];
+  } else if (clean.startsWith("ktp_")) {
+    id = clean.replace(/^ktp_/, "").split("_")[0];
+  } else if (clean.startsWith("selfie_")) {
+    id = clean.replace(/^selfie_/, "").split("_")[0];
+  } else if (clean.includes("_login_attendance_")) {
+    id = clean.split("_login_attendance_")[0];
+  } else if (clean.includes("_live_")) {
+    id = clean.split("_live_")[0];
+  } else if (clean.includes("_ktp_")) {
+    id = clean.split("_ktp_")[0];
+  } else if (clean.includes("_selfie_")) {
+    id = clean.split("_selfie_")[0];
+  } else if (clean.includes("_attendance_")) {
+    id = clean.split("_attendance_")[0];
+  } else {
+    id = clean.split("_")[0];
+  }
+
+  return { identifier: id.trim(), isLive, isKtp, isPraktek1, isPraktek2 };
+};
 
 const getBase64ImageFromUrl = async (imageUrl: string): Promise<string | null> => {
   try {
-    const res = await fetch(imageUrl);
+    const validUrl = ensurePublicUrl(imageUrl) || imageUrl;
+    const res = await fetch(validUrl);
+    if (!res.ok) return null;
     const blob = await res.blob();
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -116,6 +116,95 @@ const getBase64ImageFromUrl = async (imageUrl: string): Promise<string | null> =
     return null;
   }
 };
+
+function SafeThumbnail({
+  src,
+  fallbackSrcs,
+  alt,
+  title,
+  borderColor,
+  hoverBorderColor,
+  onClick,
+  icon: Icon,
+  fallbackLabel = "Belum Ada",
+  subLabel,
+  subLabelTitle
+}: SafeThumbnailProps) {
+  // Aggregate all unique non-empty candidate URLs
+  const candidates = useMemo(() => {
+    const list: string[] = [];
+    const add = (u?: string | null) => {
+      const valid = ensurePublicUrl(u);
+      if (valid && !list.includes(valid)) {
+        list.push(valid);
+      }
+    };
+    add(src);
+    if (fallbackSrcs) {
+      fallbackSrcs.forEach(add);
+    }
+    return list;
+  }, [src, fallbackSrcs]);
+
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const [allFailed, setAllFailed] = useState(false);
+
+  useEffect(() => {
+    setCandidateIndex(0);
+    setAllFailed(false);
+  }, [candidates]);
+
+  const activeUrl = candidates[candidateIndex] || null;
+  const hasValidPhoto = Boolean(activeUrl && !allFailed);
+
+  const handleImageError = () => {
+    if (candidateIndex + 1 < candidates.length) {
+      setCandidateIndex(prev => prev + 1);
+    } else {
+      setAllFailed(true);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center">
+      {hasValidPhoto ? (
+        <button
+          type="button"
+          onClick={() => onClick(activeUrl || undefined)}
+          className={`relative group block w-10 h-10 rounded-lg overflow-hidden border-2 ${borderColor} hover:${hoverBorderColor} transition shadow-xs cursor-pointer focus:outline-none print-img`}
+          title={title}
+        >
+          <img
+            src={activeUrl!}
+            alt={alt}
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            onError={handleImageError}
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
+            <Eye className="w-3.5 h-3.5 text-white" />
+          </div>
+        </button>
+      ) : (
+        <div 
+          className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" 
+          title={allFailed ? `Foto ${alt} belum dapat dimuat dari server` : `Belum ada ${alt}`}
+        >
+          <Icon className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-[7.5px] text-slate-400 leading-tight">
+            {fallbackLabel}
+          </span>
+        </div>
+      )}
+      <span 
+        className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" 
+        title={subLabelTitle || subLabel}
+      >
+        {subLabel}
+      </span>
+    </div>
+  );
+}
 
 interface ZoomLog {
   id: string;
@@ -183,6 +272,7 @@ export interface GroupedParticipantLog {
   period: string;
   course_name: string;
   course_id?: string;
+  user_id?: string;
   days: DayTelemetry[];
   total_duration_seconds: number;
   total_camera_on_seconds: number;
@@ -219,12 +309,14 @@ export default function SinkronusReports() {
     nameToCode: Record<string, string>;
     codeToName: Record<string, string>;
     userToName: Record<string, string>;
+    normNameToCode: Record<string, string>;
   }>({
     userToCode: {},
     codeToUser: {},
     nameToCode: {},
     codeToName: {},
-    userToName: {}
+    userToName: {},
+    normNameToCode: {}
   });
 
   // Filters State
@@ -255,302 +347,288 @@ export default function SinkronusReports() {
     setErrorLocalAlert(false);
 
     try {
-      // 1. Fetch available course options
-      const { data: coursesData } = await supabase
-        .from("courses")
-        .select("id, name")
-        .order("name", { ascending: true });
-        
-      if (coursesData) {
-        setCourses(coursesData);
+      // 1. Fetch courses, users, zoom_logs, verifications, and storage files concurrently
+      const [
+        coursesRes,
+        usersRes,
+        zoomLogsRes,
+        globalVerifsRes,
+        latihanVerifsRes,
+        storageFilesRes
+      ] = await Promise.all([
+        supabase.from("courses").select("id, name").order("name", { ascending: true }),
+        supabase.from("users").select("id, identity_number, full_name").limit(50000),
+        supabase.from("zoom_logs").select("*").order("joined_at", { ascending: false }).limit(50000),
+        supabase.from("global_verifications").select("user_id, live_photo_url, ktp_photo_url, created_at").order("created_at", { ascending: true }).limit(50000),
+        supabase.from("latihan_verifications").select("user_id, seafarer_code, live_photo_url, ktp_photo_url, created_at").order("created_at", { ascending: true }).limit(50000),
+        supabase.storage.from("verifications").list("", { limit: 10000, sortBy: { column: "created_at", order: "asc" } }).catch(() => ({ data: [] }))
+      ]);
+
+      if (coursesRes.data) {
+        setCourses(coursesRes.data);
       }
 
-      // 2. Fetch Verifications (Selfie and KTP photos) from database & storage
-      // User requirement: KTP from initial upload only, Selfie latest on dashboard/PDF, all selfies in Excel
-      const verifMap: Record<string, { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }> = {};
+      // 2. Build multi-directional cross-referencing maps from ALL available tables
+      const userToCodeMap: Record<string, string> = {};
+      const codeToUserMap: Record<string, string> = {};
+      const nameToCodeMap: Record<string, string> = {};
+      const codeToNameMap: Record<string, string> = {};
+      const userToNameMap: Record<string, string> = {};
+      const normNameToCodeMap: Record<string, string> = {};
 
-      try {
-        const { data: usersData } = await supabase
-          .from("users")
-          .select("id, identity_number, full_name")
-          .limit(50000);
+      const registerMapping = (uid?: string, code?: string, rawName?: string) => {
+        const u = (uid || "").trim();
+        const c = (code || "").trim();
+        const n = (rawName || "").trim();
+        const lowerN = n.toLowerCase();
+        const normN = normalizeName(n);
 
-        const userToCodeMap: Record<string, string> = {};
-        const codeToUserMap: Record<string, string> = {};
-        const nameToCodeMap: Record<string, string> = {};
-        const codeToNameMap: Record<string, string> = {};
-        const userToNameMap: Record<string, string> = {};
-
-        if (usersData) {
-          usersData.forEach((u: any) => {
-            const uid = (u.id || "").trim();
-            const code = (u.identity_number || "").trim();
-            const name = (u.full_name || "").trim().toLowerCase();
-            if (uid && code) {
-              userToCodeMap[uid] = code;
-              codeToUserMap[code] = uid;
-            }
-            if (name && code) {
-              nameToCodeMap[name] = code;
-              codeToNameMap[code] = name;
-            }
-            if (uid && name) {
-              userToNameMap[uid] = name;
-            }
-          });
+        if (u && c && c !== "-") {
+          userToCodeMap[u] = c;
+          codeToUserMap[c] = u;
         }
-
-        userMappingsRef.current = {
-          userToCode: userToCodeMap,
-          codeToUser: codeToUserMap,
-          nameToCode: nameToCodeMap,
-          codeToName: codeToNameMap,
-          userToName: userToNameMap
-        };
-
-        // Global Verifications: order by created_at ascending so oldest is first (initial KTP)
-        const { data: globalVerifs } = await supabase
-          .from("global_verifications")
-          .select("user_id, live_photo_url, ktp_photo_url, created_at")
-          .order("created_at", { ascending: true })
-          .limit(50000);
-
-        if (globalVerifs) {
-          globalVerifs.forEach((v: any) => {
-            if (v.user_id) {
-              const rawUid = (v.user_id || "").trim();
-              const sCode = userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
-              const uId = codeToUserMap[rawUid] || rawUid;
-              const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
-
-              const existingU = (sCode ? verifMap[`code_${sCode}`] : null) || 
-                                (uId ? verifMap[`user_${uId}`] : null) || 
-                                verifMap[`user_${rawUid}`] || 
-                                { all_selfies: [] };
-
-              const allSelfies = [...(existingU.all_selfies || [])];
-              if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
-                allSelfies.push(v.live_photo_url);
-              }
-
-              const updated = {
-                ...existingU,
-                selfie_url: v.live_photo_url || existingU.selfie_url, // Overwrites with later created_at (latest selfie)
-                ktp_url: existingU.ktp_url || v.ktp_photo_url, // Preserves oldest KTP (initial upload)
-                all_selfies: allSelfies
-              };
-
-              verifMap[`user_${rawUid}`] = updated;
-              if (uId) verifMap[`user_${uId}`] = updated;
-              if (sCode) verifMap[`code_${sCode}`] = updated;
-              if (uName) verifMap[`name_${uName}`] = updated;
-            }
-          });
+        if (c && c !== "-" && n) {
+          nameToCodeMap[lowerN] = c;
+          codeToNameMap[c] = n;
+          if (normN) normNameToCodeMap[normN] = c;
         }
-
-        // Latihan Verifications fallback (supports Attendance Selfies, Initial KTP, and STIP Practice Photos)
-        const { data: latihanVerifs } = await supabase
-          .from("latihan_verifications")
-          .select("user_id, seafarer_code, live_photo_url, ktp_photo_url, created_at")
-          .order("created_at", { ascending: true })
-          .limit(50000);
-
-        if (latihanVerifs) {
-          latihanVerifs.forEach((v: any) => {
-            const rawCode = (v.seafarer_code || "").trim();
-            const rawUid = (v.user_id || "").trim();
-
-            if (rawCode.includes("__PRAKTEK")) {
-              // Parse Praktek STIP record
-              const baseCode = rawCode.split("__PRAKTEK")[0].trim();
-              const sCode = userToCodeMap[baseCode] || (codeToUserMap[baseCode] ? baseCode : (baseCode.length <= 15 ? baseCode : ""));
-              const uId = rawUid || codeToUserMap[baseCode] || (userToCodeMap[baseCode] ? baseCode : "");
-              const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "") || (baseCode ? codeToNameMap[baseCode] : "");
-
-              const curr = (sCode ? verifMap[`code_${sCode}`] : null) || 
-                           (uId ? verifMap[`user_${uId}`] : null) || 
-                           verifMap[`code_${baseCode}`] || 
-                           verifMap[`user_${baseCode}`] || 
-                           { all_selfies: [] };
-
-              if (rawCode.endsWith("__PRAKTEK_STIP")) {
-                if (v.live_photo_url) curr.praktek_stip_1 = v.live_photo_url;
-                if (v.ktp_photo_url) curr.praktek_stip_2 = v.ktp_photo_url;
-              } else if (rawCode.endsWith("__PRAKTEK_1")) {
-                const p1 = v.live_photo_url || v.ktp_photo_url;
-                if (p1) curr.praktek_stip_1 = p1;
-              } else if (rawCode.endsWith("__PRAKTEK_2")) {
-                const p2 = v.live_photo_url || v.ktp_photo_url;
-                if (p2) curr.praktek_stip_2 = p2;
-              }
-
-              if (baseCode) {
-                verifMap[`code_${baseCode}`] = curr;
-                verifMap[`user_${baseCode}`] = curr;
-              }
-              if (sCode) verifMap[`code_${sCode}`] = curr;
-              if (uId) verifMap[`user_${uId}`] = curr;
-              if (rawUid) verifMap[`user_${rawUid}`] = curr;
-              if (uName) verifMap[`name_${uName}`] = curr;
-            } else {
-              // Regular verification record (Selfie & KTP)
-              const sCode = (userToCodeMap[rawUid] || rawCode || userToCodeMap[rawCode] || "").trim();
-              const uId = (rawUid || codeToUserMap[rawCode] || codeToUserMap[sCode] || "").trim();
-              const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "") || (rawCode ? codeToNameMap[rawCode] : "");
-
-              const existing = (sCode ? verifMap[`code_${sCode}`] : null) || 
-                               (uId ? verifMap[`user_${uId}`] : null) || 
-                               (rawCode ? verifMap[`code_${rawCode}`] : null) || 
-                               (rawUid ? verifMap[`user_${rawUid}`] : null) || 
-                               { all_selfies: [] };
-
-              const allSelfies = [...(existing.all_selfies || [])];
-              if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
-                allSelfies.push(v.live_photo_url);
-              }
-
-              const updated = {
-                ...existing,
-                selfie_url: v.live_photo_url || existing.selfie_url,
-                ktp_url: existing.ktp_url || v.ktp_photo_url,
-                all_selfies: allSelfies
-              };
-
-              if (sCode) verifMap[`code_${sCode}`] = updated;
-              if (rawCode) verifMap[`code_${rawCode}`] = updated;
-              if (uId) verifMap[`user_${uId}`] = updated;
-              if (rawUid) verifMap[`user_${rawUid}`] = updated;
-              if (uName) verifMap[`name_${uName}`] = updated;
-            }
-          });
+        if (u && n) {
+          userToNameMap[u] = n;
         }
+      };
 
-        // Check storage bucket 'verifications' for extra attendance selfies and KTP files
+      // Populate from users table
+      if (usersRes.data) {
+        usersRes.data.forEach((u: any) => {
+          registerMapping(u.id, u.identity_number, u.full_name);
+        });
+      }
+
+      // Populate & merge from zoom_logs table
+      const dbLogs = zoomLogsRes.data || [];
+      const localStored = localStorage.getItem("local_zoom_logs");
+      let mergedLogs = [...dbLogs];
+      if (localStored) {
         try {
-          const { data: storageFiles } = await supabase.storage
-            .from("verifications")
-            .list("", { limit: 10000, sortBy: { column: "created_at", order: "asc" } });
-
-          if (storageFiles && storageFiles.length > 0) {
-            storageFiles.forEach((file: any) => {
-              const fileName = file.name || "";
-              const parts = fileName.split("_");
-              if (parts.length >= 2) {
-                const identifier = parts[0].trim();
-                const isLive = fileName.includes("_live_") || fileName.includes("_attendance_") || fileName.includes("_selfie_") || fileName.includes("_login_attendance_");
-                const isKtp = fileName.includes("_ktp_") || fileName.startsWith("ktp_");
-                const isPraktek1 = fileName.includes("praktek_stip_1");
-                const isPraktek2 = fileName.includes("praktek_stip_2");
-                const { data: pubData } = supabase.storage.from("verifications").getPublicUrl(fileName);
-                const publicUrl = pubData?.publicUrl;
-
-                if (publicUrl) {
-                  const resolvedCode = userToCodeMap[identifier] || identifier;
-                  const resolvedName = codeToNameMap[resolvedCode] || userToNameMap[identifier] || "";
-                  const currUser = verifMap[`user_${identifier}`] || { all_selfies: [] };
-                  const currCode = verifMap[`code_${resolvedCode}`] || { all_selfies: [] };
-
-                  if (isLive) {
-                    const uSelfies = [...(currUser.all_selfies || [])];
-                    if (!uSelfies.includes(publicUrl)) uSelfies.push(publicUrl);
-                    
-                    const updated = { ...currUser, selfie_url: publicUrl, all_selfies: uSelfies };
-                    verifMap[`user_${identifier}`] = updated;
-                    verifMap[`code_${resolvedCode}`] = updated;
-                    if (resolvedName) verifMap[`name_${resolvedName}`] = updated;
-                  }
-                  if (isKtp) {
-                    if (!currUser.ktp_url) currUser.ktp_url = publicUrl;
-                    if (!currCode.ktp_url) currCode.ktp_url = publicUrl;
-                    verifMap[`user_${identifier}`] = currUser;
-                    verifMap[`code_${resolvedCode}`] = currCode;
-                    if (resolvedName) verifMap[`name_${resolvedName}`] = currCode;
-                  }
-                  if (isPraktek1) {
-                    currUser.praktek_stip_1 = publicUrl;
-                    currCode.praktek_stip_1 = publicUrl;
-                    verifMap[`user_${identifier}`] = currUser;
-                    verifMap[`code_${resolvedCode}`] = currCode;
-                    if (resolvedName) verifMap[`name_${resolvedName}`] = currCode;
-                  }
-                  if (isPraktek2) {
-                    currUser.praktek_stip_2 = publicUrl;
-                    currCode.praktek_stip_2 = publicUrl;
-                    verifMap[`user_${identifier}`] = currUser;
-                    verifMap[`code_${resolvedCode}`] = currCode;
-                    if (resolvedName) verifMap[`name_${resolvedName}`] = currCode;
-                  }
-                }
-              }
-            });
-          }
-        } catch (stErr) {
-          // ignore bucket listing error
-        }
-
-        // Also merge local STIP practice uploads for instant cross-tab visibility
-        try {
-          const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
-          Object.keys(localPraktek).forEach((uid) => {
-            const pData = localPraktek[uid];
-            const sCode = userToCodeMap[uid] || pData.seafarer_code || (uid.length <= 15 ? uid : "");
-            const uName = (pData.user_name || codeToNameMap[sCode] || userToNameMap[uid] || "").trim().toLowerCase();
-            const currUser = verifMap[`user_${uid}`] || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
-            if (pData.photo1) currUser.praktek_stip_1 = pData.photo1;
-            if (pData.photo2) currUser.praktek_stip_2 = pData.photo2;
-            verifMap[`user_${uid}`] = currUser;
-
-            if (sCode) {
-              const currCode = verifMap[`code_${sCode}`] || currUser;
-              if (pData.photo1) currCode.praktek_stip_1 = pData.photo1;
-              if (pData.photo2) currCode.praktek_stip_2 = pData.photo2;
-              verifMap[`code_${sCode}`] = currCode;
-            }
-            if (uName) {
-              verifMap[`name_${uName}`] = currUser;
+          const localList: ZoomLog[] = JSON.parse(localStored);
+          const existingIds = new Set(dbLogs.map(l => l.id));
+          localList.forEach(l => {
+            if (!existingIds.has(l.id)) {
+              mergedLogs.unshift(l);
             }
           });
-        } catch (localPrkErr) {
+        } catch (err) {
           // ignore
         }
-      } catch (verifErr) {
-        console.warn("Could not fetch verification photos from Supabase:", verifErr);
+      }
+
+      mergedLogs.forEach(l => {
+        registerMapping(l.user_id, l.seafarer_code, l.user_name);
+      });
+
+      // Populate & merge from latihan_verifications
+      if (latihanVerifsRes.data) {
+        latihanVerifsRes.data.forEach((v: any) => {
+          const rawCode = (v.seafarer_code || "").trim();
+          const cleanCode = rawCode.replace(/__PRAKTEK.*$/, "").trim();
+          registerMapping(v.user_id, cleanCode, undefined);
+        });
+      }
+
+      userMappingsRef.current = {
+        userToCode: userToCodeMap,
+        codeToUser: codeToUserMap,
+        nameToCode: nameToCodeMap,
+        codeToName: codeToNameMap,
+        userToName: userToNameMap,
+        normNameToCode: normNameToCodeMap
+      };
+
+      // 3. Build comprehensive Verification map
+      const verifMap: Record<string, { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }> = {};
+
+      const saveToVerifMap = (keys: (string | null | undefined)[], data: Partial<{ selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string }>) => {
+        const validKeys = keys.filter(Boolean) as string[];
+        if (validKeys.length === 0) return;
+
+        // Find any existing record in verifMap among the keys
+        let target: { selfie_url?: string; ktp_url?: string; all_selfies?: string[]; praktek_stip_1?: string; praktek_stip_2?: string } = { all_selfies: [] };
+        for (const k of validKeys) {
+          if (verifMap[k]) {
+            target = { ...verifMap[k] };
+            break;
+          }
+        }
+
+        const newAllSelfies = [...(target.all_selfies || [])];
+        if (data.all_selfies) {
+          data.all_selfies.forEach(s => {
+            const pub = ensurePublicUrl(s);
+            if (pub && !newAllSelfies.includes(pub)) newAllSelfies.push(pub);
+          });
+        }
+        if (data.selfie_url) {
+          const pub = ensurePublicUrl(data.selfie_url);
+          if (pub && !newAllSelfies.includes(pub)) newAllSelfies.push(pub);
+        }
+
+        const updated = {
+          ...target,
+          selfie_url: ensurePublicUrl(data.selfie_url) || target.selfie_url,
+          // KTP: Preserves initial upload
+          ktp_url: target.ktp_url || ensurePublicUrl(data.ktp_url),
+          praktek_stip_1: ensurePublicUrl(data.praktek_stip_1) || target.praktek_stip_1,
+          praktek_stip_2: ensurePublicUrl(data.praktek_stip_2) || target.praktek_stip_2,
+          all_selfies: newAllSelfies
+        };
+
+        validKeys.forEach(k => {
+          verifMap[k] = updated;
+        });
+      };
+
+      // Process Global Verifications
+      if (globalVerifsRes.data) {
+        globalVerifsRes.data.forEach((v: any) => {
+          if (!v.user_id) return;
+          const rawUid = v.user_id.trim();
+          const sCode = userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
+          const uId = codeToUserMap[rawUid] || rawUid;
+          const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
+          const normN = normalizeName(uName);
+
+          const keys = [
+            `user_${rawUid}`,
+            uId ? `user_${uId}` : null,
+            sCode ? `code_${sCode}` : null,
+            uName ? `name_${uName.toLowerCase().trim()}` : null,
+            normN ? `norm_${normN}` : null
+          ];
+
+          saveToVerifMap(keys, {
+            selfie_url: v.live_photo_url,
+            ktp_url: v.ktp_photo_url
+          });
+        });
+      }
+
+      // Process Latihan Verifications
+      if (latihanVerifsRes.data) {
+        latihanVerifsRes.data.forEach((v: any) => {
+          const rawCode = (v.seafarer_code || "").trim();
+          const rawUid = (v.user_id || "").trim();
+          const cleanCode = rawCode.replace(/__PRAKTEK.*$/, "").trim();
+          const sCode = cleanCode || userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
+          const uId = rawUid || (sCode ? codeToUserMap[sCode] : "");
+          const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
+          const normN = normalizeName(uName);
+
+          const keys = [
+            cleanCode ? `code_${cleanCode}` : null,
+            sCode ? `code_${sCode}` : null,
+            rawUid ? `user_${rawUid}` : null,
+            uId ? `user_${uId}` : null,
+            uName ? `name_${uName.toLowerCase().trim()}` : null,
+            normN ? `norm_${normN}` : null
+          ];
+
+          if (rawCode.includes("__PRAKTEK")) {
+            if (rawCode.endsWith("__PRAKTEK_STIP")) {
+              saveToVerifMap(keys, {
+                praktek_stip_1: v.live_photo_url,
+                praktek_stip_2: v.ktp_photo_url
+              });
+            } else if (rawCode.endsWith("__PRAKTEK_1")) {
+              saveToVerifMap(keys, {
+                praktek_stip_1: v.live_photo_url || v.ktp_photo_url
+              });
+            } else if (rawCode.endsWith("__PRAKTEK_2")) {
+              saveToVerifMap(keys, {
+                praktek_stip_2: v.live_photo_url || v.ktp_photo_url
+              });
+            }
+          } else {
+            saveToVerifMap(keys, {
+              selfie_url: v.live_photo_url,
+              ktp_url: v.ktp_photo_url
+            });
+          }
+        });
+      }
+
+      // Process Storage Files with accurate filename parsing
+      const storageFiles = (storageFilesRes.data as any[]) || [];
+      if (storageFiles.length > 0) {
+        storageFiles.forEach((file: any) => {
+          const fileName = file.name || "";
+          if (!fileName) return;
+
+          const parsed = parseStorageFileName(fileName);
+          const { identifier, isLive, isKtp, isPraktek1, isPraktek2 } = parsed;
+          if (!identifier) return;
+
+          const { data: pubData } = supabase.storage.from("verifications").getPublicUrl(fileName);
+          const publicUrl = pubData?.publicUrl;
+          if (!publicUrl) return;
+
+          const sCode = userToCodeMap[identifier] || (codeToUserMap[identifier] ? identifier : (identifier.length <= 15 ? identifier : ""));
+          const uId = codeToUserMap[identifier] || identifier;
+          const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
+          const normN = normalizeName(uName);
+
+          const keys = [
+            `user_${identifier}`,
+            uId ? `user_${uId}` : null,
+            sCode ? `code_${sCode}` : null,
+            `code_${identifier}`,
+            uName ? `name_${uName.toLowerCase().trim()}` : null,
+            normN ? `norm_${normN}` : null
+          ];
+
+          if (isLive) {
+            saveToVerifMap(keys, { selfie_url: publicUrl });
+          }
+          if (isKtp) {
+            saveToVerifMap(keys, { ktp_url: publicUrl });
+          }
+          if (isPraktek1) {
+            saveToVerifMap(keys, { praktek_stip_1: publicUrl });
+          }
+          if (isPraktek2) {
+            saveToVerifMap(keys, { praktek_stip_2: publicUrl });
+          }
+        });
+      }
+
+      // Process Local Storage Fallbacks for Praktek STIP
+      try {
+        const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
+        Object.keys(localPraktek).forEach((uid) => {
+          const pData = localPraktek[uid];
+          const sCode = userToCodeMap[uid] || pData.seafarer_code || (uid.length <= 15 ? uid : "");
+          const uName = (pData.user_name || codeToNameMap[sCode] || userToNameMap[uid] || "").trim();
+          const normN = normalizeName(uName);
+
+          const keys = [
+            `user_${uid}`,
+            sCode ? `code_${sCode}` : null,
+            uName ? `name_${uName.toLowerCase()}` : null,
+            normN ? `norm_${normN}` : null
+          ];
+
+          saveToVerifMap(keys, {
+            praktek_stip_1: pData.photo1,
+            praktek_stip_2: pData.photo2
+          });
+        });
+      } catch (localPrkErr) {
+        // ignore
       }
 
       setVerifications(verifMap);
-
-      // 3. Fetch Zoom logs (with high limit so it never truncates daily tracking)
-      const { data: dbLogs, error } = await supabase
-        .from("zoom_logs")
-        .select("*")
-        .order("joined_at", { ascending: false })
-        .limit(50000);
-
-      if (error) {
-        throw error;
-      }
-
-      if (dbLogs) {
-        // Also check if there are any locally stored logs to merge
-        const localStored = localStorage.getItem("local_zoom_logs");
-        let mergedLogs = [...dbLogs];
-        if (localStored) {
-          try {
-            const localList: ZoomLog[] = JSON.parse(localStored);
-            const existingIds = new Set(dbLogs.map(l => l.id));
-            localList.forEach(l => {
-              if (!existingIds.has(l.id)) {
-                mergedLogs.unshift(l);
-              }
-            });
-          } catch (err) {
-            // ignore
-          }
-        }
-        setLogs(mergedLogs);
-      }
+      setLogs(mergedLogs);
     } catch (e) {
-      console.warn("Table zoom_logs not found or setup is missing. Loading from LocalStorage & Mock Fallback...");
+      console.warn("Table zoom_logs not found or setup is missing. Loading from LocalStorage & Mock Fallback...", e);
       setErrorLocalAlert(true);
       loadMockAndLocalStorageLogs();
     } finally {
@@ -937,22 +1015,46 @@ export default function SinkronusReports() {
       const currentName = (log.user_name || "Peserta").trim();
 
       // Find verification photo if available using all keys and mappings
-      const { userToCode, codeToUser, nameToCode, codeToName, userToName } = userMappingsRef.current;
-      const mappedCode = codeKey && codeKey !== "-" ? codeKey : (userToCode[userIdKey] || nameToCode[nameKey] || "");
-      const mappedUid = userIdKey ? userIdKey : (codeToUser[codeKey] || "");
-      const mappedName = nameKey ? nameKey : (codeToName[codeKey] || userToName[userIdKey] || "");
+      const { userToCode, codeToUser, nameToCode, codeToName, userToName, normNameToCode } = userMappingsRef.current;
+      const normName = normalizeName(nameKey);
+      const mappedCode = (codeKey && codeKey !== "-") ? codeKey : (userToCode[userIdKey] || nameToCode[nameKey] || normNameToCode[normName] || "");
+      const mappedUid = userIdKey ? userIdKey : (codeToUser[codeKey] || (mappedCode ? codeToUser[mappedCode] : ""));
+      const mappedName = nameKey ? nameKey : (codeToName[codeKey] || codeToName[mappedCode] || userToName[userIdKey] || "");
 
-      const personVerif = (mappedCode ? verifications[`code_${mappedCode}`] : null) || 
-                          (mappedUid ? verifications[`user_${mappedUid}`] : null) || 
-                          (mappedName ? verifications[`name_${mappedName}`] : null) ||
-                          verifications[`code_${codeKey}`] || 
-                          verifications[`user_${userIdKey}`] || 
-                          verifications[`name_${nameKey}`];
+      // All possible keys where verification data might reside
+      const candidateKeys = [
+        codeKey && codeKey !== "-" ? `code_${codeKey}` : null,
+        mappedCode ? `code_${mappedCode}` : null,
+        userIdKey ? `user_${userIdKey}` : null,
+        mappedUid ? `user_${mappedUid}` : null,
+        nameKey ? `name_${nameKey}` : null,
+        mappedName ? `name_${mappedName.toLowerCase().trim()}` : null,
+        normName ? `norm_${normName}` : null,
+      ].filter(Boolean) as string[];
 
-      let initialSelfie = log.selfie_url || personVerif?.selfie_url;
-      let initialKtp = personVerif?.ktp_url || log.ktp_url;
-      let initialPraktek1 = personVerif?.praktek_stip_1;
-      let initialPraktek2 = personVerif?.praktek_stip_2;
+      let initialSelfie = ensurePublicUrl(log.selfie_url) || "";
+      let initialKtp = ensurePublicUrl(log.ktp_url) || "";
+      let initialPraktek1 = "";
+      let initialPraktek2 = "";
+      const initialSelfiesList: string[] = [];
+      if (initialSelfie) initialSelfiesList.push(initialSelfie);
+
+      candidateKeys.forEach(k => {
+        const v = verifications[k];
+        if (!v) return;
+        if (!initialSelfie && v.selfie_url) initialSelfie = v.selfie_url;
+        if (!initialKtp && v.ktp_url) initialKtp = v.ktp_url;
+        if (!initialPraktek1 && v.praktek_stip_1) initialPraktek1 = v.praktek_stip_1;
+        if (!initialPraktek2 && v.praktek_stip_2) initialPraktek2 = v.praktek_stip_2;
+        if (v.all_selfies) {
+          v.all_selfies.forEach(s => {
+            const pub = ensurePublicUrl(s);
+            if (pub && !initialSelfiesList.includes(pub)) {
+              initialSelfiesList.push(pub);
+            }
+          });
+        }
+      });
 
       // Local storage fallback for instant cross-tab sync if not in DB yet
       if (!initialPraktek1 || !initialPraktek2) {
@@ -964,11 +1066,11 @@ export default function SinkronusReports() {
                         (mappedUid ? localPraktek[mappedUid] : null) || 
                         Object.values(localPraktek).find((p: any) => 
                           (p.seafarer_code && (p.seafarer_code === codeKey || p.seafarer_code === mappedCode)) || 
-                          (p.user_name && p.user_name.toLowerCase() === nameKey)
+                          (p.user_name && (p.user_name.toLowerCase() === nameKey || normalizeName(p.user_name) === normName))
                         ) as any;
           if (pData) {
-            if (!initialPraktek1 && pData.photo1) initialPraktek1 = pData.photo1;
-            if (!initialPraktek2 && pData.photo2) initialPraktek2 = pData.photo2;
+            if (!initialPraktek1 && pData.photo1) initialPraktek1 = ensurePublicUrl(pData.photo1) || "";
+            if (!initialPraktek2 && pData.photo2) initialPraktek2 = ensurePublicUrl(pData.photo2) || "";
           }
         } catch (e) {
           // ignore
@@ -977,28 +1079,35 @@ export default function SinkronusReports() {
 
       if (!initialSelfie) {
         const localSelfie = (codeKey ? localStorage.getItem(`user_selfie_${codeKey}`) : null) || 
+                            (mappedCode ? localStorage.getItem(`user_selfie_${mappedCode}`) : null) || 
                             (userIdKey ? localStorage.getItem(`user_selfie_${userIdKey}`) : null) || 
+                            (mappedUid ? localStorage.getItem(`user_selfie_${mappedUid}`) : null) || 
                             localStorage.getItem("session_selfie_url");
-        if (localSelfie) initialSelfie = localSelfie;
+        if (localSelfie) {
+          initialSelfie = ensurePublicUrl(localSelfie) || "";
+          if (initialSelfie && !initialSelfiesList.includes(initialSelfie)) {
+            initialSelfiesList.push(initialSelfie);
+          }
+        }
       }
 
       if (!initialKtp) {
         const localKtp = (codeKey ? localStorage.getItem(`user_ktp_${codeKey}`) : null) || 
-                         (userIdKey ? localStorage.getItem(`user_ktp_${userIdKey}`) : null);
-        if (localKtp) initialKtp = localKtp;
+                         (mappedCode ? localStorage.getItem(`user_ktp_${mappedCode}`) : null) || 
+                         (userIdKey ? localStorage.getItem(`user_ktp_${userIdKey}`) : null) || 
+                         (mappedUid ? localStorage.getItem(`user_ktp_${mappedUid}`) : null);
+        if (localKtp) initialKtp = ensurePublicUrl(localKtp) || "";
       }
-
-      const initialSelfiesList = personVerif?.all_selfies ? [...personVerif.all_selfies] : (initialSelfie ? [initialSelfie] : []);
 
       if (!map.has(groupKey)) {
         map.set(groupKey, {
           user_name: currentName,
-          seafarer_code: (codeKey && codeKey !== "-") ? codeKey : "-",
+          seafarer_code: (codeKey && codeKey !== "-") ? codeKey : (mappedCode || "-"),
           pureClass,
           period,
           course_name: log.course_name || "-",
           course_id: log.course_id,
-          user_id: log.user_id,
+          user_id: log.user_id || mappedUid,
           selfie_url: initialSelfie,
           ktp_url: initialKtp,
           all_selfies: initialSelfiesList,
@@ -1012,18 +1121,21 @@ export default function SinkronusReports() {
         if (currentName.length > entry.user_name.length) {
           entry.user_name = currentName;
         }
-        if ((!entry.seafarer_code || entry.seafarer_code === "-") && codeKey && codeKey !== "-") {
-          entry.seafarer_code = codeKey;
+        if ((!entry.seafarer_code || entry.seafarer_code === "-") && (codeKey && codeKey !== "-" ? codeKey : mappedCode)) {
+          entry.seafarer_code = (codeKey && codeKey !== "-") ? codeKey : mappedCode;
         }
         if ((!entry.pureClass || entry.pureClass === "-") && pureClass && pureClass !== "-") {
           entry.pureClass = pureClass;
         }
         // Always prefer the latest selfie
         if (log.selfie_url) {
-          entry.selfie_url = log.selfie_url;
-          if (!entry.all_selfies) entry.all_selfies = [];
-          if (!entry.all_selfies.includes(log.selfie_url)) {
-            entry.all_selfies.push(log.selfie_url);
+          const pub = ensurePublicUrl(log.selfie_url);
+          if (pub) {
+            entry.selfie_url = pub;
+            if (!entry.all_selfies) entry.all_selfies = [];
+            if (!entry.all_selfies.includes(pub)) {
+              entry.all_selfies.push(pub);
+            }
           }
         } else if (!entry.selfie_url && initialSelfie) {
           entry.selfie_url = initialSelfie;
@@ -1039,9 +1151,9 @@ export default function SinkronusReports() {
         if (!entry.praktek_stip_2 && initialPraktek2) {
           entry.praktek_stip_2 = initialPraktek2;
         }
-        if (personVerif?.all_selfies) {
+        if (initialSelfiesList.length > 0) {
           if (!entry.all_selfies) entry.all_selfies = [];
-          personVerif.all_selfies.forEach(s => {
+          initialSelfiesList.forEach(s => {
             if (!entry.all_selfies.includes(s)) entry.all_selfies.push(s);
           });
         }
@@ -1115,6 +1227,7 @@ export default function SinkronusReports() {
         period: item.period,
         course_name: item.course_name,
         course_id: item.course_id,
+        user_id: item.user_id,
         days,
         total_duration_seconds: totalDuration,
         total_camera_on_seconds: totalCamOn,
@@ -1833,6 +1946,11 @@ export default function SinkronusReports() {
                         {/* Selfie thumbnail */}
                         <SafeThumbnail
                           src={participant.selfie_url}
+                          fallbackSrcs={[
+                            ...(participant.all_selfies || []),
+                            participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`selfie_${participant.seafarer_code}.jpg`).data.publicUrl : null,
+                            participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`selfie_${participant.user_id}.jpg`).data.publicUrl : null,
+                          ]}
                           alt="Foto Selfie"
                           title="Klik untuk memperbesar Foto Selfie"
                           borderColor="border-indigo-200"
@@ -1841,11 +1959,11 @@ export default function SinkronusReports() {
                           fallbackLabel="Belum Ada"
                           subLabel="Selfie Terakhir"
                           subLabelTitle="Foto selfie presensi paling terakhir"
-                          onClick={() => {
+                          onClick={(activeUrl) => {
                             setModalImgError(false);
                             setSelectedPhotoModal({
                               title: "Foto Selfie Presensi",
-                              url: participant.selfie_url!,
+                              url: activeUrl || participant.selfie_url || "",
                               userName: participant.user_name,
                               seafarerCode: participant.seafarer_code
                             });
@@ -1855,6 +1973,10 @@ export default function SinkronusReports() {
                         {/* KTP thumbnail */}
                         <SafeThumbnail
                           src={participant.ktp_url}
+                          fallbackSrcs={[
+                            participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`ktp_${participant.seafarer_code}.jpg`).data.publicUrl : null,
+                            participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`ktp_${participant.user_id}.jpg`).data.publicUrl : null,
+                          ]}
                           alt="Foto KTP"
                           title="Klik untuk memperbesar Foto KTP (Upload Awal)"
                           borderColor="border-emerald-200"
@@ -1863,11 +1985,11 @@ export default function SinkronusReports() {
                           fallbackLabel="Belum Ada"
                           subLabel="KTP Awal"
                           subLabelTitle="Foto KTP dari unggahan pertama"
-                          onClick={() => {
+                          onClick={(activeUrl) => {
                             setModalImgError(false);
                             setSelectedPhotoModal({
                               title: "Foto KTP Identitas (Upload Awal)",
-                              url: participant.ktp_url!,
+                              url: activeUrl || participant.ktp_url || "",
                               userName: participant.user_name,
                               seafarerCode: participant.seafarer_code
                             });
@@ -1882,6 +2004,10 @@ export default function SinkronusReports() {
                         {/* Praktek 1 */}
                         <SafeThumbnail
                           src={participant.praktek_stip_1}
+                          fallbackSrcs={[
+                            participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${participant.seafarer_code}.jpg`).data.publicUrl : null,
+                            participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${participant.user_id}.jpg`).data.publicUrl : null,
+                          ]}
                           alt="Foto Praktek 1"
                           title="Klik untuk memperbesar Foto Praktek STIP #1"
                           borderColor="border-amber-300"
@@ -1889,11 +2015,11 @@ export default function SinkronusReports() {
                           icon={Camera}
                           fallbackLabel="Belum Ada"
                           subLabel="Praktek 1"
-                          onClick={() => {
+                          onClick={(activeUrl) => {
                             setModalImgError(false);
                             setSelectedPhotoModal({
                               title: "Foto Dokumentasi Praktek di STIP (Foto #1)",
-                              url: participant.praktek_stip_1!,
+                              url: activeUrl || participant.praktek_stip_1 || "",
                               userName: participant.user_name,
                               seafarerCode: participant.seafarer_code
                             });
@@ -1903,6 +2029,10 @@ export default function SinkronusReports() {
                         {/* Praktek 2 */}
                         <SafeThumbnail
                           src={participant.praktek_stip_2}
+                          fallbackSrcs={[
+                            participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${participant.seafarer_code}.jpg`).data.publicUrl : null,
+                            participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${participant.user_id}.jpg`).data.publicUrl : null,
+                          ]}
                           alt="Foto Praktek 2"
                           title="Klik untuk memperbesar Foto Praktek STIP #2"
                           borderColor="border-amber-300"
@@ -1910,11 +2040,11 @@ export default function SinkronusReports() {
                           icon={Camera}
                           fallbackLabel="Belum Ada"
                           subLabel="Praktek 2"
-                          onClick={() => {
+                          onClick={(activeUrl) => {
                             setModalImgError(false);
                             setSelectedPhotoModal({
                               title: "Foto Dokumentasi Praktek di STIP (Foto #2)",
-                              url: participant.praktek_stip_2!,
+                              url: activeUrl || participant.praktek_stip_2 || "",
                               userName: participant.user_name,
                               seafarerCode: participant.seafarer_code
                             });
