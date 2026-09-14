@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Download, 
   Search, 
@@ -16,9 +16,90 @@ import {
   CreditCard,
   Camera,
   X,
-  Printer
+  Printer,
+  AlertCircle
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+
+interface SafeThumbnailProps {
+  src?: string | null;
+  alt: string;
+  title: string;
+  borderColor: string;
+  hoverBorderColor: string;
+  onClick: () => void;
+  icon: React.ElementType;
+  fallbackLabel?: string;
+  subLabel: string;
+  subLabelTitle?: string;
+}
+
+function SafeThumbnail({
+  src,
+  alt,
+  title,
+  borderColor,
+  hoverBorderColor,
+  onClick,
+  icon: Icon,
+  fallbackLabel = "Belum Ada",
+  subLabel,
+  subLabelTitle
+}: SafeThumbnailProps) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const isValidPhoto = Boolean(
+    src && 
+    !hasError && 
+    src.trim() !== "" && 
+    src !== "null" && 
+    src !== "undefined"
+  );
+
+  return (
+    <div className="flex flex-col items-center">
+      {isValidPhoto ? (
+        <button
+          type="button"
+          onClick={onClick}
+          className={`relative group block w-10 h-10 rounded-lg overflow-hidden border-2 ${borderColor} hover:${hoverBorderColor} transition shadow-xs cursor-pointer focus:outline-none print-img`}
+          title={title}
+        >
+          <img
+            src={src!}
+            alt={alt}
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            onError={() => setHasError(true)}
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
+            <Eye className="w-3.5 h-3.5 text-white" />
+          </div>
+        </button>
+      ) : (
+        <div 
+          className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" 
+          title={hasError ? "Foto gagal dimuat dari server" : `Belum ada ${alt}`}
+        >
+          <Icon className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-[7.5px] text-slate-400 leading-tight">
+            {hasError ? "Gagal" : fallbackLabel}
+          </span>
+        </div>
+      )}
+      <span 
+        className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" 
+        title={subLabelTitle || subLabel}
+      >
+        {subLabel}
+      </span>
+    </div>
+  );
+}
 
 const getBase64ImageFromUrl = async (imageUrl: string): Promise<string | null> => {
   try {
@@ -130,6 +211,21 @@ export default function SinkronusReports() {
     userName: string;
     seafarerCode: string;
   } | null>(null);
+  const [modalImgError, setModalImgError] = useState(false);
+
+  const userMappingsRef = useRef<{
+    userToCode: Record<string, string>;
+    codeToUser: Record<string, string>;
+    nameToCode: Record<string, string>;
+    codeToName: Record<string, string>;
+    userToName: Record<string, string>;
+  }>({
+    userToCode: {},
+    codeToUser: {},
+    nameToCode: {},
+    codeToName: {},
+    userToName: {}
+  });
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState("");
@@ -204,6 +300,14 @@ export default function SinkronusReports() {
           });
         }
 
+        userMappingsRef.current = {
+          userToCode: userToCodeMap,
+          codeToUser: codeToUserMap,
+          nameToCode: nameToCodeMap,
+          codeToName: codeToNameMap,
+          userToName: userToNameMap
+        };
+
         // Global Verifications: order by created_at ascending so oldest is first (initial KTP)
         const { data: globalVerifs } = await supabase
           .from("global_verifications")
@@ -214,10 +318,15 @@ export default function SinkronusReports() {
         if (globalVerifs) {
           globalVerifs.forEach((v: any) => {
             if (v.user_id) {
-              const uId = v.user_id.trim();
-              const sCode = userToCodeMap[uId];
-              const uName = userToNameMap[uId];
-              const existingU = verifMap[`user_${uId}`] || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
+              const rawUid = (v.user_id || "").trim();
+              const sCode = userToCodeMap[rawUid] || (codeToUserMap[rawUid] ? rawUid : "");
+              const uId = codeToUserMap[rawUid] || rawUid;
+              const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "");
+
+              const existingU = (sCode ? verifMap[`code_${sCode}`] : null) || 
+                                (uId ? verifMap[`user_${uId}`] : null) || 
+                                verifMap[`user_${rawUid}`] || 
+                                { all_selfies: [] };
 
               const allSelfies = [...(existingU.all_selfies || [])];
               if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
@@ -231,13 +340,10 @@ export default function SinkronusReports() {
                 all_selfies: allSelfies
               };
 
-              verifMap[`user_${uId}`] = updated;
-              if (sCode) {
-                verifMap[`code_${sCode}`] = updated;
-              }
-              if (uName) {
-                verifMap[`name_${uName}`] = updated;
-              }
+              verifMap[`user_${rawUid}`] = updated;
+              if (uId) verifMap[`user_${uId}`] = updated;
+              if (sCode) verifMap[`code_${sCode}`] = updated;
+              if (uName) verifMap[`name_${uName}`] = updated;
             }
           });
         }
@@ -252,14 +358,20 @@ export default function SinkronusReports() {
         if (latihanVerifs) {
           latihanVerifs.forEach((v: any) => {
             const rawCode = (v.seafarer_code || "").trim();
+            const rawUid = (v.user_id || "").trim();
 
             if (rawCode.includes("__PRAKTEK")) {
               // Parse Praktek STIP record
               const baseCode = rawCode.split("__PRAKTEK")[0].trim();
-              const resolvedUid = (v.user_id ? v.user_id.trim() : null) || codeToUserMap[baseCode] || baseCode;
-              const resolvedName = codeToNameMap[baseCode] || userToNameMap[resolvedUid] || "";
+              const sCode = userToCodeMap[baseCode] || (codeToUserMap[baseCode] ? baseCode : (baseCode.length <= 15 ? baseCode : ""));
+              const uId = rawUid || codeToUserMap[baseCode] || (userToCodeMap[baseCode] ? baseCode : "");
+              const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "") || (baseCode ? codeToNameMap[baseCode] : "");
 
-              const curr = verifMap[`code_${baseCode}`] || verifMap[`user_${resolvedUid}`] || { all_selfies: [] };
+              const curr = (sCode ? verifMap[`code_${sCode}`] : null) || 
+                           (uId ? verifMap[`user_${uId}`] : null) || 
+                           verifMap[`code_${baseCode}`] || 
+                           verifMap[`user_${baseCode}`] || 
+                           { all_selfies: [] };
 
               if (rawCode.endsWith("__PRAKTEK_STIP")) {
                 if (v.live_photo_url) curr.praktek_stip_1 = v.live_photo_url;
@@ -272,16 +384,25 @@ export default function SinkronusReports() {
                 if (p2) curr.praktek_stip_2 = p2;
               }
 
-              verifMap[`code_${baseCode}`] = curr;
-              verifMap[`user_${resolvedUid}`] = curr;
-              if (resolvedName) verifMap[`name_${resolvedName}`] = curr;
+              if (baseCode) {
+                verifMap[`code_${baseCode}`] = curr;
+                verifMap[`user_${baseCode}`] = curr;
+              }
+              if (sCode) verifMap[`code_${sCode}`] = curr;
+              if (uId) verifMap[`user_${uId}`] = curr;
+              if (rawUid) verifMap[`user_${rawUid}`] = curr;
+              if (uName) verifMap[`name_${uName}`] = curr;
             } else {
               // Regular verification record (Selfie & KTP)
-              const sCode = (rawCode || userToCodeMap[v.user_id] || "").trim();
-              const uId = (v.user_id || codeToUserMap[rawCode] || "").trim();
-              const uName = codeToNameMap[sCode] || userToNameMap[uId] || "";
+              const sCode = (userToCodeMap[rawUid] || rawCode || userToCodeMap[rawCode] || "").trim();
+              const uId = (rawUid || codeToUserMap[rawCode] || codeToUserMap[sCode] || "").trim();
+              const uName = (sCode ? codeToNameMap[sCode] : "") || (uId ? userToNameMap[uId] : "") || (rawCode ? codeToNameMap[rawCode] : "");
 
-              const existing = (uId ? verifMap[`user_${uId}`] : null) || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
+              const existing = (sCode ? verifMap[`code_${sCode}`] : null) || 
+                               (uId ? verifMap[`user_${uId}`] : null) || 
+                               (rawCode ? verifMap[`code_${rawCode}`] : null) || 
+                               (rawUid ? verifMap[`user_${rawUid}`] : null) || 
+                               { all_selfies: [] };
 
               const allSelfies = [...(existing.all_selfies || [])];
               if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
@@ -296,7 +417,9 @@ export default function SinkronusReports() {
               };
 
               if (sCode) verifMap[`code_${sCode}`] = updated;
+              if (rawCode) verifMap[`code_${rawCode}`] = updated;
               if (uId) verifMap[`user_${uId}`] = updated;
+              if (rawUid) verifMap[`user_${rawUid}`] = updated;
               if (uName) verifMap[`name_${uName}`] = updated;
             }
           });
@@ -813,54 +936,56 @@ export default function SinkronusReports() {
 
       const currentName = (log.user_name || "Peserta").trim();
 
-      // Find verification photo if available
-      const personVerif = verifications[`code_${codeKey}`] || 
+      // Find verification photo if available using all keys and mappings
+      const { userToCode, codeToUser, nameToCode, codeToName, userToName } = userMappingsRef.current;
+      const mappedCode = codeKey && codeKey !== "-" ? codeKey : (userToCode[userIdKey] || nameToCode[nameKey] || "");
+      const mappedUid = userIdKey ? userIdKey : (codeToUser[codeKey] || "");
+      const mappedName = nameKey ? nameKey : (codeToName[codeKey] || userToName[userIdKey] || "");
+
+      const personVerif = (mappedCode ? verifications[`code_${mappedCode}`] : null) || 
+                          (mappedUid ? verifications[`user_${mappedUid}`] : null) || 
+                          (mappedName ? verifications[`name_${mappedName}`] : null) ||
+                          verifications[`code_${codeKey}`] || 
                           verifications[`user_${userIdKey}`] || 
-                          verifications[`name_${nameKey}`] ||
-                          verifications[`code_${(log.seafarer_code || "").trim()}`] ||
-                          verifications[`user_${(log.user_id || "").trim()}`] ||
-                          verifications[`name_${(log.user_name || "").trim().toLowerCase()}`];
+                          verifications[`name_${nameKey}`];
 
       let initialSelfie = log.selfie_url || personVerif?.selfie_url;
       let initialKtp = personVerif?.ktp_url || log.ktp_url;
       let initialPraktek1 = personVerif?.praktek_stip_1;
       let initialPraktek2 = personVerif?.praktek_stip_2;
 
-      // Deterministic storage URL fallbacks if missing
-      if (!initialPraktek1 && codeKey && codeKey !== "-") {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${codeKey}.jpg`);
-        if (data?.publicUrl) initialPraktek1 = data.publicUrl;
-      }
-      if (!initialPraktek1 && userIdKey) {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${userIdKey}.jpg`);
-        if (data?.publicUrl) initialPraktek1 = data.publicUrl;
-      }
-
-      if (!initialPraktek2 && codeKey && codeKey !== "-") {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${codeKey}.jpg`);
-        if (data?.publicUrl) initialPraktek2 = data.publicUrl;
-      }
-      if (!initialPraktek2 && userIdKey) {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${userIdKey}.jpg`);
-        if (data?.publicUrl) initialPraktek2 = data.publicUrl;
-      }
-
-      if (!initialSelfie && codeKey && codeKey !== "-") {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`selfie_${codeKey}.jpg`);
-        if (data?.publicUrl) initialSelfie = data.publicUrl;
-      }
-      if (!initialSelfie && userIdKey) {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`selfie_${userIdKey}.jpg`);
-        if (data?.publicUrl) initialSelfie = data.publicUrl;
+      // Local storage fallback for instant cross-tab sync if not in DB yet
+      if (!initialPraktek1 || !initialPraktek2) {
+        try {
+          const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
+          const pData = (codeKey ? localPraktek[codeKey] : null) || 
+                        (mappedCode ? localPraktek[mappedCode] : null) || 
+                        (userIdKey ? localPraktek[userIdKey] : null) || 
+                        (mappedUid ? localPraktek[mappedUid] : null) || 
+                        Object.values(localPraktek).find((p: any) => 
+                          (p.seafarer_code && (p.seafarer_code === codeKey || p.seafarer_code === mappedCode)) || 
+                          (p.user_name && p.user_name.toLowerCase() === nameKey)
+                        ) as any;
+          if (pData) {
+            if (!initialPraktek1 && pData.photo1) initialPraktek1 = pData.photo1;
+            if (!initialPraktek2 && pData.photo2) initialPraktek2 = pData.photo2;
+          }
+        } catch (e) {
+          // ignore
+        }
       }
 
-      if (!initialKtp && codeKey && codeKey !== "-") {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`ktp_${codeKey}.jpg`);
-        if (data?.publicUrl) initialKtp = data.publicUrl;
+      if (!initialSelfie) {
+        const localSelfie = (codeKey ? localStorage.getItem(`user_selfie_${codeKey}`) : null) || 
+                            (userIdKey ? localStorage.getItem(`user_selfie_${userIdKey}`) : null) || 
+                            localStorage.getItem("session_selfie_url");
+        if (localSelfie) initialSelfie = localSelfie;
       }
-      if (!initialKtp && userIdKey) {
-        const { data } = supabase.storage.from("verifications").getPublicUrl(`ktp_${userIdKey}.jpg`);
-        if (data?.publicUrl) initialKtp = data.publicUrl;
+
+      if (!initialKtp) {
+        const localKtp = (codeKey ? localStorage.getItem(`user_ktp_${codeKey}`) : null) || 
+                         (userIdKey ? localStorage.getItem(`user_ktp_${userIdKey}`) : null);
+        if (localKtp) initialKtp = localKtp;
       }
 
       const initialSelfiesList = personVerif?.all_selfies ? [...personVerif.all_selfies] : (initialSelfie ? [initialSelfie] : []);
@@ -1706,70 +1831,48 @@ export default function SinkronusReports() {
                     <td className="px-3 py-3 text-center">
                       <div className="flex items-center justify-center gap-2">
                         {/* Selfie thumbnail */}
-                        <div className="flex flex-col items-center">
-                          {participant.selfie_url ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPhotoModal({
-                                title: "Foto Selfie Presensi",
-                                url: participant.selfie_url!,
-                                userName: participant.user_name,
-                                seafarerCode: participant.seafarer_code
-                              })}
-                              className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-indigo-200 hover:border-indigo-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
-                              title="Klik untuk memperbesar Foto Selfie"
-                            >
-                              <img
-                                src={participant.selfie_url}
-                                alt="Selfie"
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
-                                <Eye className="w-3.5 h-3.5 text-white" />
-                              </div>
-                            </button>
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto Selfie">
-                              <User className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
-                            </div>
-                          )}
-                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" title="Foto selfie presensi paling terakhir">Selfie Terakhir</span>
-                        </div>
+                        <SafeThumbnail
+                          src={participant.selfie_url}
+                          alt="Foto Selfie"
+                          title="Klik untuk memperbesar Foto Selfie"
+                          borderColor="border-indigo-200"
+                          hoverBorderColor="border-indigo-600"
+                          icon={User}
+                          fallbackLabel="Belum Ada"
+                          subLabel="Selfie Terakhir"
+                          subLabelTitle="Foto selfie presensi paling terakhir"
+                          onClick={() => {
+                            setModalImgError(false);
+                            setSelectedPhotoModal({
+                              title: "Foto Selfie Presensi",
+                              url: participant.selfie_url!,
+                              userName: participant.user_name,
+                              seafarerCode: participant.seafarer_code
+                            });
+                          }}
+                        />
 
                         {/* KTP thumbnail */}
-                        <div className="flex flex-col items-center">
-                          {participant.ktp_url ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPhotoModal({
-                                title: "Foto KTP Identitas (Upload Awal)",
-                                url: participant.ktp_url!,
-                                userName: participant.user_name,
-                                seafarerCode: participant.seafarer_code
-                              })}
-                              className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-emerald-200 hover:border-emerald-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
-                              title="Klik untuk memperbesar Foto KTP (Upload Awal)"
-                            >
-                              <img
-                                src={participant.ktp_url}
-                                alt="KTP"
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
-                                <Eye className="w-3.5 h-3.5 text-white" />
-                              </div>
-                            </button>
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto KTP">
-                              <CreditCard className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
-                            </div>
-                          )}
-                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]" title="Foto KTP dari unggahan pertama">KTP Awal</span>
-                        </div>
+                        <SafeThumbnail
+                          src={participant.ktp_url}
+                          alt="Foto KTP"
+                          title="Klik untuk memperbesar Foto KTP (Upload Awal)"
+                          borderColor="border-emerald-200"
+                          hoverBorderColor="border-emerald-600"
+                          icon={CreditCard}
+                          fallbackLabel="Belum Ada"
+                          subLabel="KTP Awal"
+                          subLabelTitle="Foto KTP dari unggahan pertama"
+                          onClick={() => {
+                            setModalImgError(false);
+                            setSelectedPhotoModal({
+                              title: "Foto KTP Identitas (Upload Awal)",
+                              url: participant.ktp_url!,
+                              userName: participant.user_name,
+                              seafarerCode: participant.seafarer_code
+                            });
+                          }}
+                        />
                       </div>
                     </td>
 
@@ -1777,70 +1880,46 @@ export default function SinkronusReports() {
                     <td className="px-3 py-3 text-center">
                       <div className="flex items-center justify-center gap-2">
                         {/* Praktek 1 */}
-                        <div className="flex flex-col items-center">
-                          {participant.praktek_stip_1 ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPhotoModal({
-                                title: "Foto Dokumentasi Praktek di STIP (Foto #1)",
-                                url: participant.praktek_stip_1!,
-                                userName: participant.user_name,
-                                seafarerCode: participant.seafarer_code
-                              })}
-                              className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-amber-300 hover:border-amber-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
-                              title="Klik untuk memperbesar Foto Praktek STIP #1"
-                            >
-                              <img
-                                src={participant.praktek_stip_1}
-                                alt="Praktek 1"
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
-                                <Eye className="w-3.5 h-3.5 text-white" />
-                              </div>
-                            </button>
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto Praktek 1">
-                              <Camera className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
-                            </div>
-                          )}
-                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">Praktek 1</span>
-                        </div>
+                        <SafeThumbnail
+                          src={participant.praktek_stip_1}
+                          alt="Foto Praktek 1"
+                          title="Klik untuk memperbesar Foto Praktek STIP #1"
+                          borderColor="border-amber-300"
+                          hoverBorderColor="border-amber-600"
+                          icon={Camera}
+                          fallbackLabel="Belum Ada"
+                          subLabel="Praktek 1"
+                          onClick={() => {
+                            setModalImgError(false);
+                            setSelectedPhotoModal({
+                              title: "Foto Dokumentasi Praktek di STIP (Foto #1)",
+                              url: participant.praktek_stip_1!,
+                              userName: participant.user_name,
+                              seafarerCode: participant.seafarer_code
+                            });
+                          }}
+                        />
 
                         {/* Praktek 2 */}
-                        <div className="flex flex-col items-center">
-                          {participant.praktek_stip_2 ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPhotoModal({
-                                title: "Foto Dokumentasi Praktek di STIP (Foto #2)",
-                                url: participant.praktek_stip_2!,
-                                userName: participant.user_name,
-                                seafarerCode: participant.seafarer_code
-                              })}
-                              className="relative group block w-10 h-10 rounded-lg overflow-hidden border-2 border-amber-300 hover:border-amber-600 transition shadow-xs cursor-pointer focus:outline-none print-img"
-                              title="Klik untuk memperbesar Foto Praktek STIP #2"
-                            >
-                              <img
-                                src={participant.praktek_stip_2}
-                                alt="Praktek 2"
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition print:hidden">
-                                <Eye className="w-3.5 h-3.5 text-white" />
-                              </div>
-                            </button>
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 print-img" title="Belum Ada Foto Praktek 2">
-                              <Camera className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="text-[7.5px] text-slate-400 leading-tight">Belum Ada</span>
-                            </div>
-                          )}
-                          <span className="text-[9px] font-bold text-slate-600 mt-0.5 uppercase tracking-tight print:text-[7.5px]">Praktek 2</span>
-                        </div>
+                        <SafeThumbnail
+                          src={participant.praktek_stip_2}
+                          alt="Foto Praktek 2"
+                          title="Klik untuk memperbesar Foto Praktek STIP #2"
+                          borderColor="border-amber-300"
+                          hoverBorderColor="border-amber-600"
+                          icon={Camera}
+                          fallbackLabel="Belum Ada"
+                          subLabel="Praktek 2"
+                          onClick={() => {
+                            setModalImgError(false);
+                            setSelectedPhotoModal({
+                              title: "Foto Dokumentasi Praktek di STIP (Foto #2)",
+                              url: participant.praktek_stip_2!,
+                              userName: participant.user_name,
+                              seafarerCode: participant.seafarer_code
+                            });
+                          }}
+                        />
                       </div>
                     </td>
 
@@ -1879,12 +1958,21 @@ export default function SinkronusReports() {
               </button>
             </div>
             <div className="p-6 flex items-center justify-center bg-slate-900/5 min-h-[300px]">
-              <img
-                src={selectedPhotoModal.url}
-                alt={selectedPhotoModal.title}
-                className="max-h-[420px] w-auto max-w-full rounded-lg shadow-md object-contain border border-gray-200"
-                referrerPolicy="no-referrer"
-              />
+              {modalImgError ? (
+                <div className="flex flex-col items-center justify-center text-center p-6 text-slate-500 max-w-xs">
+                  <AlertCircle className="w-12 h-12 text-amber-500 mb-3" />
+                  <p className="text-sm font-bold text-slate-800 mb-1">Gambar Tidak Dapat Dimuat</p>
+                  <p className="text-xs text-slate-500">Berkas foto belum tersedia di penyimpanan atau format tautan tidak dapat diakses.</p>
+                </div>
+              ) : (
+                <img
+                  src={selectedPhotoModal.url}
+                  alt={selectedPhotoModal.title}
+                  className="max-h-[420px] w-auto max-w-full rounded-lg shadow-md object-contain border border-gray-200"
+                  referrerPolicy="no-referrer"
+                  onError={() => setModalImgError(true)}
+                />
+              )}
             </div>
             <div className="p-4 border-t flex justify-end bg-slate-50">
               <button
