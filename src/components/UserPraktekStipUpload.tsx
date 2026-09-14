@@ -39,6 +39,11 @@ export default function UserPraktekStipUpload({
     loadExistingPhotos();
   }, [userId]);
 
+  const isValidUUID = (str?: string) => {
+    if (!str) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  };
+
   const loadExistingPhotos = async () => {
     setLoading(true);
     let loaded1: string | null = null;
@@ -47,15 +52,69 @@ export default function UserPraktekStipUpload({
     // 1. Check localStorage first for instant display
     try {
       const localMap = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
-      if (localMap[userId]) {
-        if (localMap[userId].photo1) loaded1 = localMap[userId].photo1;
-        if (localMap[userId].photo2) loaded2 = localMap[userId].photo2;
+      const userEntry = localMap[userId] || (seafarerCode ? localMap[seafarerCode] : null);
+      if (userEntry) {
+        if (userEntry.photo1) loaded1 = userEntry.photo1;
+        if (userEntry.photo2) loaded2 = userEntry.photo2;
       }
     } catch (e) {
       console.warn("Could not read local_praktek_stip_map:", e);
     }
 
-    // 2. Also check Supabase Storage 'verifications' bucket
+    // 2. Check Supabase latihan_verifications table (Primary database persistence)
+    try {
+      const targetCodes: string[] = [];
+      if (seafarerCode) {
+        targetCodes.push(`${seafarerCode}__PRAKTEK_STIP`, `${seafarerCode}__PRAKTEK_1`, `${seafarerCode}__PRAKTEK_2`);
+      }
+      if (userId) {
+        targetCodes.push(`${userId}__PRAKTEK_STIP`, `${userId}__PRAKTEK_1`, `${userId}__PRAKTEK_2`);
+      }
+
+      const { data: dbRecords } = await supabase
+        .from("latihan_verifications")
+        .select("seafarer_code, live_photo_url, ktp_photo_url, created_at")
+        .in("seafarer_code", targetCodes)
+        .order("created_at", { ascending: false });
+
+      if (dbRecords && dbRecords.length > 0) {
+        for (const rec of dbRecords) {
+          const code = rec.seafarer_code || "";
+          if (code.endsWith("__PRAKTEK_STIP")) {
+            if (rec.live_photo_url && !loaded1) loaded1 = rec.live_photo_url;
+            if (rec.ktp_photo_url && !loaded2) loaded2 = rec.ktp_photo_url;
+          } else if (code.endsWith("__PRAKTEK_1") && !loaded1) {
+            loaded1 = rec.live_photo_url || rec.ktp_photo_url;
+          } else if (code.endsWith("__PRAKTEK_2") && !loaded2) {
+            loaded2 = rec.live_photo_url || rec.ktp_photo_url;
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.warn("Could not query latihan_verifications for STIP photos:", dbErr);
+    }
+
+    // 3. Check deterministic Supabase Storage URLs as secondary fallback
+    if (!loaded1) {
+      if (seafarerCode) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${seafarerCode}.jpg`);
+        if (data?.publicUrl) loaded1 = data.publicUrl;
+      } else if (userId) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${userId}.jpg`);
+        if (data?.publicUrl) loaded1 = data.publicUrl;
+      }
+    }
+    if (!loaded2) {
+      if (seafarerCode) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${seafarerCode}.jpg`);
+        if (data?.publicUrl) loaded2 = data.publicUrl;
+      } else if (userId) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${userId}.jpg`);
+        if (data?.publicUrl) loaded2 = data.publicUrl;
+      }
+    }
+
+    // 4. Also check Supabase Storage 'verifications' bucket listing if available
     try {
       const { data: files } = await supabase.storage
         .from("verifications")
@@ -64,18 +123,18 @@ export default function UserPraktekStipUpload({
       if (files && files.length > 0) {
         files.forEach((file) => {
           const name = file.name || "";
-          if (name.startsWith(`${userId}_praktek_stip_1_`) && !loaded1) {
+          if ((name.startsWith(`${userId}_praktek_stip_1_`) || (seafarerCode && name.startsWith(`${seafarerCode}_praktek_stip_1_`))) && !loaded1) {
             const { data } = supabase.storage.from("verifications").getPublicUrl(name);
             if (data?.publicUrl) loaded1 = data.publicUrl;
           }
-          if (name.startsWith(`${userId}_praktek_stip_2_`) && !loaded2) {
+          if ((name.startsWith(`${userId}_praktek_stip_2_`) || (seafarerCode && name.startsWith(`${seafarerCode}_praktek_stip_2_`))) && !loaded2) {
             const { data } = supabase.storage.from("verifications").getPublicUrl(name);
             if (data?.publicUrl) loaded2 = data.publicUrl;
           }
         });
       }
     } catch (err) {
-      console.warn("Could not check Supabase storage for STIP photos:", err);
+      // ignore bucket listing error
     }
 
     setPhoto1(loaded1);
@@ -83,7 +142,7 @@ export default function UserPraktekStipUpload({
     setLoading(false);
   };
 
-  // Helper to persist in Supabase Storage and localStorage
+  // Helper to persist in Supabase Database, Storage, and localStorage
   const savePhoto = async (base64Data: string, slot: 1 | 2) => {
     setUploadingSlot(slot);
     setErrorMessage(null);
@@ -92,7 +151,7 @@ export default function UserPraktekStipUpload({
     try {
       let publicUrl = base64Data; // fallback to base64 if network is offline
 
-      // Upload to Supabase Storage bucket 'verifications'
+      // 1. Upload to Supabase Storage bucket 'verifications'
       try {
         const base64String = base64Data.split(",")[1];
         if (base64String) {
@@ -104,6 +163,7 @@ export default function UserPraktekStipUpload({
           const byteArray = new Uint8Array(byteNumbers);
           const blob = new Blob([byteArray], { type: "image/jpeg" });
 
+          // Timestamped upload
           const fileName = `${userId}_praktek_stip_${slot}_${Date.now()}.jpg`;
           const { error: uploadErr } = await supabase.storage
             .from("verifications")
@@ -117,18 +177,68 @@ export default function UserPraktekStipUpload({
             if (pubData?.publicUrl) {
               publicUrl = pubData.publicUrl;
             }
-          } else {
-            console.warn("Supabase storage upload error, saving to local fallback:", uploadErr.message);
+          }
+
+          // Deterministic uploads (enables instant URL resolution on any admin/participant device without .list())
+          await supabase.storage.from("verifications").upload(`praktek_stip_${slot}_${userId}.jpg`, blob, {
+            contentType: "image/jpeg",
+            upsert: true
+          });
+          if (seafarerCode) {
+            await supabase.storage.from("verifications").upload(`praktek_stip_${slot}_${seafarerCode}.jpg`, blob, {
+              contentType: "image/jpeg",
+              upsert: true
+            });
           }
         }
       } catch (stErr) {
         console.warn("Error uploading to Supabase storage:", stErr);
       }
 
-      // Update LocalStorage map for synchronized visibility in SinkronusReports
+      // 2. Persist to Supabase Database (latihan_verifications table)
+      // This guarantees the admin desktop report immediately reads the photos via SQL query
+      try {
+        const primaryCode = seafarerCode || userId;
+        const validId = isValidUUID(userId) ? userId : null;
+
+        // Save slot-specific record
+        await supabase
+          .from("latihan_verifications")
+          .insert({
+            user_id: validId,
+            seafarer_code: `${primaryCode}__PRAKTEK_${slot}`,
+            live_photo_url: publicUrl,
+            ktp_photo_url: publicUrl
+          });
+
+        // Also save combined record for convenient simultaneous slot retrieval
+        const combinedCode = `${primaryCode}__PRAKTEK_STIP`;
+        const { data: existingComb } = await supabase
+          .from("latihan_verifications")
+          .select("live_photo_url, ktp_photo_url")
+          .eq("seafarer_code", combinedCode)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const mergedPhoto1 = slot === 1 ? publicUrl : (existingComb?.[0]?.live_photo_url || photo1 || null);
+        const mergedPhoto2 = slot === 2 ? publicUrl : (existingComb?.[0]?.ktp_photo_url || photo2 || null);
+
+        await supabase
+          .from("latihan_verifications")
+          .insert({
+            user_id: validId,
+            seafarer_code: combinedCode,
+            live_photo_url: mergedPhoto1,
+            ktp_photo_url: mergedPhoto2
+          });
+      } catch (dbSaveErr) {
+        console.warn("Could not save praktek to latihan_verifications:", dbSaveErr);
+      }
+
+      // 3. Update LocalStorage map for synchronized visibility in SinkronusReports
       try {
         const localMap = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
-        const existing = localMap[userId] || {};
+        const existing = localMap[userId] || (seafarerCode ? localMap[seafarerCode] : {}) || {};
         const updated = {
           ...existing,
           photo1: slot === 1 ? publicUrl : existing.photo1 || null,
@@ -138,6 +248,9 @@ export default function UserPraktekStipUpload({
           updated_at: new Date().toISOString()
         };
         localMap[userId] = updated;
+        if (seafarerCode) {
+          localMap[seafarerCode] = updated;
+        }
         localStorage.setItem("local_praktek_stip_map", JSON.stringify(localMap));
       } catch (locErr) {
         console.warn("Could not save to local_praktek_stip_map:", locErr);

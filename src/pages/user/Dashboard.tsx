@@ -327,6 +327,11 @@ export default function UserDashboard() {
     }
   }
 
+  const isValidUUID = (str?: string) => {
+    if (!str) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  };
+
   const submitVerification = async () => {
     if (!user || !livePhoto || !ktpPhoto) return;
     
@@ -339,6 +344,35 @@ export default function UserDashboard() {
         throw new Error("Failed to upload photos");
       }
 
+      // Also upload deterministic copies to Supabase Storage for guaranteed cross-device retrieval
+      try {
+        const base64Live = livePhoto.split(",")[1];
+        if (base64Live) {
+          const byteChars = atob(base64Live);
+          const byteNums = new Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+          const liveBlob = new Blob([new Uint8Array(byteNums)], { type: "image/jpeg" });
+          await supabase.storage.from("verifications").upload(`selfie_${user.id}.jpg`, liveBlob, { contentType: "image/jpeg", upsert: true });
+          if (user.identity) {
+            await supabase.storage.from("verifications").upload(`selfie_${user.identity}.jpg`, liveBlob, { contentType: "image/jpeg", upsert: true });
+          }
+        }
+        const base64Ktp = ktpPhoto.split(",")[1];
+        if (base64Ktp) {
+          const byteChars = atob(base64Ktp);
+          const byteNums = new Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+          const ktpBlob = new Blob([new Uint8Array(byteNums)], { type: "image/jpeg" });
+          await supabase.storage.from("verifications").upload(`ktp_${user.id}.jpg`, ktpBlob, { contentType: "image/jpeg", upsert: true });
+          if (user.identity) {
+            await supabase.storage.from("verifications").upload(`ktp_${user.identity}.jpg`, ktpBlob, { contentType: "image/jpeg", upsert: true });
+          }
+        }
+      } catch (detErr) {
+        console.warn("Deterministic storage upload warning:", detErr);
+      }
+
+      // 1. Insert to global_verifications
       const { error } = await supabase
         .from('global_verifications')
         .insert({
@@ -348,6 +382,31 @@ export default function UserDashboard() {
         });
 
       if (error) throw error;
+
+      // 2. Also insert into latihan_verifications for robust multi-device retrieval by seafarer_code
+      if (user.identity) {
+        try {
+          await supabase
+            .from('latihan_verifications')
+            .insert({
+              user_id: isValidUUID(user.id) ? user.id : null,
+              seafarer_code: user.identity,
+              live_photo_url: livePhotoUrl,
+              ktp_photo_url: ktpPhotoUrl
+            });
+        } catch (lvErr) {
+          console.warn("latihan_verifications sync warning:", lvErr);
+        }
+      }
+
+      // 3. Cache in localStorage
+      localStorage.setItem('session_selfie_url', livePhotoUrl);
+      localStorage.setItem(`user_selfie_${user.id}`, livePhotoUrl);
+      localStorage.setItem(`user_ktp_${user.id}`, ktpPhotoUrl);
+      if (user.identity) {
+        localStorage.setItem(`user_selfie_${user.identity}`, livePhotoUrl);
+        localStorage.setItem(`user_ktp_${user.identity}`, ktpPhotoUrl);
+      }
 
       await checkAuth(); // refresh user data to get is_verified = true
       setIsVerified(true);
@@ -370,6 +429,57 @@ export default function UserDashboard() {
 
       if (!livePhotoUrl) {
         throw new Error("Failed to upload photo");
+      }
+
+      // Also upload deterministic copies to Supabase Storage
+      try {
+        const base64Live = livePhoto.split(",")[1];
+        if (base64Live) {
+          const byteChars = atob(base64Live);
+          const byteNums = new Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+          const liveBlob = new Blob([new Uint8Array(byteNums)], { type: "image/jpeg" });
+          await supabase.storage.from("verifications").upload(`selfie_${user.id}.jpg`, liveBlob, { contentType: "image/jpeg", upsert: true });
+          if (user.identity) {
+            await supabase.storage.from("verifications").upload(`selfie_${user.identity}.jpg`, liveBlob, { contentType: "image/jpeg", upsert: true });
+          }
+        }
+      } catch (detErr) {
+        console.warn("Deterministic storage upload warning:", detErr);
+      }
+
+      // 1. Insert/update into global_verifications so latest selfie is updated
+      try {
+        await supabase
+          .from('global_verifications')
+          .insert({
+            user_id: user.id,
+            live_photo_url: livePhotoUrl
+          });
+      } catch (gvErr) {
+        console.warn("global_verifications selfie insert warning:", gvErr);
+      }
+
+      // 2. Insert into latihan_verifications with seafarer_code for instant report matching
+      if (user.identity) {
+        try {
+          await supabase
+            .from('latihan_verifications')
+            .insert({
+              user_id: isValidUUID(user.id) ? user.id : null,
+              seafarer_code: user.identity,
+              live_photo_url: livePhotoUrl
+            });
+        } catch (lvErr) {
+          console.warn("latihan_verifications selfie insert warning:", lvErr);
+        }
+      }
+
+      // 3. Cache in localStorage
+      localStorage.setItem('session_selfie_url', livePhotoUrl);
+      localStorage.setItem(`user_selfie_${user.id}`, livePhotoUrl);
+      if (user.identity) {
+        localStorage.setItem(`user_selfie_${user.identity}`, livePhotoUrl);
       }
 
       setHasSessionSelfie(true);

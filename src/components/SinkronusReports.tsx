@@ -176,11 +176,14 @@ export default function SinkronusReports() {
       try {
         const { data: usersData } = await supabase
           .from("users")
-          .select("id, identity_number, full_name");
+          .select("id, identity_number, full_name")
+          .limit(50000);
 
         const userToCodeMap: Record<string, string> = {};
         const codeToUserMap: Record<string, string> = {};
         const nameToCodeMap: Record<string, string> = {};
+        const codeToNameMap: Record<string, string> = {};
+        const userToNameMap: Record<string, string> = {};
 
         if (usersData) {
           usersData.forEach((u: any) => {
@@ -193,6 +196,10 @@ export default function SinkronusReports() {
             }
             if (name && code) {
               nameToCodeMap[name] = code;
+              codeToNameMap[code] = name;
+            }
+            if (uid && name) {
+              userToNameMap[uid] = name;
             }
           });
         }
@@ -201,14 +208,16 @@ export default function SinkronusReports() {
         const { data: globalVerifs } = await supabase
           .from("global_verifications")
           .select("user_id, live_photo_url, ktp_photo_url, created_at")
-          .order("created_at", { ascending: true });
+          .order("created_at", { ascending: true })
+          .limit(50000);
 
         if (globalVerifs) {
           globalVerifs.forEach((v: any) => {
             if (v.user_id) {
               const uId = v.user_id.trim();
               const sCode = userToCodeMap[uId];
-              const existingU = verifMap[`user_${uId}`] || { all_selfies: [] };
+              const uName = userToNameMap[uId];
+              const existingU = verifMap[`user_${uId}`] || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
 
               const allSelfies = [...(existingU.all_selfies || [])];
               if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
@@ -216,6 +225,7 @@ export default function SinkronusReports() {
               }
 
               const updated = {
+                ...existingU,
                 selfie_url: v.live_photo_url || existingU.selfie_url, // Overwrites with later created_at (latest selfie)
                 ktp_url: existingU.ktp_url || v.ktp_photo_url, // Preserves oldest KTP (initial upload)
                 all_selfies: allSelfies
@@ -225,35 +235,70 @@ export default function SinkronusReports() {
               if (sCode) {
                 verifMap[`code_${sCode}`] = updated;
               }
+              if (uName) {
+                verifMap[`name_${uName}`] = updated;
+              }
             }
           });
         }
 
-        // Latihan Verifications fallback
+        // Latihan Verifications fallback (supports Attendance Selfies, Initial KTP, and STIP Practice Photos)
         const { data: latihanVerifs } = await supabase
           .from("latihan_verifications")
           .select("user_id, seafarer_code, live_photo_url, ktp_photo_url, created_at")
-          .order("created_at", { ascending: true });
+          .order("created_at", { ascending: true })
+          .limit(50000);
 
         if (latihanVerifs) {
           latihanVerifs.forEach((v: any) => {
-            const sCode = (v.seafarer_code || userToCodeMap[v.user_id] || "").trim();
-            const uId = (v.user_id || codeToUserMap[v.seafarer_code] || "").trim();
-            const existing = (uId ? verifMap[`user_${uId}`] : null) || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
+            const rawCode = (v.seafarer_code || "").trim();
 
-            const allSelfies = [...(existing.all_selfies || [])];
-            if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
-              allSelfies.push(v.live_photo_url);
+            if (rawCode.includes("__PRAKTEK")) {
+              // Parse Praktek STIP record
+              const baseCode = rawCode.split("__PRAKTEK")[0].trim();
+              const resolvedUid = (v.user_id ? v.user_id.trim() : null) || codeToUserMap[baseCode] || baseCode;
+              const resolvedName = codeToNameMap[baseCode] || userToNameMap[resolvedUid] || "";
+
+              const curr = verifMap[`code_${baseCode}`] || verifMap[`user_${resolvedUid}`] || { all_selfies: [] };
+
+              if (rawCode.endsWith("__PRAKTEK_STIP")) {
+                if (v.live_photo_url) curr.praktek_stip_1 = v.live_photo_url;
+                if (v.ktp_photo_url) curr.praktek_stip_2 = v.ktp_photo_url;
+              } else if (rawCode.endsWith("__PRAKTEK_1")) {
+                const p1 = v.live_photo_url || v.ktp_photo_url;
+                if (p1) curr.praktek_stip_1 = p1;
+              } else if (rawCode.endsWith("__PRAKTEK_2")) {
+                const p2 = v.live_photo_url || v.ktp_photo_url;
+                if (p2) curr.praktek_stip_2 = p2;
+              }
+
+              verifMap[`code_${baseCode}`] = curr;
+              verifMap[`user_${resolvedUid}`] = curr;
+              if (resolvedName) verifMap[`name_${resolvedName}`] = curr;
+            } else {
+              // Regular verification record (Selfie & KTP)
+              const sCode = (rawCode || userToCodeMap[v.user_id] || "").trim();
+              const uId = (v.user_id || codeToUserMap[rawCode] || "").trim();
+              const uName = codeToNameMap[sCode] || userToNameMap[uId] || "";
+
+              const existing = (uId ? verifMap[`user_${uId}`] : null) || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
+
+              const allSelfies = [...(existing.all_selfies || [])];
+              if (v.live_photo_url && !allSelfies.includes(v.live_photo_url)) {
+                allSelfies.push(v.live_photo_url);
+              }
+
+              const updated = {
+                ...existing,
+                selfie_url: v.live_photo_url || existing.selfie_url,
+                ktp_url: existing.ktp_url || v.ktp_photo_url,
+                all_selfies: allSelfies
+              };
+
+              if (sCode) verifMap[`code_${sCode}`] = updated;
+              if (uId) verifMap[`user_${uId}`] = updated;
+              if (uName) verifMap[`name_${uName}`] = updated;
             }
-
-            const updated = {
-              selfie_url: v.live_photo_url || existing.selfie_url,
-              ktp_url: existing.ktp_url || v.ktp_photo_url,
-              all_selfies: allSelfies
-            };
-
-            if (sCode) verifMap[`code_${sCode}`] = updated;
-            if (uId) verifMap[`user_${uId}`] = updated;
           });
         }
 
@@ -269,15 +314,16 @@ export default function SinkronusReports() {
               const parts = fileName.split("_");
               if (parts.length >= 2) {
                 const identifier = parts[0].trim();
-                const isLive = fileName.includes("_live_") || fileName.includes("_attendance_") || fileName.includes("_selfie_");
-                const isKtp = fileName.includes("_ktp_");
-                const isPraktek1 = fileName.includes("_praktek_stip_1_");
-                const isPraktek2 = fileName.includes("_praktek_stip_2_");
+                const isLive = fileName.includes("_live_") || fileName.includes("_attendance_") || fileName.includes("_selfie_") || fileName.includes("_login_attendance_");
+                const isKtp = fileName.includes("_ktp_") || fileName.startsWith("ktp_");
+                const isPraktek1 = fileName.includes("praktek_stip_1");
+                const isPraktek2 = fileName.includes("praktek_stip_2");
                 const { data: pubData } = supabase.storage.from("verifications").getPublicUrl(fileName);
                 const publicUrl = pubData?.publicUrl;
 
                 if (publicUrl) {
                   const resolvedCode = userToCodeMap[identifier] || identifier;
+                  const resolvedName = codeToNameMap[resolvedCode] || userToNameMap[identifier] || "";
                   const currUser = verifMap[`user_${identifier}`] || { all_selfies: [] };
                   const currCode = verifMap[`code_${resolvedCode}`] || { all_selfies: [] };
 
@@ -285,26 +331,31 @@ export default function SinkronusReports() {
                     const uSelfies = [...(currUser.all_selfies || [])];
                     if (!uSelfies.includes(publicUrl)) uSelfies.push(publicUrl);
                     
-                    // Because sorted ascending, subsequent isLive photos become latest
-                    verifMap[`user_${identifier}`] = { ...currUser, selfie_url: publicUrl, all_selfies: uSelfies };
-                    verifMap[`code_${resolvedCode}`] = { ...currCode, selfie_url: publicUrl, all_selfies: uSelfies };
+                    const updated = { ...currUser, selfie_url: publicUrl, all_selfies: uSelfies };
+                    verifMap[`user_${identifier}`] = updated;
+                    verifMap[`code_${resolvedCode}`] = updated;
+                    if (resolvedName) verifMap[`name_${resolvedName}`] = updated;
                   }
                   if (isKtp) {
-                    // Initial upload only (keep first/oldest KTP seen)
-                    if (!currUser.ktp_url) verifMap[`user_${identifier}`] = { ...currUser, ktp_url: publicUrl };
-                    if (!currCode.ktp_url) verifMap[`code_${resolvedCode}`] = { ...currCode, ktp_url: publicUrl };
+                    if (!currUser.ktp_url) currUser.ktp_url = publicUrl;
+                    if (!currCode.ktp_url) currCode.ktp_url = publicUrl;
+                    verifMap[`user_${identifier}`] = currUser;
+                    verifMap[`code_${resolvedCode}`] = currCode;
+                    if (resolvedName) verifMap[`name_${resolvedName}`] = currCode;
                   }
                   if (isPraktek1) {
                     currUser.praktek_stip_1 = publicUrl;
                     currCode.praktek_stip_1 = publicUrl;
                     verifMap[`user_${identifier}`] = currUser;
                     verifMap[`code_${resolvedCode}`] = currCode;
+                    if (resolvedName) verifMap[`name_${resolvedName}`] = currCode;
                   }
                   if (isPraktek2) {
                     currUser.praktek_stip_2 = publicUrl;
                     currCode.praktek_stip_2 = publicUrl;
                     verifMap[`user_${identifier}`] = currUser;
                     verifMap[`code_${resolvedCode}`] = currCode;
+                    if (resolvedName) verifMap[`name_${resolvedName}`] = currCode;
                   }
                 }
               }
@@ -319,17 +370,21 @@ export default function SinkronusReports() {
           const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
           Object.keys(localPraktek).forEach((uid) => {
             const pData = localPraktek[uid];
-            const sCode = userToCodeMap[uid] || pData.seafarer_code || "";
-            const currUser = verifMap[`user_${uid}`] || { all_selfies: [] };
+            const sCode = userToCodeMap[uid] || pData.seafarer_code || (uid.length <= 15 ? uid : "");
+            const uName = (pData.user_name || codeToNameMap[sCode] || userToNameMap[uid] || "").trim().toLowerCase();
+            const currUser = verifMap[`user_${uid}`] || (sCode ? verifMap[`code_${sCode}`] : null) || { all_selfies: [] };
             if (pData.photo1) currUser.praktek_stip_1 = pData.photo1;
             if (pData.photo2) currUser.praktek_stip_2 = pData.photo2;
             verifMap[`user_${uid}`] = currUser;
 
             if (sCode) {
-              const currCode = verifMap[`code_${sCode}`] || { all_selfies: [] };
+              const currCode = verifMap[`code_${sCode}`] || currUser;
               if (pData.photo1) currCode.praktek_stip_1 = pData.photo1;
               if (pData.photo2) currCode.praktek_stip_2 = pData.photo2;
               verifMap[`code_${sCode}`] = currCode;
+            }
+            if (uName) {
+              verifMap[`name_${uName}`] = currUser;
             }
           });
         } catch (localPrkErr) {
@@ -762,13 +817,53 @@ export default function SinkronusReports() {
       const personVerif = verifications[`code_${codeKey}`] || 
                           verifications[`user_${userIdKey}`] || 
                           verifications[`name_${nameKey}`] ||
-                          verifications[`code_${(log.seafarer_code || "").trim()}`];
+                          verifications[`code_${(log.seafarer_code || "").trim()}`] ||
+                          verifications[`user_${(log.user_id || "").trim()}`] ||
+                          verifications[`name_${(log.user_name || "").trim().toLowerCase()}`];
 
-      const initialSelfie = log.selfie_url || personVerif?.selfie_url;
-      const initialKtp = personVerif?.ktp_url || log.ktp_url;
-      const initialSelfiesList = personVerif?.all_selfies ? [...personVerif.all_selfies] : (log.selfie_url ? [log.selfie_url] : []);
-      const initialPraktek1 = personVerif?.praktek_stip_1;
-      const initialPraktek2 = personVerif?.praktek_stip_2;
+      let initialSelfie = log.selfie_url || personVerif?.selfie_url;
+      let initialKtp = personVerif?.ktp_url || log.ktp_url;
+      let initialPraktek1 = personVerif?.praktek_stip_1;
+      let initialPraktek2 = personVerif?.praktek_stip_2;
+
+      // Deterministic storage URL fallbacks if missing
+      if (!initialPraktek1 && codeKey && codeKey !== "-") {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${codeKey}.jpg`);
+        if (data?.publicUrl) initialPraktek1 = data.publicUrl;
+      }
+      if (!initialPraktek1 && userIdKey) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${userIdKey}.jpg`);
+        if (data?.publicUrl) initialPraktek1 = data.publicUrl;
+      }
+
+      if (!initialPraktek2 && codeKey && codeKey !== "-") {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${codeKey}.jpg`);
+        if (data?.publicUrl) initialPraktek2 = data.publicUrl;
+      }
+      if (!initialPraktek2 && userIdKey) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${userIdKey}.jpg`);
+        if (data?.publicUrl) initialPraktek2 = data.publicUrl;
+      }
+
+      if (!initialSelfie && codeKey && codeKey !== "-") {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`selfie_${codeKey}.jpg`);
+        if (data?.publicUrl) initialSelfie = data.publicUrl;
+      }
+      if (!initialSelfie && userIdKey) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`selfie_${userIdKey}.jpg`);
+        if (data?.publicUrl) initialSelfie = data.publicUrl;
+      }
+
+      if (!initialKtp && codeKey && codeKey !== "-") {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`ktp_${codeKey}.jpg`);
+        if (data?.publicUrl) initialKtp = data.publicUrl;
+      }
+      if (!initialKtp && userIdKey) {
+        const { data } = supabase.storage.from("verifications").getPublicUrl(`ktp_${userIdKey}.jpg`);
+        if (data?.publicUrl) initialKtp = data.publicUrl;
+      }
+
+      const initialSelfiesList = personVerif?.all_selfies ? [...personVerif.all_selfies] : (initialSelfie ? [initialSelfie] : []);
 
       if (!map.has(groupKey)) {
         map.set(groupKey, {

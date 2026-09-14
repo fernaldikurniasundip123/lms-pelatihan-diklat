@@ -65,20 +65,118 @@ export default function UserParticipantReport({
   const fetchParticipantData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch STIP praktek photos from localStorage and Supabase
+      // 1. Fetch STIP praktek photos, Selfie, and KTP
       let p1: string | null = null;
       let p2: string | null = null;
+      let fetchedSelfie: string | null = null;
+      let fetchedKtp: string | null = null;
+
+      // A. Check localStorage first for instant display
       try {
         const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
-        if (localPraktek[userId]) {
-          if (localPraktek[userId].photo1) p1 = localPraktek[userId].photo1;
-          if (localPraktek[userId].photo2) p2 = localPraktek[userId].photo2;
+        const entry = localPraktek[userId] || (seafarerCode ? localPraktek[seafarerCode] : null);
+        if (entry) {
+          if (entry.photo1) p1 = entry.photo1;
+          if (entry.photo2) p2 = entry.photo2;
         }
+
+        const localSelfie = localStorage.getItem("session_selfie_url") || 
+                            localStorage.getItem(`user_selfie_${userId}`) || 
+                            (seafarerCode ? localStorage.getItem(`user_selfie_${seafarerCode}`) : null);
+        if (localSelfie) fetchedSelfie = localSelfie;
+
+        const localKtp = localStorage.getItem(`user_ktp_${userId}`) || 
+                         (seafarerCode ? localStorage.getItem(`user_ktp_${seafarerCode}`) : null);
+        if (localKtp) fetchedKtp = localKtp;
       } catch (e) {
         // ignore
       }
 
-      // Check verifications bucket
+      // B. Query Supabase Database: global_verifications (Initial KTP & Verified Selfie)
+      try {
+        if (userId) {
+          const { data: gvList } = await supabase
+            .from("global_verifications")
+            .select("live_photo_url, ktp_photo_url, created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false });
+
+          if (gvList && gvList.length > 0) {
+            for (const gv of gvList) {
+              if (gv.live_photo_url && !fetchedSelfie) fetchedSelfie = gv.live_photo_url;
+              if (gv.ktp_photo_url && !fetchedKtp) fetchedKtp = gv.ktp_photo_url;
+            }
+          }
+        }
+      } catch (gvErr) {
+        console.warn("Could not query global_verifications:", gvErr);
+      }
+
+      // C. Query Supabase Database: latihan_verifications (Attendance Selfies, KTP & Praktek STIP)
+      try {
+        const targetCodes: string[] = [];
+        if (seafarerCode) {
+          targetCodes.push(seafarerCode, `${seafarerCode}__PRAKTEK_STIP`, `${seafarerCode}__PRAKTEK_1`, `${seafarerCode}__PRAKTEK_2`);
+        }
+        if (userId) {
+          targetCodes.push(userId, `${userId}__PRAKTEK_STIP`, `${userId}__PRAKTEK_1`, `${userId}__PRAKTEK_2`);
+        }
+
+        let lvQuery = supabase
+          .from("latihan_verifications")
+          .select("seafarer_code, live_photo_url, ktp_photo_url, created_at")
+          .order("created_at", { ascending: false });
+
+        if (targetCodes.length > 0) {
+          lvQuery = lvQuery.in("seafarer_code", targetCodes);
+        }
+
+        const { data: lvList } = await lvQuery;
+
+        if (lvList && lvList.length > 0) {
+          for (const rec of lvList) {
+            const code = rec.seafarer_code || "";
+            if (code.endsWith("__PRAKTEK_STIP")) {
+              if (rec.live_photo_url && !p1) p1 = rec.live_photo_url;
+              if (rec.ktp_photo_url && !p2) p2 = rec.ktp_photo_url;
+            } else if (code.endsWith("__PRAKTEK_1") && !p1) {
+              p1 = rec.live_photo_url || rec.ktp_photo_url;
+            } else if (code.endsWith("__PRAKTEK_2") && !p2) {
+              p2 = rec.live_photo_url || rec.ktp_photo_url;
+            } else {
+              // Regular verification record (Selfie & KTP)
+              if (rec.live_photo_url && !fetchedSelfie) fetchedSelfie = rec.live_photo_url;
+              if (rec.ktp_photo_url && !fetchedKtp) fetchedKtp = rec.ktp_photo_url;
+            }
+          }
+        }
+      } catch (lvErr) {
+        console.warn("Could not query latihan_verifications:", lvErr);
+      }
+
+      // D. Check deterministic Supabase Storage URLs as secondary fallback
+      if (!p1) {
+        const code1 = seafarerCode ? `praktek_stip_1_${seafarerCode}.jpg` : `praktek_stip_1_${userId}.jpg`;
+        const { data } = supabase.storage.from("verifications").getPublicUrl(code1);
+        if (data?.publicUrl) p1 = data.publicUrl;
+      }
+      if (!p2) {
+        const code2 = seafarerCode ? `praktek_stip_2_${seafarerCode}.jpg` : `praktek_stip_2_${userId}.jpg`;
+        const { data } = supabase.storage.from("verifications").getPublicUrl(code2);
+        if (data?.publicUrl) p2 = data.publicUrl;
+      }
+      if (!fetchedSelfie) {
+        const selfieName = seafarerCode ? `selfie_${seafarerCode}.jpg` : `selfie_${userId}.jpg`;
+        const { data } = supabase.storage.from("verifications").getPublicUrl(selfieName);
+        if (data?.publicUrl) fetchedSelfie = data.publicUrl;
+      }
+      if (!fetchedKtp) {
+        const ktpName = seafarerCode ? `ktp_${seafarerCode}.jpg` : `ktp_${userId}.jpg`;
+        const { data } = supabase.storage.from("verifications").getPublicUrl(ktpName);
+        if (data?.publicUrl) fetchedKtp = data.publicUrl;
+      }
+
+      // E. Check verifications bucket listing if accessible
       try {
         const { data: storageFiles } = await supabase.storage
           .from("verifications")
@@ -87,21 +185,24 @@ export default function UserParticipantReport({
         if (storageFiles && storageFiles.length > 0) {
           storageFiles.forEach((f) => {
             const fname = f.name || "";
-            if (fname.startsWith(`${userId}_praktek_stip_1_`) && !p1) {
+            const isUserFile = fname.includes(userId) || (seafarerCode && fname.includes(seafarerCode));
+            if (!isUserFile) return;
+
+            if (fname.includes("praktek_stip_1") && !p1) {
               const { data } = supabase.storage.from("verifications").getPublicUrl(fname);
               if (data?.publicUrl) p1 = data.publicUrl;
             }
-            if (fname.startsWith(`${userId}_praktek_stip_2_`) && !p2) {
+            if (fname.includes("praktek_stip_2") && !p2) {
               const { data } = supabase.storage.from("verifications").getPublicUrl(fname);
               if (data?.publicUrl) p2 = data.publicUrl;
             }
-            if (fname.startsWith(`${userId}_ktp_`) && !ktpUrl) {
+            if (fname.includes("ktp") && !fetchedKtp) {
               const { data } = supabase.storage.from("verifications").getPublicUrl(fname);
-              if (data?.publicUrl) setKtpUrl(data.publicUrl);
+              if (data?.publicUrl) fetchedKtp = data.publicUrl;
             }
-            if ((fname.startsWith(`${userId}_live_`) || fname.startsWith(`${userId}_attendance_`) || fname.startsWith(`${userId}_selfie_`)) && !selfieUrl) {
+            if ((fname.includes("live") || fname.includes("attendance") || fname.includes("selfie")) && !fetchedSelfie) {
               const { data } = supabase.storage.from("verifications").getPublicUrl(fname);
-              if (data?.publicUrl) setSelfieUrl(data.publicUrl);
+              if (data?.publicUrl) fetchedSelfie = data.publicUrl;
             }
           });
         }
@@ -111,6 +212,8 @@ export default function UserParticipantReport({
 
       setPraktek1(p1);
       setPraktek2(p2);
+      if (fetchedSelfie) setSelfieUrl(fetchedSelfie);
+      if (fetchedKtp) setKtpUrl(fetchedKtp);
 
       // 2. Fetch Zoom Logs for this participant
       let userLogs: ZoomLogItem[] = [];
