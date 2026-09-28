@@ -17,6 +17,7 @@ export default function UserDashboard() {
   const navigate = useNavigate();
   const [courses, setCourses] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'courses' | 'report' | 'praktek_stip'>('courses');
+  const [selectedCourseForReport, setSelectedCourseForReport] = useState<{ id: string; name: string } | null>(null);
 
   // Verification State
   const [isVerified, setIsVerified] = useState(user?.is_verified);
@@ -967,6 +968,7 @@ export default function UserDashboard() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setSelectedCourseForReport({ id: course.id, name: course.name });
                               setActiveTab('report');
                             }}
                             className="text-left text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-indigo-50/70 hover:bg-indigo-100/70 transition cursor-pointer"
@@ -978,6 +980,7 @@ export default function UserDashboard() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setSelectedCourseForReport({ id: course.id, name: course.name });
                               setActiveTab('praktek_stip');
                             }}
                             className="text-left text-xs font-bold text-amber-800 hover:text-amber-950 flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-amber-50/70 hover:bg-amber-100/70 transition cursor-pointer"
@@ -1068,7 +1071,15 @@ export default function UserDashboard() {
             userId={user?.id || ""}
             userName={user?.name || ""}
             seafarerCode={user?.identity || ""}
-            onNavigateToUpload={() => setActiveTab('praktek_stip')}
+            courses={courses}
+            initialCourseId={selectedCourseForReport?.id}
+            initialCourseName={selectedCourseForReport?.name}
+            onNavigateToUpload={(cId, cName) => {
+              if (cId && cName) {
+                setSelectedCourseForReport({ id: cId, name: cName });
+              }
+              setActiveTab('praktek_stip');
+            }}
           />
         )}
 
@@ -1077,6 +1088,9 @@ export default function UserDashboard() {
             userId={user?.id || ""}
             userName={user?.name || ""}
             seafarerCode={user?.identity || ""}
+            courses={courses}
+            selectedCourse={selectedCourseForReport}
+            onSelectCourse={(c) => setSelectedCourseForReport(c)}
             onNavigateToReport={() => setActiveTab('report')}
           />
         )}

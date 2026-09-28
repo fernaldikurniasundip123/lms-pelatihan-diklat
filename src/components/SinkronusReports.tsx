@@ -20,6 +20,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { extractCourseTag } from "./UserParticipantReport";
 
 interface SafeThumbnailProps {
   src?: string | null;
@@ -328,6 +329,15 @@ export default function SinkronusReports() {
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedPeriod, setSelectedPeriod] = useState("");
 
+  // Sheet Pagination State (Membuat lembar halaman sheet agar laporan ringan diakses)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number | "all">(20);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCourse, selectedClass, selectedPeriod]);
+
   const getLogDetails = (className: string) => {
     let pureClass = className || "-";
     let period = "-";
@@ -405,7 +415,7 @@ export default function SinkronusReports() {
 
       const storagePromise = supabase.storage
         .from('verifications')
-        .list('', { limit: 10000, sortBy: { column: 'created_at', order: 'desc' } })
+        .list('', { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } })
         .catch(() => ({ data: [] }));
 
       const [
@@ -1139,7 +1149,12 @@ export default function SinkronusReports() {
       const mappedName = nameKey ? nameKey : (codeToName[codeKey] || codeToName[mappedCode] || userToName[userIdKey] || "");
 
       // All possible keys where verification data might reside
+      const courseTag = extractCourseTag(log.course_name, log.course_id);
       const candidateKeys = [
+        codeKey && codeKey !== "-" ? `code_${codeKey}__${courseTag}` : null,
+        mappedCode ? `code_${mappedCode}__${courseTag}` : null,
+        userIdKey ? `user_${userIdKey}__${courseTag}` : null,
+        mappedUid ? `user_${mappedUid}__${courseTag}` : null,
         codeKey && codeKey !== "-" ? `code_${codeKey}` : null,
         mappedCode ? `code_${mappedCode}` : null,
         userIdKey ? `user_${userIdKey}` : null,
@@ -1173,11 +1188,15 @@ export default function SinkronusReports() {
         }
       });
 
-      // Local storage fallback for instant cross-tab sync if not in DB yet
+      // Local storage fallback for instant cross-tab sync if not in DB yet (check course-specific first)
       if (!initialPraktek1 || !initialPraktek2) {
         try {
           const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
-          const pData = (codeKey ? localPraktek[codeKey] : null) || 
+          const pData = (codeKey ? localPraktek[`${codeKey}_${courseTag}`] : null) ||
+                        (userIdKey ? localPraktek[`${userIdKey}_${courseTag}`] : null) ||
+                        (mappedCode ? localPraktek[`${mappedCode}_${courseTag}`] : null) ||
+                        (mappedUid ? localPraktek[`${mappedUid}_${courseTag}`] : null) ||
+                        (codeKey ? localPraktek[codeKey] : null) || 
                         (mappedCode ? localPraktek[mappedCode] : null) || 
                         (userIdKey ? localPraktek[userIdKey] : null) || 
                         (mappedUid ? localPraktek[mappedUid] : null) || 
@@ -1341,8 +1360,11 @@ export default function SinkronusReports() {
       const uId = item.user_id || (sCode ? userMappingsRef.current.codeToUser[sCode] : "");
       const uName = item.user_name || "";
       const normN = normalizeName(uName);
+      const rowCourseTag = extractCourseTag(item.course_name, item.course_id);
 
       const checkKeys = [
+        uId ? `user_${uId}__${rowCourseTag}` : null,
+        sCode ? `code_${sCode}__${rowCourseTag}` : null,
         uId ? `user_${uId}` : null,
         sCode ? `code_${sCode}` : null,
         uName ? `name_${uName.toLowerCase().trim()}` : null,
@@ -1368,6 +1390,23 @@ export default function SinkronusReports() {
               if (pub && !finalAllSelfies.includes(pub)) finalAllSelfies.push(pub);
             });
           }
+        }
+      }
+
+      // Check course-specific local storage if still missing
+      if (!finalPraktek1 || !finalPraktek2) {
+        try {
+          const localPraktek = JSON.parse(localStorage.getItem("local_praktek_stip_map") || "{}");
+          const pCourse = (uId ? localPraktek[`${uId}_${rowCourseTag}`] : null) ||
+                          (sCode ? localPraktek[`${sCode}_${rowCourseTag}`] : null) ||
+                          (uId ? localPraktek[uId] : null) ||
+                          (sCode ? localPraktek[sCode] : null);
+          if (pCourse) {
+            if (!finalPraktek1 && pCourse.photo1) finalPraktek1 = ensurePublicUrl(pCourse.photo1);
+            if (!finalPraktek2 && pCourse.photo2) finalPraktek2 = ensurePublicUrl(pCourse.photo2);
+          }
+        } catch (e) {
+          // ignore
         }
       }
 
@@ -1420,6 +1459,20 @@ export default function SinkronusReports() {
 
     return result;
   }, [filteredLogs, verifications]);
+
+  // Sheet Pagination calculation to ensure page is lightweight & fast
+  const totalPages = useMemo(() => {
+    if (itemsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(groupedParticipants.length / itemsPerPage));
+  }, [groupedParticipants.length, itemsPerPage]);
+
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const pagedParticipants = useMemo(() => {
+    if (itemsPerPage === "all") return groupedParticipants;
+    const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+    return groupedParticipants.slice(startIndex, startIndex + itemsPerPage);
+  }, [groupedParticipants, safeCurrentPage, itemsPerPage]);
 
   // Export to Excel with embedded photos as actual images (exceljs)
   const handleExportExcel = async () => {
@@ -1941,12 +1994,74 @@ export default function SinkronusReports() {
 
       {/* Main Table reports list */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden print-full-width">
-        <div className="p-5 border-b flex justify-between items-center bg-slate-50 print:hidden">
-          <span className="text-xs font-extrabold text-indigo-950 uppercase tracking-widest flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-indigo-600" /> Hasil Laporan Telemetri ({groupedParticipants.length} Peserta / {filteredLogs.length} Sesi Tergabung)
-          </span>
-          <span className="text-xs text-slate-500 font-mono">Format: HH:MM:SS</span>
+        <div className="p-5 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50 print:hidden">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold text-indigo-950 uppercase tracking-widest flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-indigo-600" /> Hasil Laporan Telemetri ({groupedParticipants.length} Peserta / {filteredLogs.length} Sesi Tergabung)
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500 font-mono">Format: HH:MM:SS</span>
+            <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-white border border-slate-300 rounded-lg px-2.5 py-1">
+              <span className="font-bold text-[11px]">Baris per Sheet:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setItemsPerPage(val === "all" ? "all" : Number(val));
+                  setCurrentPage(1);
+                }}
+                className="bg-transparent font-bold text-indigo-900 focus:outline-none cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20 (Cepat &amp; Ringan)</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value="all">Semua ({groupedParticipants.length})</option>
+              </select>
+            </div>
+          </div>
         </div>
+
+        {/* Sheet Tabs Bar - Membagi halaman menjadi sheet-sheet agar akses ringan */}
+        {totalPages > 1 && (
+          <div className="px-5 py-2.5 bg-slate-100/90 border-b flex items-center justify-between gap-3 overflow-x-auto print:hidden">
+            <div className="flex items-center gap-1.5 shrink-0 py-0.5">
+              <span className="text-[11px] font-black text-slate-600 uppercase tracking-wider flex items-center gap-1 mr-1">
+                <FileText className="w-3.5 h-3.5 text-indigo-600" /> Sheet Halaman:
+              </span>
+              {Array.from({ length: totalPages }).map((_, idx) => {
+                const pageNum = idx + 1;
+                const isCurrent = pageNum === safeCurrentPage;
+                const step = typeof itemsPerPage === "number" ? itemsPerPage : 20;
+                const startIdx = idx * step + 1;
+                const endIdx = Math.min((idx + 1) * step, groupedParticipants.length);
+
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border shrink-0 cursor-pointer ${
+                      isCurrent
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs ring-2 ring-indigo-200"
+                        : "bg-white text-slate-700 border-slate-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    <span>Sheet {pageNum}</span>
+                    <span className={`text-[10px] font-mono ${isCurrent ? "text-indigo-100" : "text-slate-400"}`}>
+                      ({startIdx}-{endIdx})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="text-[11px] text-slate-500 font-medium shrink-0 ml-auto hidden md:block">
+              Sheet {safeCurrentPage} dari {totalPages}
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto print:overflow-visible">
           <table className="min-w-full divide-y divide-gray-200 text-left text-xs bg-white print-clean-table">
@@ -1967,7 +2082,7 @@ export default function SinkronusReports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-150 font-medium text-gray-650">
-              {groupedParticipants.map(participant => {
+              {pagedParticipants.map(participant => {
                 return (
                   <tr key={participant.key} className="hover:bg-slate-50/70 transition align-top">
                     {/* 1. Nama Peserta */}
@@ -2178,6 +2293,8 @@ export default function SinkronusReports() {
                         <SafeThumbnail
                           src={participant.praktek_stip_1}
                           fallbackSrcs={[
+                            participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${extractCourseTag(participant.course_name, participant.course_id)}_${participant.seafarer_code}.jpg`).data.publicUrl : null,
+                            participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${extractCourseTag(participant.course_name, participant.course_id)}_${participant.user_id}.jpg`).data.publicUrl : null,
                             participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${participant.seafarer_code}.jpg`).data.publicUrl : null,
                             participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${participant.user_id}.jpg`).data.publicUrl : null,
                           ]}
@@ -2191,7 +2308,7 @@ export default function SinkronusReports() {
                           onClick={(activeUrl) => {
                             setModalImgError(false);
                             setSelectedPhotoModal({
-                              title: "Foto Dokumentasi Praktek di STIP (Foto #1)",
+                              title: `Foto Dokumentasi Praktek di STIP (Foto #1) - ${participant.course_name}`,
                               url: activeUrl || participant.praktek_stip_1 || "",
                               userName: participant.user_name,
                               seafarerCode: participant.seafarer_code
@@ -2203,6 +2320,8 @@ export default function SinkronusReports() {
                         <SafeThumbnail
                           src={participant.praktek_stip_2}
                           fallbackSrcs={[
+                            participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${extractCourseTag(participant.course_name, participant.course_id)}_${participant.seafarer_code}.jpg`).data.publicUrl : null,
+                            participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${extractCourseTag(participant.course_name, participant.course_id)}_${participant.user_id}.jpg`).data.publicUrl : null,
                             participant.seafarer_code && participant.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${participant.seafarer_code}.jpg`).data.publicUrl : null,
                             participant.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${participant.user_id}.jpg`).data.publicUrl : null,
                           ]}
@@ -2216,7 +2335,7 @@ export default function SinkronusReports() {
                           onClick={(activeUrl) => {
                             setModalImgError(false);
                             setSelectedPhotoModal({
-                              title: "Foto Dokumentasi Praktek di STIP (Foto #2)",
+                              title: `Foto Dokumentasi Praktek di STIP (Foto #2) - ${participant.course_name}`,
                               url: activeUrl || participant.praktek_stip_2 || "",
                               userName: participant.user_name,
                               seafarerCode: participant.seafarer_code
@@ -2240,6 +2359,68 @@ export default function SinkronusReports() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Bottom Pagination Bar */}
+        <div className="p-4 border-t bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
+          <div className="text-xs text-slate-600 font-medium">
+            Menampilkan{" "}
+            <strong className="text-slate-900">
+              {groupedParticipants.length === 0
+                ? 0
+                : (safeCurrentPage - 1) * (typeof itemsPerPage === "number" ? itemsPerPage : groupedParticipants.length) + 1}
+            </strong>{" "}
+            -{" "}
+            <strong className="text-slate-900">
+              {Math.min(
+                safeCurrentPage * (typeof itemsPerPage === "number" ? itemsPerPage : groupedParticipants.length),
+                groupedParticipants.length
+              )}
+            </strong>{" "}
+            dari <strong className="text-indigo-900">{groupedParticipants.length}</strong> total peserta sinkronus
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage === 1}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+              >
+                &laquo; Pertama
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage === 1}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+              >
+                &lsaquo; Sebelumnya
+              </button>
+
+              <span className="px-3 py-1 text-xs font-black text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-lg">
+                Sheet {safeCurrentPage} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage === totalPages}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+              >
+                Berikutnya &rsaquo;
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage === totalPages}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+              >
+                Terakhir &raquo;
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
