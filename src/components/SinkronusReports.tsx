@@ -100,22 +100,93 @@ const parseStorageFileName = (fileName: string): {
   return { identifier: id.trim(), isLive, isKtp, isPraktek1, isPraktek2 };
 };
 
-const getBase64ImageFromUrl = async (imageUrl: string): Promise<string | null> => {
-  try {
-    const validUrl = ensurePublicUrl(imageUrl) || imageUrl;
-    const res = await fetch(validUrl);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (e) {
-    console.error("Failed to load image for excel", e);
-    return null;
+const excelImageCache = new Map<string, { base64: string; ext: "jpeg" | "png" } | null>();
+
+const getResizedBase64Image = async (
+  imageUrl?: string | null,
+  maxWidth = 110,
+  maxHeight = 80,
+  quality = 0.5
+): Promise<{ base64: string; ext: "jpeg" | "png" } | null> => {
+  if (!imageUrl || typeof imageUrl !== "string") return null;
+  const validUrl = ensurePublicUrl(imageUrl) || imageUrl;
+  if (!validUrl || validUrl === "null" || validUrl === "undefined" || !validUrl.startsWith("http")) return null;
+
+  if (excelImageCache.has(validUrl)) {
+    return excelImageCache.get(validUrl) || null;
   }
+
+  return new Promise((resolve) => {
+    let finished = false;
+    const cleanup = () => {
+      finished = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+
+    // Shorter timeout (2500ms) so slow or missing images never stall the export
+    const timeoutId = setTimeout(() => {
+      if (!finished) {
+        cleanup();
+        excelImageCache.set(validUrl, null);
+        resolve(null);
+      }
+    }, 2500);
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (finished) return;
+      cleanup();
+      try {
+        let width = img.naturalWidth || img.width || 110;
+        let height = img.naturalHeight || img.height || 80;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          excelImageCache.set(validUrl, null);
+          resolve(null);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        const base64Data = dataUrl.split(",")[1];
+        if (base64Data && base64Data.length > 50) {
+          const result = { base64: base64Data, ext: "jpeg" as const };
+          excelImageCache.set(validUrl, result);
+          resolve(result);
+        } else {
+          excelImageCache.set(validUrl, null);
+          resolve(null);
+        }
+      } catch (err) {
+        excelImageCache.set(validUrl, null);
+        resolve(null);
+      }
+    };
+    img.onerror = () => {
+      if (finished) return;
+      cleanup();
+      excelImageCache.set(validUrl, null);
+      resolve(null);
+    };
+    img.src = validUrl;
+  });
 };
 
 function SafeThumbnail({
@@ -332,11 +403,26 @@ export default function SinkronusReports() {
   // Sheet Pagination State (Membuat lembar halaman sheet agar laporan ringan diakses)
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number | "all">(20);
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number; message?: string } | null>(null);
+  const [isPrintingAll, setIsPrintingAll] = useState<boolean>(false);
+  const [isPreparingPDF, setIsPreparingPDF] = useState<boolean>(false);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, selectedCourse, selectedClass, selectedPeriod]);
+
+  // Support native print (Ctrl+P) by switching to all participants
+  useEffect(() => {
+    const handleBeforePrint = () => setIsPrintingAll(true);
+    const handleAfterPrint = () => setIsPrintingAll(false);
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+  }, []);
 
   const getLogDetails = (className: string) => {
     let pureClass = className || "-";
@@ -1474,7 +1560,10 @@ export default function SinkronusReports() {
     return groupedParticipants.slice(startIndex, startIndex + itemsPerPage);
   }, [groupedParticipants, safeCurrentPage, itemsPerPage]);
 
-  // Export to Excel with embedded photos as actual images (exceljs)
+  // Participants to render in DOM: all participants when printing PDF, otherwise paged sheet
+  const displayedParticipants = isPrintingAll ? groupedParticipants : pagedParticipants;
+
+  // Export to Excel with embedded photos resized to lightweight thumbnails (fast & crash-free)
   const handleExportExcel = async () => {
     if (groupedParticipants.length === 0) {
       alert("Tidak ada data untuk diekspor.");
@@ -1482,10 +1571,20 @@ export default function SinkronusReports() {
     }
 
     setIsExportingExcel(true);
+    setExportProgress({ current: 0, total: 100, message: "Menyiapkan ekspor..." });
+
     try {
-      // Dynamic imports for ExcelJS and file-saver
-      const ExcelJS = (await import("exceljs")).default;
-      const { saveAs } = (await import("file-saver"));
+      // Dynamic imports for ExcelJS with safe module detection
+      let ExcelJSModule: any;
+      try {
+        ExcelJSModule = (await import("exceljs")).default || (await import("exceljs"));
+      } catch (modErr) {
+        console.warn("Dynamic import exceljs error:", modErr);
+      }
+      const ExcelJS = ExcelJSModule?.Workbook ? ExcelJSModule : (ExcelJSModule?.default || (window as any).ExcelJS);
+      if (!ExcelJS?.Workbook) {
+        throw new Error("Pustaka generator ExcelJS tidak berhasil dimuat.");
+      }
 
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Laporan Sinkronus Zoom", {
@@ -1512,9 +1611,9 @@ export default function SinkronusReports() {
         { header: "Cam ON", key: "cam_on", width: 18 },
         { header: "Cam OFF", key: "cam_off", width: 18 },
         { header: "Mic ON", key: "mic_on", width: 18 },
-        { header: "Foto KTP (Awal)", key: "ktp_photo", width: 22 },
-        { header: "Foto Praktek STIP 1", key: "praktek_stip_1", width: 22 },
-        { header: "Foto Praktek STIP 2", key: "praktek_stip_2", width: 22 }
+        { header: "Foto KTP (Awal)", key: "ktp_photo", width: 20 },
+        { header: "Foto Praktek STIP 1", key: "praktek_stip_1", width: 20 },
+        { header: "Foto Praktek STIP 2", key: "praktek_stip_2", width: 20 }
       ];
 
       // Add dynamic columns for each selfie
@@ -1522,7 +1621,7 @@ export default function SinkronusReports() {
         columns.push({
           header: maxSelfieCount === 1 ? "Foto Selfie" : `Foto Selfie ${sIdx}`,
           key: `selfie_${sIdx}`,
-          width: 22
+          width: 20
         });
       }
 
@@ -1539,7 +1638,79 @@ export default function SinkronusReports() {
       headerRow.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       headerRow.height = 32;
 
-      // Populate rows and embed images
+      // STEP 1: Pre-fetch & resize all unique photos in parallel batches for super fast download
+      const allUrlsSet = new Set<string>();
+      groupedParticipants.forEach(p => {
+        if (p.ktp_url) allUrlsSet.add(p.ktp_url);
+        if (p.praktek_stip_1) allUrlsSet.add(p.praktek_stip_1);
+        if (p.praktek_stip_2) allUrlsSet.add(p.praktek_stip_2);
+        if (p.all_selfies && p.all_selfies.length > 0) {
+          p.all_selfies.forEach((s: string) => s && allUrlsSet.add(s));
+        } else if (p.selfie_url) {
+          allUrlsSet.add(p.selfie_url);
+        }
+      });
+
+      const pendingUrls = Array.from(allUrlsSet).filter(url => !excelImageCache.has(url));
+      const totalUrls = pendingUrls.length;
+
+      if (totalUrls > 0) {
+        setExportProgress({ current: 0, total: totalUrls, message: `Mengompres foto (0/${totalUrls})...` });
+        const BATCH_SIZE = 8;
+        for (let b = 0; b < totalUrls; b += BATCH_SIZE) {
+          const slice = pendingUrls.slice(b, b + BATCH_SIZE);
+          await Promise.all(slice.map(u => getResizedBase64Image(u, 110, 80, 0.5)));
+          const currentCount = Math.min(b + slice.length, totalUrls);
+          setExportProgress({
+            current: currentCount,
+            total: totalUrls,
+            message: `Mengompres foto (${currentCount}/${totalUrls})...`
+          });
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+
+      setExportProgress({ current: totalUrls, total: totalUrls, message: "Menyusun file Excel..." });
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Helper function to safely embed resized image into a cell
+      const embedPhotoSafe = async (
+        url: string | undefined | null,
+        colZeroIndex: number,
+        rowNumberOne: number,
+        cellColNumber: number,
+        rowObj: any
+      ) => {
+        if (!url) {
+          rowObj.getCell(cellColNumber).value = "-";
+          return;
+        }
+        try {
+          const resized = await getResizedBase64Image(url, 110, 80, 0.5);
+          if (resized?.base64) {
+            try {
+              const imageId = workbook.addImage({
+                base64: resized.base64,
+                extension: resized.ext
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: colZeroIndex + 0.08, row: rowNumberOne - 1 + 0.08 },
+                ext: { width: 95, height: 68 },
+                editAs: "oneCell"
+              });
+              return;
+            } catch (addImgErr) {
+              rowObj.getCell(cellColNumber).value = "Foto Ada";
+            }
+          } else {
+            rowObj.getCell(cellColNumber).value = "Foto Ada";
+          }
+        } catch (e) {
+          rowObj.getCell(cellColNumber).value = "Foto Ada";
+        }
+      };
+
+      // Populate rows and embed resized images
       for (let i = 0; i < groupedParticipants.length; i++) {
         const item = groupedParticipants[i];
         const rowNumber = i + 2;
@@ -1574,9 +1745,9 @@ export default function SinkronusReports() {
           cam_on: camOnText,
           cam_off: camOffText,
           mic_on: micOnText,
-          ktp_photo: item.ktp_url ? "" : "Tidak Ada",
-          praktek_stip_1: item.praktek_stip_1 ? "" : "Tidak Ada",
-          praktek_stip_2: item.praktek_stip_2 ? "" : "Tidak Ada"
+          ktp_photo: item.ktp_url ? "" : "-",
+          praktek_stip_1: item.praktek_stip_1 ? "" : "-",
+          praktek_stip_2: item.praktek_stip_2 ? "" : "-"
         };
 
         for (let sIdx = 1; sIdx <= maxSelfieCount; sIdx++) {
@@ -1584,7 +1755,7 @@ export default function SinkronusReports() {
         }
 
         const row = worksheet.addRow(rowData);
-        row.height = 90; // Generous height for embedded photo previews
+        row.height = 76; // Comfortable height for 95x68 preview thumbnails
 
         row.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
         row.getCell(2).alignment = { vertical: "middle", horizontal: "left", wrapText: true }; // Nama
@@ -1601,80 +1772,19 @@ export default function SinkronusReports() {
           };
         });
 
-        // 1. Embed KTP photo (Col index 11: 0-based col index 11 -> Col 12)
-        if (item.ktp_url) {
-          try {
-            const ktpBase64 = await getBase64ImageFromUrl(item.ktp_url);
-            if (ktpBase64) {
-              const base64Data = ktpBase64.split(",")[1];
-              const ext = ktpBase64.includes("image/png") ? "png" : "jpeg";
-              const imageId = workbook.addImage({
-                base64: base64Data,
-                extension: ext as any
-              });
-              worksheet.addImage(imageId, {
-                tl: { col: 11.1, row: rowNumber - 1 + 0.1 },
-                ext: { width: 110, height: 75 },
-                editAs: "oneCell"
-              });
-            } else {
-              row.getCell(12).value = "Gagal Muat Foto";
-            }
-          } catch (e) {
-            console.warn("Could not embed KTP image in Excel:", e);
-            row.getCell(12).value = "Gagal Muat Foto";
-          }
-        }
+        // Embed resized photos for this participant
+        const photoTasks: Promise<void>[] = [];
 
-        // 2. Embed STIP Praktek Photo 1 (Col index 12 -> Col 13)
-        if (item.praktek_stip_1) {
-          try {
-            const stip1Base64 = await getBase64ImageFromUrl(item.praktek_stip_1);
-            if (stip1Base64) {
-              const base64Data = stip1Base64.split(",")[1];
-              const ext = stip1Base64.includes("image/png") ? "png" : "jpeg";
-              const imageId = workbook.addImage({
-                base64: base64Data,
-                extension: ext as any
-              });
-              worksheet.addImage(imageId, {
-                tl: { col: 12.1, row: rowNumber - 1 + 0.1 },
-                ext: { width: 110, height: 75 },
-                editAs: "oneCell"
-              });
-            } else {
-              row.getCell(13).value = "Gagal Muat Foto";
-            }
-          } catch (e) {
-            row.getCell(13).value = "Gagal Muat Foto";
-          }
-        }
+        // 1. KTP photo (Col index 11 -> Col 12)
+        photoTasks.push(embedPhotoSafe(item.ktp_url, 11, rowNumber, 12, row));
 
-        // 3. Embed STIP Praktek Photo 2 (Col index 13 -> Col 14)
-        if (item.praktek_stip_2) {
-          try {
-            const stip2Base64 = await getBase64ImageFromUrl(item.praktek_stip_2);
-            if (stip2Base64) {
-              const base64Data = stip2Base64.split(",")[1];
-              const ext = stip2Base64.includes("image/png") ? "png" : "jpeg";
-              const imageId = workbook.addImage({
-                base64: base64Data,
-                extension: ext as any
-              });
-              worksheet.addImage(imageId, {
-                tl: { col: 13.1, row: rowNumber - 1 + 0.1 },
-                ext: { width: 110, height: 75 },
-                editAs: "oneCell"
-              });
-            } else {
-              row.getCell(14).value = "Gagal Muat Foto";
-            }
-          } catch (e) {
-            row.getCell(14).value = "Gagal Muat Foto";
-          }
-        }
+        // 2. STIP Praktek 1 (Col index 12 -> Col 13)
+        photoTasks.push(embedPhotoSafe(item.praktek_stip_1, 12, rowNumber, 13, row));
 
-        // 4. Embed all selfie photos (Col index 14 + sIdx)
+        // 3. STIP Praktek 2 (Col index 13 -> Col 14)
+        photoTasks.push(embedPhotoSafe(item.praktek_stip_2, 13, rowNumber, 14, row));
+
+        // 4. All selfie photos (Col index 14 + sIdx)
         const selfiesToEmbed = item.all_selfies && item.all_selfies.length > 0 
           ? item.all_selfies 
           : (item.selfie_url ? [item.selfie_url] : []);
@@ -1683,114 +1793,90 @@ export default function SinkronusReports() {
           const colIndexZero = 14 + sIdx;
           const colNumberOne = colIndexZero + 1;
           const sUrl = selfiesToEmbed[sIdx];
-
-          if (sUrl) {
-            try {
-              const selfieBase64 = await getBase64ImageFromUrl(sUrl);
-              if (selfieBase64) {
-                const base64Data = selfieBase64.split(",")[1];
-                const ext = selfieBase64.includes("image/png") ? "png" : "jpeg";
-                const imageId = workbook.addImage({
-                  base64: base64Data,
-                  extension: ext as any
-                });
-                worksheet.addImage(imageId, {
-                  tl: { col: colIndexZero + 0.1, row: rowNumber - 1 + 0.1 },
-                  ext: { width: 110, height: 75 },
-                  editAs: "oneCell"
-                });
-              } else {
-                row.getCell(colNumberOne).value = "Gagal Muat Foto";
-              }
-            } catch (e) {
-              console.warn("Could not embed selfie image in Excel:", e);
-              row.getCell(colNumberOne).value = "Gagal Muat Foto";
-            }
-          } else {
-            row.getCell(colNumberOne).value = sIdx === 0 ? "Tidak Ada" : "-";
-          }
+          photoTasks.push(embedPhotoSafe(sUrl, colIndexZero, rowNumber, colNumberOne, row));
         }
+
+        await Promise.all(photoTasks);
       }
 
-      // Generate and trigger download
-      const buffer = await workbook.xlsx.writeBuffer();
+      // Generate buffer with safe fallback in case images caused memory exhaustion
+      let buffer: any;
+      try {
+        buffer = await workbook.xlsx.writeBuffer();
+      } catch (bufferErr) {
+        console.warn("Gagal membuat buffer gambar penuh, mencoba fallback tabel data:", bufferErr);
+        const fallbackWb = new ExcelJS.Workbook();
+        const fallbackWs = fallbackWb.addWorksheet("Laporan Sinkronus Zoom");
+        fallbackWs.columns = columns.map(c => ({ ...c, width: Math.max(c.width || 14, 16) }));
+        fallbackWs.getRow(1).values = columns.map(c => c.header);
+        fallbackWs.getRow(1).font = { bold: true };
+        groupedParticipants.forEach((p, idx) => {
+          fallbackWs.addRow({
+            no: idx + 1,
+            user_name: p.user_name,
+            seafarer_code: p.seafarer_code || "-",
+            class_name: p.pureClass,
+            period: p.period,
+            course_name: p.course_name,
+            sessions: p.days.map(d => `Hari ${d.dayIndex}: [Sesi 1: ${d.sesi1_text} | Sesi 2: ${d.sesi2_text}]`).join("; "),
+            duration: formatTime(p.total_duration_seconds),
+            cam_on: formatTime(p.total_camera_on_seconds),
+            cam_off: formatTime(p.total_camera_off_seconds),
+            mic_on: formatTime(p.total_mic_on_seconds),
+            ktp_photo: p.ktp_url ? "Ada" : "-",
+            praktek_stip_1: p.praktek_stip_1 ? "Ada" : "-",
+            praktek_stip_2: p.praktek_stip_2 ? "Ada" : "-"
+          });
+        });
+        buffer = await fallbackWb.xlsx.writeBuffer();
+      }
+
       const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      saveAs(blob, `Laporan_Pembelajaran_Sinkronus_Zoom_${new Date().toISOString().split('T')[0]}.xlsx`);
-    } catch (exportErr) {
+      const filename = `Laporan_Pembelajaran_Sinkronus_Zoom_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      // Safe download with both file-saver and native browser anchor fallback
+      let downloaded = false;
+      try {
+        const fileSaverModule = await import("file-saver");
+        const saveAsFunc = (fileSaverModule as any).saveAs || (fileSaverModule as any).default?.saveAs || (fileSaverModule as any).default;
+        if (typeof saveAsFunc === "function") {
+          saveAsFunc(blob, filename);
+          downloaded = true;
+        }
+      } catch (fsErr) {
+        console.warn("file-saver fallback:", fsErr);
+      }
+
+      if (!downloaded) {
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        }, 500);
+      }
+    } catch (exportErr: any) {
       console.error("Gagal mengekspor laporan Excel:", exportErr);
-      alert("Terjadi kesalahan saat memproses ekspor Excel dengan foto.");
+      alert(`Terjadi kendala saat memproses ekspor Excel: ${exportErr?.message || "Silakan coba lagi"}`);
     } finally {
       setIsExportingExcel(false);
+      setExportProgress(null);
     }
   };
 
-  // Export to standard CSV fallback
-  const handleExportCSV = () => {
-    const headers = [
-      "Nama Peserta",
-      "Kode Pelaut (Identity)",
-      "Kelas",
-      "Periode",
-      "Jenis Diklat / Course",
-      "Sesi Pembelajaran (Per Hari)",
-      "Total Durasi",
-      "Cam ON",
-      "Cam OFF",
-      "Mic ON",
-      "Foto Selfie URL",
-      "Foto KTP URL"
-    ];
-
-    const rows = groupedParticipants.map(item => {
-      const sessionTimesText = item.days.map(d => {
-        const s1 = `Sesi 1 (07.00-12.00): ${d.sesi1_text}`;
-        const s2 = `Sesi 2 (13.00-17.00): ${d.sesi2_text}`;
-        return `Hari ${d.dayIndex} (${d.formattedDate}): [${s1} | ${s2} | Total: ${formatReadableSessionDuration(d.duration_seconds)}]`;
-      }).join(" ; ");
-      
-      const durationText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.duration_seconds)}`).join(" | ") + 
-        (item.days.length > 1 ? ` | Akumulasi: ${formatTime(item.total_duration_seconds)}` : '');
-        
-      const camOnText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.camera_on_seconds)}`).join(" | ") + 
-        (item.days.length > 1 ? ` | Total ON: ${formatTime(item.total_camera_on_seconds)}` : '');
-
-      const camOffText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.camera_off_seconds)}`).join(" | ") + 
-        (item.days.length > 1 ? ` | Total OFF: ${formatTime(item.total_camera_off_seconds)}` : '');
-
-      const micOnText = item.days.map(d => `Hari ${d.dayIndex}: ${formatTime(d.mic_on_seconds)}`).join(" | ") + 
-        (item.days.length > 1 ? ` | Total MIC: ${formatTime(item.total_mic_on_seconds)}` : '');
-
-      return [
-        item.user_name,
-        item.seafarer_code || "-",
-        item.pureClass,
-        item.period,
-        item.course_name,
-        sessionTimesText,
-        durationText,
-        camOnText,
-        camOffText,
-        micOnText,
-        item.selfie_url || "-",
-        item.ktp_url || "-"
-      ];
-    });
-
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-      
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Laporan_Pembelajaran_Sinkronus_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Export to PDF by opening standard print view with landscape styling
+  // Export to PDF by opening standard print view with ALL pages / participants included automatically
   const handlePrintPDF = () => {
-    window.print();
+    setIsPreparingPDF(true);
+    setIsPrintingAll(true);
+    // Allow React state update and browser layout/paint of all rows before opening print dialog
+    setTimeout(() => {
+      setIsPreparingPDF(false);
+      window.print();
+    }, 600);
   };
 
   return (
@@ -1802,6 +1888,12 @@ export default function SinkronusReports() {
           @page {
             size: landscape;
             margin: 5mm 6mm 5mm 6mm;
+          }
+          tr {
+            page-break-inside: avoid !important;
+          }
+          thead {
+            display: table-header-group !important;
           }
           body {
             -webkit-print-color-adjust: exact !important;
@@ -1899,19 +1991,20 @@ export default function SinkronusReports() {
             <button
               onClick={handleExportExcel}
               disabled={isExportingExcel || loading}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
-              title="Unduh Excel lengkap dengan seluruh lampiran foto selfie & KTP tertanam"
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow cursor-pointer"
+              title="Unduh Excel lengkap dengan seluruh lampiran foto selfie & KTP tertanam yang telah di-resize otomatis agar cepat & ringan"
             >
               <Download className={`w-4 h-4 ${isExportingExcel ? "animate-bounce" : ""}`} /> 
-              {isExportingExcel ? "Memproses Foto Excel..." : "Unduh Excel (Foto Lampiran)"}
+              {isExportingExcel ? (exportProgress ? (exportProgress.message || `Memproses Foto (${exportProgress.current}/${exportProgress.total})...`) : "Menyiapkan Excel...") : "Unduh Excel (Foto Lampiran)"}
             </button>
             <button
               onClick={handlePrintPDF}
-              disabled={isExportingExcel}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
-              title="Cetak atau simpan sebagai PDF laporan resmi"
+              disabled={isExportingExcel || isPreparingPDF}
+              className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow cursor-pointer"
+              title="Cetak atau simpan sebagai PDF laporan resmi seluruh halaman (semua peserta otomatis)"
             >
-              <Printer className="w-4 h-4" /> Cetak PDF Laporan
+              <Printer className={`w-4 h-4 ${isPreparingPDF ? "animate-spin" : ""}`} /> 
+              {isPreparingPDF ? "Menyiapkan PDF (Semua Halaman)..." : "Cetak PDF (Semua Halaman)"}
             </button>
           </div>
         </div>
@@ -2082,7 +2175,7 @@ export default function SinkronusReports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-150 font-medium text-gray-650">
-              {pagedParticipants.map(participant => {
+              {displayedParticipants.map(participant => {
                 return (
                   <tr key={participant.key} className="hover:bg-slate-50/70 transition align-top">
                     {/* 1. Nama Peserta */}
