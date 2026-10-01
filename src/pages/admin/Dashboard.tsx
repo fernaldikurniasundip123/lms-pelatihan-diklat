@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuthStore } from "../../store/authStore";
-import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock, MessageSquare, Edit } from "lucide-react";
+import { LogOut, Book, Video, FileText, Plus, Users, CheckCircle, XCircle, X, Trash2, Download, Upload, Copy, ClipboardList, Camera, Scan, RefreshCw, Clock, MessageSquare, Edit, Gamepad2 } from "lucide-react";
 import { GoogleGenAI } from "@google/genai";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
@@ -11,6 +11,8 @@ import { supabase } from "../../lib/supabase";
 import SinkronusSettings from "../../components/SinkronusSettings";
 import SinkronusReports from "../../components/SinkronusReports";
 import BahanDiklatManager from "../../components/BahanDiklatManager";
+import SimulatorManager from "../../components/SimulatorManager";
+import { getAllSimulatorScoresMap } from "../../utils/simulatorStorage";
 
 export function parseQuestionText(rawText: string) {
   if (!rawText) return { text: "", imageUrl: null };
@@ -981,6 +983,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
     }
 
     if (enrollData) {
+      const simScoresMap = await getAllSimulatorScoresMap();
       const safeVpData = vpData || [];
       const safeArData = arData || [];
       const finalReps = enrollData.map((en: any) => {
@@ -1145,6 +1148,13 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           avg_video_progress: avgVideo,
           video_breakdown: videoBreakdown || 'No videos',
           final_score: bestScore,
+          simulator_score: (() => {
+            const sc = simScoresMap[`${en.user_id}_${en.course_id}`] 
+              ?? (en.users?.identity_number ? simScoresMap[`${en.users.identity_number}_${en.course_id}`] : null)
+              ?? simScoresMap[en.user_id] 
+              ?? null;
+            return sc !== null ? sc : '-';
+          })(),
           detailed_scores: detailedScores,
           detailed_statuses: detailedStatuses,
           assessment_status: bestScore !== null ? (passed ? 'LULUS' : 'TIDAK LULUS') : null,
@@ -2418,6 +2428,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             `${r.period_start ? new Date(r.period_start).toLocaleDateString() : '-'} s/d ${r.period_end ? new Date(r.period_end).toLocaleDateString() : '-'}`,
             r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             r.detailed_scores || (r.final_score != null ? Math.round(r.final_score).toString() : '-'),
+            r.simulator_score ? String(r.simulator_score) : '-',
             r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '') : (r.assessment_status || '-'), // Status (Foto Awal)
             r.final_result_text || '-',
             '', // Live Photo (Foto Akhir) placeholder
@@ -2427,25 +2438,26 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
 
         autoTable(doc, {
           startY: 40,
-          head: [['User', 'Kelas', 'Course', 'Mata Kuliah', 'Periode', 'Video', 'Score', 'Status\n(Foto Awal)', 'Final Result', 'Live Photo\n(Terbaru)', 'KTP']],
+          head: [['User', 'Kelas', 'Course', 'Mata Kuliah', 'Periode', 'Video', 'Score', 'Simulator', 'Status\n(Foto Awal)', 'Final Result', 'Live Photo\n(Terbaru)', 'KTP']],
           body: bodyData,
           styles: { cellPadding: 2, overflow: 'linebreak', minCellHeight: 25 },
           columnStyles: {
-            7: { cellWidth: 25 }, // Status (Initial Photo)
-            8: { cellWidth: 25 }, // Final Result
-            9: { cellWidth: 25 }, // Live Photo (Latest Photo)
-            10: { cellWidth: 35 } // KTP
+            7: { cellWidth: 16 }, // Simulator
+            8: { cellWidth: 25 }, // Status (Initial Photo)
+            9: { cellWidth: 25 }, // Final Result
+            10: { cellWidth: 25 }, // Live Photo (Latest Photo)
+            11: { cellWidth: 35 } // KTP
           },
           didDrawCell: (data) => {
             if (data.section === 'body') {
               const imgs = imagesMap.get(data.row.index);
-              if (data.column.index === 7 && imgs?.initial) {
+              if (data.column.index === 8 && imgs?.initial) {
                 doc.addImage(imgs.initial, 'JPEG', data.cell.x + 2, data.cell.y + 8, 20, 16);
               }
-              if (data.column.index === 9 && imgs?.live) {
+              if (data.column.index === 10 && imgs?.live) {
                 doc.addImage(imgs.live, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 16);
               }
-              if (data.column.index === 10 && imgs?.ktp) {
+              if (data.column.index === 11 && imgs?.ktp) {
                 doc.addImage(imgs.ktp, 'JPEG', data.cell.x + 2, data.cell.y + 2, 30, 16);
               }
             }
@@ -2530,6 +2542,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
           { header: 'Video Progress', key: 'video', width: 40 },
           { header: 'Link Tugas', key: 'assignment_link', width: 30 },
           { header: 'Nilai Assessment', key: 'score', width: 15 },
+          { header: 'Praktek Simulator', key: 'simulator_score', width: 18 },
           { header: 'Status / Foto Awal', key: 'status', width: 25 },
           { header: 'Final Result', key: 'final_result', width: 20 },
           { header: 'Foto Live (Terbaru)', key: 'live', width: 25 },
@@ -2597,6 +2610,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
             video: r.video_breakdown || `${Math.round(r.avg_video_progress || 0)}%`,
             assignment_link: r.assignment_link || '-',
             score: r.detailed_scores ? r.detailed_scores : (r.final_score != null ? Math.round(r.final_score) : '-'),
+            simulator_score: r.simulator_score || '-',
             status: r.detailed_statuses ? r.detailed_statuses.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') : (r.assessment_status || '-'),
             final_result: r.final_result_text || '-'
           };
@@ -3263,6 +3277,12 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "bahan-diklat" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
               >
                 <FileText className="w-5 h-5" /> Bahan Diklat Ketrampilan
+              </button>
+              <button
+                onClick={() => setActiveTab("simulator-praktek")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left ${activeTab === "simulator-praktek" ? "bg-teal-50 text-teal-700 font-bold" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Gamepad2 className="w-5 h-5 text-teal-600" /> Simulator Praktek
               </button>
             </>
           )}
@@ -4719,6 +4739,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video Progress</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Link Tugas</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Score</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-teal-800 uppercase tracking-wider bg-teal-50/80">Praktek Simulator</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ass. Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider font-bold">Final Result</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verification</th>
@@ -4727,7 +4748,7 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filterReports(finalReports).length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-6 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={11} className="px-6 py-12 text-center text-sm text-gray-500">
                         {isLoadingReports ? "Sedang memuat data..." : "Belum ada data. Silahkan klik 'Terapkan Filter' untuk menampilkan laporan."}
                       </td>
                     </tr>
@@ -4755,6 +4776,15 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-pre-wrap text-sm font-bold text-gray-900">{report.detailed_scores || (report.final_score !== null ? Math.round(report.final_score) : '-')}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {report.simulator_score && report.simulator_score !== '-' ? (
+                          <span className="inline-block bg-teal-100 text-teal-900 font-extrabold px-2.5 py-1 rounded-full text-xs border border-teal-300">
+                            {report.simulator_score} / 100
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {report.detailed_statuses ? (
                           <div className="text-sm font-medium" dangerouslySetInnerHTML={{ __html: report.detailed_statuses }} />
@@ -4800,6 +4830,10 @@ Berikan jawaban Anda harus dalam format JSON berikut (pastikan jawaban HANYA ber
 
         {activeTab === "bahan-diklat" && (
           <BahanDiklatManager courses={courses} />
+        )}
+
+        {activeTab === "simulator-praktek" && (
+          <SimulatorManager courses={courses} />
         )}
       </div>
 

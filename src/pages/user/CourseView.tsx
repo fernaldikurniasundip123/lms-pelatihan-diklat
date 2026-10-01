@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
-import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, Download, MessageSquare, ChevronDown, ChevronUp, Book } from "lucide-react";
+import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, Download, MessageSquare, ChevronDown, ChevronUp, Book, Gamepad2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import AIChat from "../../components/AIChat";
+import SimulatorPraktekModal from "../../components/SimulatorPraktekModal";
+import { getSimulatorScore } from "../../utils/simulatorStorage";
 
 // Simple YouTube Iframe wrapper
 function YouTubePlayer({ 
@@ -377,6 +379,8 @@ export default function CourseView() {
   const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false);
   const [assignmentSaved, setAssignmentSaved] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [bestSimScore, setBestSimScore] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUjianOrLatihan, setIsUjianOrLatihan] = useState(false);
   const [enrolledCategory, setEnrolledCategory] = useState("");
@@ -414,6 +418,8 @@ export default function CourseView() {
   useEffect(() => {
     if (user && courseId) {
       fetchCourse();
+      const existingSim = getSimulatorScore(courseId, user.id);
+      if (existingSim) setBestSimScore(existingSim.bestScore);
     }
   }, [courseId, user]);
 
@@ -1186,10 +1192,58 @@ export default function CourseView() {
                   </div>
                 )}
               </div>
+              {/* Simulator Praktek Mandiri Button placed DIRECTLY below Tanya Aspri */}
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSimulatorOpen(true)}
+                  className="w-full p-4 bg-gradient-to-r from-teal-600 via-teal-700 to-emerald-700 hover:from-teal-700 hover:to-emerald-800 text-white rounded-xl shadow-md border border-teal-500/60 flex items-center justify-between transition-all group font-bold text-sm cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-white/20 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+                      <Gamepad2 className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-black flex items-center gap-1.5 leading-tight">
+                        Simulator Praktek Diklat
+                        <span className="bg-white/25 text-teal-100 text-[9px] uppercase px-2 py-0.5 rounded-full font-mono font-extrabold tracking-wider">
+                          Bebas Akses
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-teal-100/90 font-normal mt-0.5">
+                        {bestSimScore !== null 
+                          ? `Nilai Terbaik: ${bestSimScore}/100` 
+                          : "Simulasi mandiri & penilaian otomatis"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="shrink-0 ml-2">
+                    <span className="text-xs bg-white text-teal-900 font-extrabold px-3 py-1.5 rounded-lg group-hover:bg-teal-50 transition shadow-xs">
+                      Buka
+                    </span>
+                  </div>
+                </button>
+              </div>
             </div>
           )}
         </div>
       </main>
+
+      {/* Simulator Praktek Mandiri Modal */}
+      {course && user && (
+        <SimulatorPraktekModal
+          isOpen={isSimulatorOpen}
+          onClose={() => setIsSimulatorOpen(false)}
+          courseId={course.id}
+          courseName={course.name}
+          user={{
+            id: user.id,
+            name: user.name,
+            identity: user.identity
+          }}
+          onScoreSaved={(rec) => setBestSimScore(rec.bestScore)}
+        />
+      )}
     </div>
   );
 }
