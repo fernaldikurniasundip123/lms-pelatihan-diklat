@@ -427,15 +427,43 @@ export default function SimulatorManager({ courses }: Props) {
 
             {htmlInput && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Pratinjau Kode HTML / Script
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">
+                    Pratinjau Kode HTML / Script
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!htmlInput) return;
+                      // Insert postMessage script automatically before </script> or </body>
+                      if (htmlInput.includes("</script>")) {
+                        const idx = htmlInput.lastIndexOf("</script>");
+                        const injected = htmlInput.slice(0, idx) + 
+                          "\n  // Kode otomatis kirim nilai ke LMS saat simulasi selesai:\n  // window.parent.postMessage({ type: 'SIMULATOR_SCORE', score: 90 }, '*');\n" + 
+                          htmlInput.slice(idx);
+                        setHtmlInput(injected);
+                      } else if (htmlInput.includes("</body>")) {
+                        const idx = htmlInput.lastIndexOf("</body>");
+                        const injected = htmlInput.slice(0, idx) + 
+                          "\n<script>\n  // Panggil fungsi ini saat simulasi selesai:\n  function kirimNilaiLMS(nilai) {\n    window.parent.postMessage({ type: 'SIMULATOR_SCORE', score: nilai }, '*');\n  }\n</script>\n" + 
+                          htmlInput.slice(idx);
+                        setHtmlInput(injected);
+                      }
+                    }}
+                    className="text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-300 px-2.5 py-1 rounded-md transition cursor-pointer"
+                  >
+                    + Sisipkan Contoh Kode Nilai LMS
+                  </button>
+                </div>
                 <textarea
-                  rows={4}
+                  rows={6}
                   value={htmlInput}
                   onChange={(e) => setHtmlInput(e.target.value)}
                   className="w-full font-mono text-[11px] p-3 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-teal-500"
                 />
+                <p className="text-[11px] text-slate-600 mt-1.5 bg-amber-50 border border-amber-200 p-2 rounded-md">
+                  💡 <strong>Posisi Penulisan Kode:</strong> Letakkan perintah <code>window.parent.postMessage(&#123; type: 'SIMULATOR_SCORE', score: 90 &#125;, '*');</code> di <strong>DALAM tag <code>&lt;script&gt;</code> (sebelum <code>&lt;/script&gt;</code>)</strong> atau di dalam fungsi saat tombol selesai ditekan. <em>Jangan meletakkannya di bawah <code>&lt;/html&gt;</code> karena di luar dokumen tidak akan dieksekusi.</em>
+                </p>
               </div>
             )}
           </div>

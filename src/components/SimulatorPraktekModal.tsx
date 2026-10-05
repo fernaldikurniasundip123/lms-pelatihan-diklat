@@ -13,13 +13,17 @@ import {
   AlertCircle,
   FileCode,
   ShieldCheck,
-  Gamepad2
+  Gamepad2,
+  Compass
 } from "lucide-react";
 import { 
   getSimulatorConfig, 
+  fetchCloudSimulatorConfig,
   getSimulatorScore, 
   recordSimulatorScore, 
   generateBuiltInSimulatorHtml,
+  detectMaritimeModule,
+  MaritimeSimulatorModule,
   SimulatorConfig,
   SimulatorScoreRecord 
 } from "../utils/simulatorStorage";
@@ -46,6 +50,7 @@ export default function SimulatorPraktekModal({
   onScoreSaved
 }: Props) {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedModule, setSelectedModule] = useState<MaritimeSimulatorModule>(() => detectMaritimeModule(courseName));
   const [config, setConfig] = useState<SimulatorConfig | null>(null);
   const [scoreRecord, setScoreRecord] = useState<SimulatorScoreRecord | null>(null);
   const [newScoreNotification, setNewScoreNotification] = useState<{
@@ -59,6 +64,10 @@ export default function SimulatorPraktekModal({
   // Load config & existing score when modal opens
   useEffect(() => {
     if (isOpen && courseId) {
+      const detected = detectMaritimeModule(courseName);
+      setSelectedModule(detected);
+
+      // 1. Initial fast local load
       const cfg = getSimulatorConfig(courseId, courseName);
       setConfig(cfg);
 
@@ -66,6 +75,20 @@ export default function SimulatorPraktekModal({
       setScoreRecord(existingScore);
       setNewScoreNotification(null);
       setIsManualInputOpen(false);
+
+      // 2. Fetch cloud-uploaded ZIP / HTML simulator if uploaded by admin on any machine
+      fetchCloudSimulatorConfig(courseId).then((cloudCfg) => {
+        if (cloudCfg && (cloudCfg.htmlContent || cloudCfg.url)) {
+          setConfig(cloudCfg);
+          if (iframeRef.current) {
+            if (cloudCfg.type === "url" && cloudCfg.url) {
+              iframeRef.current.src = cloudCfg.url;
+            } else if (cloudCfg.htmlContent) {
+              iframeRef.current.srcdoc = cloudCfg.htmlContent;
+            }
+          }
+        }
+      });
     }
   }, [isOpen, courseId, courseName, user.id]);
 
@@ -165,7 +188,7 @@ export default function SimulatorPraktekModal({
       if (config?.type === "url" && config.url) {
         iframeRef.current.src = config.url;
       } else {
-        iframeRef.current.srcdoc = config?.htmlContent || generateBuiltInSimulatorHtml(courseName, user.name, user.identity);
+        iframeRef.current.srcdoc = config?.htmlContent || generateBuiltInSimulatorHtml(courseName, user.name, user.identity, selectedModule);
       }
     }
   };
@@ -177,7 +200,7 @@ export default function SimulatorPraktekModal({
 
   const iframeContent = config?.type === "url" && config.url 
     ? undefined 
-    : (config?.htmlContent || generateBuiltInSimulatorHtml(courseName, user.name, user.identity));
+    : (config?.htmlContent || generateBuiltInSimulatorHtml(courseName, user.name, user.identity, selectedModule));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-fadeIn">
@@ -233,10 +256,35 @@ export default function SimulatorPraktekModal({
                 <span className="bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full">
                   Bebas Akses
                 </span>
+                <span className="hidden md:inline bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md uppercase">
+                  {selectedModule.toUpperCase()}
+                </span>
               </div>
-              <p className="text-xs text-slate-400 truncate max-w-xs sm:max-w-md">
-                {courseName} &bull; <span className="text-slate-300 font-medium">{user.name}</span> ({user.identity || "-"})
-              </p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1">
+                <span>{courseName} &bull; <strong className="text-slate-300 font-semibold">{user.name}</strong> ({user.identity || "-"})</span>
+                <span className="hidden sm:inline text-slate-600">&bull;</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">Modul Praktek:</span>
+                  <select
+                    value={selectedModule}
+                    onChange={(e) => {
+                      const newMod = e.target.value as MaritimeSimulatorModule;
+                      setSelectedModule(newMod);
+                      if (iframeRef.current && (!config || config.type === "builtin")) {
+                        iframeRef.current.srcdoc = generateBuiltInSimulatorHtml(courseName, user.name, user.identity, newMod);
+                      }
+                    }}
+                    className="bg-slate-800 text-teal-300 text-xs font-extrabold border border-teal-500/40 rounded-md px-2 py-0.5 focus:outline-none focus:border-teal-400 cursor-pointer"
+                  >
+                    <option value="ecdis">ECDIS - Peta Navigasi Elektronik (IMO 1.27)</option>
+                    <option value="radar">RADAR / ARPA - Radar Maritim (X-Band)</option>
+                    <option value="scrb">SCRB - Sekoci Penolong (SOLAS III)</option>
+                    <option value="sdsd">SDSD - Keamanan Kapal (ISPS Code)</option>
+                    <option value="bst">BST - Keselamatan Dasar & Pemadaman</option>
+                    <option value="gmdss">GMDSS - Radio Marabahaya DSC</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 

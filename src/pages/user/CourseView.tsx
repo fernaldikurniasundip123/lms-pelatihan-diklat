@@ -5,7 +5,7 @@ import { ArrowLeft, PlayCircle, CheckCircle, Lock, FileText, Link as LinkIcon, D
 import { supabase } from "../../lib/supabase";
 import AIChat from "../../components/AIChat";
 import SimulatorPraktekModal from "../../components/SimulatorPraktekModal";
-import { getSimulatorScore } from "../../utils/simulatorStorage";
+import { getSimulatorScore, getSimulatorConfig, fetchCloudSimulatorConfig } from "../../utils/simulatorStorage";
 
 // Simple YouTube Iframe wrapper
 function YouTubePlayer({ 
@@ -380,6 +380,7 @@ export default function CourseView() {
   const [assignmentSaved, setAssignmentSaved] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [hasSimulator, setHasSimulator] = useState(false);
   const [bestSimScore, setBestSimScore] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUjianOrLatihan, setIsUjianOrLatihan] = useState(false);
@@ -435,6 +436,18 @@ export default function CourseView() {
         .single();
 
       if (courseError) throw courseError;
+
+      // Check if admin has uploaded a simulator (ZIP / HTML / URL) for this course
+      const localCfg = getSimulatorConfig(courseId, courseData?.name);
+      const isLocalUploaded = localCfg && (localCfg.type === "html" || localCfg.type === "zip" || localCfg.type === "url") && Boolean(localCfg.htmlContent || localCfg.url);
+      if (isLocalUploaded) {
+        setHasSimulator(true);
+      }
+      fetchCloudSimulatorConfig(courseId).then((cloudCfg) => {
+        if (cloudCfg && (cloudCfg.htmlContent || cloudCfg.url)) {
+          setHasSimulator(true);
+        }
+      });
 
       // Fetch enrollment to get assignment link and category
       const { data: enrollmentData } = await supabase
@@ -1192,38 +1205,40 @@ export default function CourseView() {
                   </div>
                 )}
               </div>
-              {/* Simulator Praktek Mandiri Button placed DIRECTLY below Tanya Aspri */}
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => setIsSimulatorOpen(true)}
-                  className="w-full p-4 bg-gradient-to-r from-teal-600 via-teal-700 to-emerald-700 hover:from-teal-700 hover:to-emerald-800 text-white rounded-xl shadow-md border border-teal-500/60 flex items-center justify-between transition-all group font-bold text-sm cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-white/20 rounded-xl group-hover:scale-105 transition-transform shrink-0">
-                      <Gamepad2 className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="text-left">
-                      <div className="text-sm font-black flex items-center gap-1.5 leading-tight">
-                        Simulator Praktek Diklat
-                        <span className="bg-white/25 text-teal-100 text-[9px] uppercase px-2 py-0.5 rounded-full font-mono font-extrabold tracking-wider">
-                          Bebas Akses
-                        </span>
+              {/* Simulator Praktek Mandiri Button placed DIRECTLY below Tanya Aspri (Only when admin uploaded a simulator) */}
+              {hasSimulator && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsSimulatorOpen(true)}
+                    className="w-full p-4 bg-gradient-to-r from-teal-600 via-teal-700 to-emerald-700 hover:from-teal-700 hover:to-emerald-800 text-white rounded-xl shadow-md border border-teal-500/60 flex items-center justify-between transition-all group font-bold text-sm cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-white/20 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+                        <Gamepad2 className="w-5 h-5 text-white" />
                       </div>
-                      <div className="text-[11px] text-teal-100/90 font-normal mt-0.5">
-                        {bestSimScore !== null 
-                          ? `Nilai Terbaik: ${bestSimScore}/100` 
-                          : "Simulasi mandiri & penilaian otomatis"}
+                      <div className="text-left">
+                        <div className="text-sm font-black flex items-center gap-1.5 leading-tight">
+                          Simulator Praktek Diklat
+                          <span className="bg-white/25 text-teal-100 text-[9px] uppercase px-2 py-0.5 rounded-full font-mono font-extrabold tracking-wider">
+                            Bebas Akses
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-teal-100/90 font-normal mt-0.5">
+                          {bestSimScore !== null 
+                            ? `Nilai Terbaik: ${bestSimScore}/100` 
+                            : "Simulasi mandiri & penilaian otomatis"}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="shrink-0 ml-2">
-                    <span className="text-xs bg-white text-teal-900 font-extrabold px-3 py-1.5 rounded-lg group-hover:bg-teal-50 transition shadow-xs">
-                      Buka
-                    </span>
-                  </div>
-                </button>
-              </div>
+                    <div className="shrink-0 ml-2">
+                      <span className="text-xs bg-white text-teal-900 font-extrabold px-3 py-1.5 rounded-lg group-hover:bg-teal-50 transition shadow-xs">
+                        Buka
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
