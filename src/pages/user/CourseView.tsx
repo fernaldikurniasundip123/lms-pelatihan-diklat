@@ -504,12 +504,13 @@ export default function CourseView() {
       const { data: assessmentsData } = await assessmentsQuery;
       setAssessments(assessmentsData || []);
 
-      // Fetch all assessment results
+      // Fetch all assessment results (ordered by newest first)
       const { data: resultsData } = await supabase
         .from('assessment_results')
         .select('*')
         .eq('course_id', courseId)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
       setAssessmentResults(resultsData || []);
 
       const videosWithProgress = (videosData || []).map(v => {
@@ -530,8 +531,8 @@ export default function CourseView() {
       let completedItems = videosWithProgress.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
       
       if (finalAssessment) {
-        const finalResult = resultsData?.find((r: any) => r.assessment_id === finalAssessment.id);
-        if (finalResult?.passed) completedItems += 1;
+        const isFinalPassed = resultsData?.some((r: any) => r.assessment_id === finalAssessment.id && r.passed);
+        if (isFinalPassed) completedItems += 1;
       }
 
       const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -632,8 +633,8 @@ export default function CourseView() {
             let completedItems = updatedVideos.filter((v: any) => v.completed || (v.progress_percentage || 0) >= 90).length;
             
             if (finalAssessment) {
-              const finalResult = assessmentResults?.find((r: any) => r.assessment_id === finalAssessment.id);
-              if (finalResult?.passed) completedItems += 1;
+              const isFinalPassed = assessmentResults?.some((r: any) => r.assessment_id === finalAssessment.id && r.passed);
+              if (isFinalPassed) completedItems += 1;
             }
             
             const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -706,7 +707,7 @@ export default function CourseView() {
         <div className="flex-1 flex flex-col gap-6">
           {isUjianOrLatihan ? (() => {
             const finalAssessment = assessments.find(a => !a.video_id);
-            const pastResult = finalAssessment ? assessmentResults.find(r => r.assessment_id === finalAssessment.id) : null;
+            const pastResult = finalAssessment ? (assessmentResults.find(r => r.assessment_id === finalAssessment.id && r.passed) || assessmentResults.find(r => r.assessment_id === finalAssessment.id)) : null;
             const categoryLabel = course?.category === 'LATIHAN UJIAN' ? 'Latihan Mandiri' : 'Ujian Online Resmi';
             return (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 flex flex-col gap-6 min-h-[500px] justify-center">
@@ -831,7 +832,7 @@ export default function CourseView() {
               {/* Mulai Ujian Refresing button placed exactly below the Material */}
               {assessments.find(a => !a.video_id) && (() => {
                 const finalAssessment = assessments.find(a => !a.video_id);
-                const pastResult = finalAssessment ? assessmentResults.find(r => r.assessment_id === finalAssessment.id) : null;
+                const pastResult = finalAssessment ? (assessmentResults.find(r => r.assessment_id === finalAssessment.id && r.passed) || assessmentResults.find(r => r.assessment_id === finalAssessment.id)) : null;
                 return (
                   <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-200 flex flex-col gap-4 text-left">
                     <div className="flex items-center justify-between">
@@ -939,7 +940,7 @@ export default function CourseView() {
                     <p>Sesi ini tidak memerlukan materi presentasi video dan berjalan mandiri sesuai instruksi yang diberikan.</p>
                   </div>
                   {assessments.filter(a => !a.video_id).map((assess, index) => {
-                    const resultObj = assessmentResults.find(r => r.assessment_id === assess.id);
+                    const resultObj = assessmentResults.find(r => r.assessment_id === assess.id && r.passed) || assessmentResults.find(r => r.assessment_id === assess.id);
                     return (
                       <div key={assess.id} className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm space-y-3">
                         <div className="flex items-center justify-between">
@@ -993,8 +994,7 @@ export default function CourseView() {
                           const isActive = activeVideo?.id === video.id;
                           const isCompleted = video.completed || (video.progress_percentage || 0) >= 90;
                           const videoAssessment = assessments.find(a => a.video_id === video.id);
-                          const assessmentResult = videoAssessment ? assessmentResults.find(r => r.assessment_id === videoAssessment.id) : null;
-                          const isAssessmentPassed = assessmentResult?.passed;
+                          const isAssessmentPassed = Boolean(videoAssessment && assessmentResults.some(r => r.assessment_id === videoAssessment.id && r.passed));
                           
                           // Check if previous video's mandatory assessment is passed
                           let isLocked = false;
@@ -1002,8 +1002,8 @@ export default function CourseView() {
                             const prevVideo = filteredVideos[idxRef - 1];
                             const prevAssessment = assessments.find(a => a.video_id === prevVideo.id);
                             if (prevAssessment?.is_mandatory) {
-                              const prevResult = assessmentResults.find(r => r.assessment_id === prevAssessment.id);
-                              if (!prevResult?.passed) {
+                              const isPrevPassed = assessmentResults.some(r => r.assessment_id === prevAssessment.id && r.passed);
+                              if (!isPrevPassed) {
                                 isLocked = true;
                               }
                             }
