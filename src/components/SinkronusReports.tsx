@@ -100,7 +100,7 @@ const parseStorageFileName = (fileName: string): {
   return { identifier: id.trim(), isLive, isKtp, isPraktek1, isPraktek2 };
 };
 
-const excelImageCache = new Map<string, { base64: string; ext: "jpeg" | "png" } | null>();
+const excelImageCache = new Map<string, { base64: string; ext: "jpeg" | "png" }>();
 
 const getResizedBase64Image = async (
   imageUrl?: string | null,
@@ -116,77 +116,101 @@ const getResizedBase64Image = async (
     return excelImageCache.get(validUrl) || null;
   }
 
-  return new Promise((resolve) => {
-    let finished = false;
-    const cleanup = () => {
-      finished = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-
-    // Shorter timeout (2500ms) so slow or missing images never stall the export
-    const timeoutId = setTimeout(() => {
-      if (!finished) {
-        cleanup();
-        excelImageCache.set(validUrl, null);
-        resolve(null);
-      }
-    }, 2500);
-
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      if (finished) return;
-      cleanup();
-      try {
-        let width = img.naturalWidth || img.width || 110;
-        let height = img.naturalHeight || img.height || 80;
-
-        if (width > height) {
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width = Math.round((width * maxHeight) / height);
-            height = maxHeight;
-          }
-        }
-
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, width);
-        canvas.height = Math.max(1, height);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          excelImageCache.set(validUrl, null);
-          resolve(null);
-          return;
-        }
-
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL("image/jpeg", quality);
-        const base64Data = dataUrl.split(",")[1];
-        if (base64Data && base64Data.length > 50) {
-          const result = { base64: base64Data, ext: "jpeg" as const };
-          excelImageCache.set(validUrl, result);
-          resolve(result);
-        } else {
-          excelImageCache.set(validUrl, null);
+  const loadImageAndResize = (srcUrl: string, isBlob = false): Promise<{ base64: string; ext: "jpeg" | "png" } | null> => {
+    return new Promise((resolve) => {
+      let finished = false;
+      // Batas waktu dinaikkan menjadi 5 detik (5000ms) sesuai instruksi pengguna
+      const timeoutId = setTimeout(() => {
+        if (!finished) {
+          finished = true;
           resolve(null);
         }
-      } catch (err) {
-        excelImageCache.set(validUrl, null);
-        resolve(null);
+      }, 5000);
+
+      const img = new Image();
+      if (!isBlob) {
+        img.crossOrigin = "anonymous";
       }
-    };
-    img.onerror = () => {
-      if (finished) return;
-      cleanup();
-      excelImageCache.set(validUrl, null);
-      resolve(null);
-    };
-    img.src = validUrl;
-  });
+      img.onload = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeoutId);
+        try {
+          let width = img.naturalWidth || img.width || 110;
+          let height = img.naturalHeight || img.height || 80;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(null);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          const base64Data = dataUrl.split(",")[1];
+          if (base64Data && base64Data.length > 50) {
+            resolve({ base64: base64Data, ext: "jpeg" as const });
+          } else {
+            resolve(null);
+          }
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeoutId);
+        resolve(null);
+      };
+      img.src = srcUrl;
+    });
+  };
+
+  // Metode 1: Fetch -> Blob -> ObjectURL (bypasses browser CORS cache taint)
+  let result: { base64: string; ext: "jpeg" | "png" } | null = null;
+  try {
+    const controller = new AbortController();
+    const fetchTimer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(validUrl, { signal: controller.signal });
+    clearTimeout(fetchTimer);
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob && blob.size > 0) {
+        const blobUrl = URL.createObjectURL(blob);
+        result = await loadImageAndResize(blobUrl, true);
+        URL.revokeObjectURL(blobUrl);
+      }
+    }
+  } catch {
+    // Jika fetch gagal atau CORS blocked, fallback ke metode 2
+  }
+
+  // Metode 2: Direct Image tag dengan crossOrigin anonymous jika metode 1 belum berhasil
+  if (!result) {
+    result = await loadImageAndResize(validUrl, false);
+  }
+
+  if (result) {
+    excelImageCache.set(validUrl, result);
+  }
+
+  return result;
 };
 
 function SafeThumbnail({
@@ -1673,39 +1697,58 @@ export default function SinkronusReports() {
       setExportProgress({ current: totalUrls, total: totalUrls, message: "Menyusun file Excel..." });
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      // Helper function to safely embed resized image into a cell
+      // Helper function to safely embed resized image into a cell (with fallback candidates support)
       const embedPhotoSafe = async (
-        url: string | undefined | null,
+        urls: (string | undefined | null)[] | string | undefined | null,
         colZeroIndex: number,
         rowNumberOne: number,
         cellColNumber: number,
         rowObj: any
       ) => {
-        if (!url) {
+        const candidateList: string[] = [];
+        if (Array.isArray(urls)) {
+          urls.forEach(u => {
+            if (u && typeof u === "string") {
+              const valid = ensurePublicUrl(u);
+              if (valid && !candidateList.includes(valid)) candidateList.push(valid);
+            }
+          });
+        } else if (urls && typeof urls === "string") {
+          const valid = ensurePublicUrl(urls);
+          if (valid) candidateList.push(valid);
+        }
+
+        if (candidateList.length === 0) {
           rowObj.getCell(cellColNumber).value = "-";
           return;
         }
-        try {
-          const resized = await getResizedBase64Image(url, 110, 80, 0.5);
-          if (resized?.base64) {
-            try {
-              const imageId = workbook.addImage({
-                base64: resized.base64,
-                extension: resized.ext
-              });
-              worksheet.addImage(imageId, {
-                tl: { col: colZeroIndex + 0.08, row: rowNumberOne - 1 + 0.08 },
-                ext: { width: 95, height: 68 },
-                editAs: "oneCell"
-              });
-              return;
-            } catch (addImgErr) {
-              rowObj.getCell(cellColNumber).value = "Foto Ada";
-            }
-          } else {
+
+        let resized: { base64: string; ext: "jpeg" | "png" } | null = null;
+        for (const candUrl of candidateList) {
+          try {
+            resized = await getResizedBase64Image(candUrl, 110, 80, 0.5);
+            if (resized?.base64) break;
+          } catch {
+            // Coba kandidat URL berikutnya
+          }
+        }
+
+        if (resized?.base64) {
+          try {
+            const imageId = workbook.addImage({
+              base64: resized.base64,
+              extension: resized.ext
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: colZeroIndex + 0.08, row: rowNumberOne - 1 + 0.08 },
+              ext: { width: 95, height: 68 },
+              editAs: "oneCell"
+            });
+            return;
+          } catch (addImgErr) {
             rowObj.getCell(cellColNumber).value = "Foto Ada";
           }
-        } catch (e) {
+        } else {
           rowObj.getCell(cellColNumber).value = "Foto Ada";
         }
       };
@@ -1774,15 +1817,35 @@ export default function SinkronusReports() {
 
         // Embed resized photos for this participant
         const photoTasks: Promise<void>[] = [];
+        const cTag = extractCourseTag(item.course_name, item.course_id);
 
         // 1. KTP photo (Col index 11 -> Col 12)
-        photoTasks.push(embedPhotoSafe(item.ktp_url, 11, rowNumber, 12, row));
+        const ktpCandidates = [
+          item.ktp_url,
+          item.seafarer_code && item.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`ktp_${item.seafarer_code}.jpg`).data.publicUrl : null,
+          item.user_id ? supabase.storage.from("verifications").getPublicUrl(`ktp_${item.user_id}.jpg`).data.publicUrl : null
+        ];
+        photoTasks.push(embedPhotoSafe(ktpCandidates, 11, rowNumber, 12, row));
 
         // 2. STIP Praktek 1 (Col index 12 -> Col 13)
-        photoTasks.push(embedPhotoSafe(item.praktek_stip_1, 12, rowNumber, 13, row));
+        const praktek1Candidates = [
+          item.praktek_stip_1,
+          item.seafarer_code && item.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${cTag}_${item.seafarer_code}.jpg`).data.publicUrl : null,
+          item.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${cTag}_${item.user_id}.jpg`).data.publicUrl : null,
+          item.seafarer_code && item.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${item.seafarer_code}.jpg`).data.publicUrl : null,
+          item.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_1_${item.user_id}.jpg`).data.publicUrl : null
+        ];
+        photoTasks.push(embedPhotoSafe(praktek1Candidates, 12, rowNumber, 13, row));
 
         // 3. STIP Praktek 2 (Col index 13 -> Col 14)
-        photoTasks.push(embedPhotoSafe(item.praktek_stip_2, 13, rowNumber, 14, row));
+        const praktek2Candidates = [
+          item.praktek_stip_2,
+          item.seafarer_code && item.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${cTag}_${item.seafarer_code}.jpg`).data.publicUrl : null,
+          item.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${cTag}_${item.user_id}.jpg`).data.publicUrl : null,
+          item.seafarer_code && item.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${item.seafarer_code}.jpg`).data.publicUrl : null,
+          item.user_id ? supabase.storage.from("verifications").getPublicUrl(`praktek_stip_2_${item.user_id}.jpg`).data.publicUrl : null
+        ];
+        photoTasks.push(embedPhotoSafe(praktek2Candidates, 13, rowNumber, 14, row));
 
         // 4. All selfie photos (Col index 14 + sIdx)
         const selfiesToEmbed = item.all_selfies && item.all_selfies.length > 0 
@@ -1793,7 +1856,15 @@ export default function SinkronusReports() {
           const colIndexZero = 14 + sIdx;
           const colNumberOne = colIndexZero + 1;
           const sUrl = selfiesToEmbed[sIdx];
-          photoTasks.push(embedPhotoSafe(sUrl, colIndexZero, rowNumber, colNumberOne, row));
+          const selfieCandidates = [
+            sUrl,
+            ...(sIdx === 0 ? [
+              item.selfie_url,
+              item.seafarer_code && item.seafarer_code !== "-" ? supabase.storage.from("verifications").getPublicUrl(`selfie_${item.seafarer_code}.jpg`).data.publicUrl : null,
+              item.user_id ? supabase.storage.from("verifications").getPublicUrl(`selfie_${item.user_id}.jpg`).data.publicUrl : null
+            ] : [])
+          ];
+          photoTasks.push(embedPhotoSafe(selfieCandidates, colIndexZero, rowNumber, colNumberOne, row));
         }
 
         await Promise.all(photoTasks);
