@@ -118,15 +118,67 @@ export default function AssessmentPreCheck() {
     }
   };
 
-  // Load saved selfie from Latihan Ujian database
+  // Helper to convert any image URL/Path/Blob to base64 for Gemini vision comparison
+  const fetchImageBase64 = async (urlOrPath: string): Promise<string | null> => {
+    if (!urlOrPath) return null;
+    if (urlOrPath.startsWith("data:image")) {
+      const parts = urlOrPath.split("base64,");
+      return parts[1] || null;
+    }
+
+    // Try Supabase Storage direct download first (bypasses CORS restrictions)
+    try {
+      const cleanPath = urlOrPath.replace(/^.*\/verifications\//, "").replace(/^verifications\//, "");
+      if (cleanPath && !cleanPath.startsWith("http")) {
+        const { data: blob, error } = await supabase.storage.from("verifications").download(cleanPath);
+        if (!error && blob) {
+          return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const res = (reader.result as string) || "";
+              resolve(res.includes("base64,") ? res.split("base64,")[1] : res);
+            };
+            reader.onerror = () => resolve("");
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch {
+      // fallback to fetch
+    }
+
+    // Fallback: direct HTTP fetch
+    try {
+      const res = await fetch(urlOrPath);
+      if (res.ok) {
+        const blob = await res.blob();
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const res = (reader.result as string) || "";
+            resolve(res.includes("base64,") ? res.split("base64,")[1] : res);
+          };
+          reader.onerror = () => resolve("");
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch (e) {
+      console.warn("fetchImageBase64 error:", e);
+    }
+
+    return null;
+  };
+
+  // Load saved selfie from database across all verification tables & storage
   useEffect(() => {
     async function fetchSavedSelfie() {
       if (!user) return;
       setLoadingStoredSelfie(true);
       try {
-        let fetchedData: any = null;
+        let fetchedSelfie: string | null = null;
+        let fetchedKtp: string | null = null;
         
-        // Priority 1: Search by seafarer_code (kode pelaut)
+        // Priority 1: Search in latihan_verifications by seafarer_code (kode pelaut)
         if (user.identity) {
           const { data: byCode, error: errCode } = await supabase
             .from('latihan_verifications')
@@ -136,12 +188,13 @@ export default function AssessmentPreCheck() {
             .limit(1)
             .maybeSingle();
           if (!errCode && byCode) {
-            fetchedData = byCode;
+            fetchedSelfie = byCode.live_photo_url || null;
+            fetchedKtp = byCode.ktp_photo_url || null;
           }
         }
 
-        // Priority 2: Fallback to user_id
-        if (!fetchedData) {
+        // Priority 2: Fallback to user_id in latihan_verifications
+        if (!fetchedSelfie) {
           const { data: byUid, error: errUid } = await supabase
             .from('latihan_verifications')
             .select('live_photo_url, ktp_photo_url')
@@ -150,20 +203,55 @@ export default function AssessmentPreCheck() {
             .limit(1)
             .maybeSingle();
           if (!errUid && byUid) {
-            fetchedData = byUid;
+            fetchedSelfie = byUid.live_photo_url || null;
+            if (!fetchedKtp) fetchedKtp = byUid.ktp_photo_url || null;
           }
         }
 
-        if (fetchedData) {
-          if (fetchedData.live_photo_url) {
-            setSavedSelfie(fetchedData.live_photo_url);
-          }
-          if (fetchedData.ktp_photo_url) {
-            setSavedKtp(fetchedData.ktp_photo_url);
+        // Priority 3: Fallback to global_verifications
+        if (!fetchedSelfie) {
+          const { data: byGlobal } = await supabase
+            .from('global_verifications')
+            .select('live_photo_url, ktp_photo_url')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (byGlobal) {
+            fetchedSelfie = byGlobal.live_photo_url || null;
+            if (!fetchedKtp) fetchedKtp = byGlobal.ktp_photo_url || null;
           }
         }
+
+        // Priority 4: Fallback to Supabase Storage deterministic files
+        if (!fetchedSelfie && user.identity) {
+          const pub = supabase.storage.from("verifications").getPublicUrl(`selfie_${user.identity}.jpg`);
+          if (pub.data?.publicUrl) {
+            fetchedSelfie = pub.data.publicUrl;
+          }
+        }
+        if (!fetchedSelfie && user.id) {
+          const pub = supabase.storage.from("verifications").getPublicUrl(`selfie_${user.id}.jpg`);
+          if (pub.data?.publicUrl) {
+            fetchedSelfie = pub.data.publicUrl;
+          }
+        }
+
+        // Priority 5: Fallback to LocalStorage cache
+        if (!fetchedSelfie) {
+          fetchedSelfie = (user.identity ? localStorage.getItem(`user_selfie_${user.identity}`) : null) ||
+                          localStorage.getItem(`user_selfie_${user.id}`) ||
+                          localStorage.getItem('session_selfie_url') || null;
+        }
+
+        if (fetchedSelfie) {
+          setSavedSelfie(fetchedSelfie);
+        }
+        if (fetchedKtp) {
+          setSavedKtp(fetchedKtp);
+        }
       } catch (err) {
-        console.error("Failed to fetch saved selfie from latihan:", err);
+        console.error("Failed to fetch saved selfie from database:", err);
       } finally {
         setLoadingStoredSelfie(false);
       }
@@ -174,7 +262,7 @@ export default function AssessmentPreCheck() {
     }
   }, [user, courseCategory]);
 
-  // Face Recognition analyzer comparing Live Scan with saved Latihan Ujian selfie
+  // Real AI Face Recognition analyzer comparing Live Scan with saved database reference selfie
   const handleFaceRecognition = async (livePhotoBase64: string) => {
     setIsVerifyingFace(true);
     setFaceVerificationResult(null);
@@ -182,44 +270,73 @@ export default function AssessmentPreCheck() {
 
     try {
       if (!savedSelfie) {
-        // If there is no saved selfie on database, we simulate immediate successful recognition with a beautiful reason
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        // Foto referensi tidak ada di database: Tolak verifikasi (jangan loloskan sembarangan)
         setFaceVerificationResult({
-          match: true,
-          confidence: 100,
-          reason: "Identitas Dikenali: Profil berhasil diverifikasi secara instan dengan biometrik wajah langsung Anda."
+          match: false,
+          confidence: 0,
+          reason: "Foto referensi peserta tidak ditemukan di database. Pastikan profil atau latihan prapendaftaran Anda telah tersimpan untuk dicocokkan."
         });
         return;
       }
 
-      const base64Data = livePhotoBase64.includes("base64,")
+      const liveBase64Data = livePhotoBase64.includes("base64,")
         ? livePhotoBase64.split("base64,")[1]
         : livePhotoBase64;
+
+      // Ambil foto referensi database dalam format base64
+      const savedBase64Data = await fetchImageBase64(savedSelfie);
+      if (!savedBase64Data) {
+        setFaceVerificationResult({
+          match: false,
+          confidence: 0,
+          reason: "Gagal memuat foto referensi database untuk verifikasi biometrik. Silakan klik 'Pindai Wajah Otomatis' lagi."
+        });
+        return;
+      }
 
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
       if (apiKey) {
         try {
           const ai = new GoogleGenAI({ apiKey });
-          const prompt = `Anda adalah sistem pengenalan wajah super presisi (Face Recognition System).
-Tugas Anda adalah membandingkan dua foto berikut untuk menentukan apakah merupakan wajah orang yang sama:
-1. Foto live scan peserta saat ini (terlampir)
-2. Foto selfie referensi tersimpan di database Latihan Ujian: ${savedSelfie}
+          const prompt = `Anda adalah sistem pengenalan wajah biometrik (Face Recognition System) ultra-presisi untuk pengawasan Ujian UAD (Ujian Akhir Diklat) pelaut.
+Tugas Anda adalah membandingkan DUA FOTO berikut secara teliti:
+- Foto 1 (Foto Kamera Langsung): Foto wajah orang yang sedang berada di depan kamera saat ini.
+- Foto 2 (Foto Referensi Database): Foto wajah resmi peserta yang terdaftar di database sistem.
 
-Lakukan pencocokan titik wajah, kontur wajah, bentuk hidung, mata, rahang, dan telinga secara detail.
-Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanpa markdown, murni JSON):
+INSTRUKSI EVALUASI:
+1. Lakukan analisis pencocokan fitur wajah: jarak antar mata, proporsi hidung, bentuk bibir, garis rahang, dan kontur wajah.
+2. Tentukan dengan tegas apakah Foto 1 dan Foto 2 merupakan ORANG YANG SAMA atau ORANG YANG BERBEDA.
+3. JIKA FOTO 1 ADALAH ORANG YANG BERBEDA (teman, orang lain, joki ujian):
+   - WAJIB berikan "match": false
+   - Berikan "confidence" rendah (di bawah 40)
+   - Berikan "reason": "Wajah tidak cocok. Struktur wajah terdeteksi berbeda dengan foto peserta terdaftar di database."
+4. JIKA FOTO 1 ADALAH ORANG YANG SAMA DENGAN FOTO 2:
+   - Berikan "match": true
+   - Berikan "confidence" tinggi (75-100)
+   - Berikan "reason": "Wajah cocok dengan foto referensi peserta di database."
+5. JIKA Foto 1 tidak memuat wajah manusia atau buram:
+   - Berikan "match": false dengan penjelasan.
+
+Format respon HANYA berupa JSON valid (tanpa markdown, tanpa teks pengantar):
 {
   "match": true atau false,
-  "confidence": persentase kecocokan 0-100 (beri angka bulat, misal 95),
-  "reason": "Alasan analisis kecocokan visual singkat dalam bahasa Indonesia"
+  "confidence": persentase kecocokan 0-100 (angka bulat),
+  "reason": "Penjelasan singkat dalam bahasa Indonesia"
 }`;
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash',
             contents: [
               {
                 inlineData: {
                   mimeType: 'image/jpeg',
-                  data: base64Data
+                  data: liveBase64Data
+                }
+              },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: savedBase64Data
                 }
               },
               prompt
@@ -230,11 +347,11 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
           const cleanJsonText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
           const result = JSON.parse(cleanJsonText);
 
-          if (result) {
+          if (result && typeof result.match === "boolean") {
             setFaceVerificationResult({
-              match: result.match === true || (result.confidence && result.confidence >= 80),
-              confidence: result.confidence || 85,
-              reason: result.reason || "Pencocokan biometrik visual selesai."
+              match: result.match === true && (result.confidence ? result.confidence >= 70 : true),
+              confidence: result.confidence || (result.match ? 90 : 25),
+              reason: result.reason || (result.match ? "Wajah berhasil diverifikasi cocok dengan data peserta." : "Wajah tidak cocok dengan data peserta terdaftar.")
             });
             return;
           }
@@ -243,12 +360,11 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
         }
       }
 
-      // Fallback: Smart local biometric matching simulator
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Jika koneksi AI gagal / terputus: jangan pernah meloloskan orang lain secara otomatis!
       setFaceVerificationResult({
-        match: true,
-        confidence: 98,
-        reason: "Biometrik Sukses: Sistem berhasil mengidentifikasi struktur kerangka wajah cocok dengan foto selfie Latihan Ujian."
+        match: false,
+        confidence: 0,
+        reason: "Gagal memverifikasi wajah dengan sistem AI. Silakan posisikan wajah tegak lurus dan lakukan pemindaian ulang."
       });
     } catch (err: any) {
       console.error("Face verification error:", err);
@@ -695,17 +811,28 @@ Berikan keputusan kecocokan dalam format JSON (bukan penjelasan teks biasa, tanp
                   {savedSelfie && !livePhoto && (
                     <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3 animate-fadeIn text-left">
                       <h4 className="font-bold text-gray-900 text-sm flex items-center gap-2 uppercase tracking-wide font-sans">
-                        <UserCheck className="w-4 h-4 text-indigo-600" /> Foto Referensi Kehadiran
+                        <UserCheck className="w-4 h-4 text-indigo-600" /> Foto Referensi Peserta Terdaftar
                       </h4>
                       <div className="flex gap-4 items-center">
                         <div className="w-20 h-20 rounded-lg overflow-hidden border border-gray-350 bg-gray-100 flex-shrink-0">
                           <img src={savedSelfie} alt="Stored profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         </div>
                         <div className="text-xs text-gray-600 font-sans">
-                          <span className="inline-block bg-indigo-100 text-indigo-805 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold text-[10px] mb-2 font-sans">Terdaftar dari Latihan</span>
-                          <p className="font-medium text-gray-700 font-sans">Wajah Anda dicocokkan otomatis secara langsung melalui kamera (Live Selfie) dengan database Latihan Ujian di atas.</p>
+                          <span className="inline-block bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold text-[10px] mb-2 font-sans">Database Terverifikasi</span>
+                          <p className="font-medium text-gray-700 font-sans">Wajah yang tampil di kamera wajib cocok dengan foto referensi di atas untuk dapat memulai Ujian UAD.</p>
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {!savedSelfie && !loadingStoredSelfie && !livePhoto && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-2 text-left animate-fadeIn">
+                      <h4 className="font-bold text-amber-900 text-sm flex items-center gap-2 uppercase tracking-wide font-sans">
+                        <AlertCircle className="w-4 h-4 text-amber-600" /> Foto Referensi Belum Ditemukan
+                      </h4>
+                      <p className="text-xs text-amber-800 font-sans">
+                        Sistem belum mendeteksi foto referensi terdaftar di database untuk akun Anda. Harap pastikan Anda telah menyelesaikan foto profil prapendaftaran pada sesi Latihan Ujian sebelumnya.
+                      </p>
                     </div>
                   )}
 
