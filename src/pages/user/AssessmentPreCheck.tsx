@@ -324,24 +324,40 @@ Format respon HANYA berupa JSON valid (tanpa markdown, tanpa teks pengantar):
   "reason": "Penjelasan singkat dalam bahasa Indonesia"
 }`;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents: [
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: liveBase64Data
-                }
-              },
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: savedBase64Data
-                }
-              },
-              prompt
-            ]
-          });
+          const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+          let response: any = null;
+          let lastErr: any = null;
+
+          for (const modelName of candidateModels) {
+            try {
+              response = await ai.models.generateContent({
+                model: modelName,
+                contents: [
+                  {
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: liveBase64Data
+                    }
+                  },
+                  {
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: savedBase64Data
+                    }
+                  },
+                  prompt
+                ]
+              });
+              if (response && response.text) break;
+            } catch (mErr) {
+              lastErr = mErr;
+              console.warn(`Model ${modelName} face recognition failed or quota exceeded:`, mErr);
+            }
+          }
+
+          if (!response && lastErr) {
+            throw lastErr;
+          }
 
           const rawText = response.text || "";
           const cleanJsonText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
