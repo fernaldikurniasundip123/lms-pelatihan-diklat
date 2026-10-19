@@ -737,7 +737,7 @@ Format respon HANYA berupa JSON valid (tanpa markdown, tanpa teks pengantar):
             {isUad 
               ? "Silakan ambil scan wajah di bawah untuk menampilkan data diri peserta dan memulai Ujian UAD tanpa verifikasi admin." 
               : isPractice
-                ? "Silakan ambil foto selfie langsung dan unggah foto KTP Anda. Profil data ini akan disimpan sebagai database referensi prapendaftaran untuk proses Face Recognition pada Ujian UAD."
+                ? "Silakan ambil foto selfie langsung dan Upload SIM atau KTA atau Paspor atau dokumen lain selain KTP yang terlihat fotonya. Profil data ini akan disimpan sebagai database referensi prapendaftaran untuk proses Face Recognition pada Ujian UAD."
                 : "Silakan verifikasi identitas Anda untuk dapat mengakses instrumen ujian."
             }
           </p>
@@ -1142,17 +1142,17 @@ Format respon HANYA berupa JSON valid (tanpa markdown, tanpa teks pengantar):
                 {/* KTP Upload */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2 font-sans">
-                    <Upload className="w-5 h-5 text-indigo-600 font-sans" /> 2. {isPractice ? "Unggah Foto KTP Peserta" : "ID Card (KTP)"}
+                    <Upload className="w-5 h-5 text-indigo-600 flex-shrink-0 font-sans" /> <span>2. Upload SIM atau KTA atau Paspor atau dokumen lain selain KTP yang terlihat fotonya</span>
                   </h3>
                   <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden relative border-2 border-dashed border-gray-300 flex items-center justify-center font-sans">
                     {ktpPhoto ? (
-                      <img src={ktpPhoto} alt="KTP" className="w-full h-full object-contain bg-white font-sans" referrerPolicy="no-referrer" />
+                      <img src={ktpPhoto} alt="Dokumen Identitas" className="w-full h-full object-contain bg-white font-sans" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="text-center p-6 bg-white w-full h-full flex flex-col items-center justify-center font-sans">
                         <Upload className="mx-auto h-12 w-12 text-gray-400 font-sans" />
                         <div className="mt-4 flex text-sm text-gray-650 justify-center font-sans">
                           <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-505 px-3 py-2 border border-gray-300 shadow-sm font-sans">
-                            <span>{isPractice ? "Pilih Berkas KTP" : "Upload KTP"}</span>
+                            <span>Upload SIM atau KTA atau Paspor atau dokumen lain selain KTP yang terlihat fotonya</span>
                             <input id="file-upload" name="file-upload" type="file" className="sr-only font-sans" accept="image/*" onChange={handleKtpUpload} />
                           </label>
                         </div>
@@ -1165,7 +1165,7 @@ Format respon HANYA berupa JSON valid (tanpa markdown, tanpa teks pengantar):
                       onClick={() => setKtpPhoto(null)}
                       className="w-full py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 font-sans"
                     >
-                      {isPractice ? "Hapus Foto KTP" : "Hapus KTP"}
+                      Hapus Foto Dokumen
                     </button>
                   )}
                 </div>

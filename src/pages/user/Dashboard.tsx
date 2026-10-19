@@ -661,7 +661,7 @@ export default function UserDashboard() {
           <div className="text-center mb-8">
             <h2 className="text-2xl font-bold text-gray-900">Verifikasi Identitas</h2>
             <p className="text-gray-500 mt-2 text-sm">
-              Untuk mengakses pelatihan, Anda wajib melakukan verifikasi wajah dan KTP.
+              Untuk mengakses pelatihan, Anda wajib melakukan verifikasi wajah dan Upload SIM atau KTA atau Paspor atau dokumen lain selain KTP yang terlihat fotonya.
             </p>
           </div>
 
@@ -720,8 +720,8 @@ export default function UserDashboard() {
           {verificationStep === 2 && (
             <div className="space-y-6">
               <div className="flex items-center gap-2 text-indigo-600 font-medium mb-4">
-                <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-sm">2</div>
-                Upload / Foto KTP
+                <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-sm flex-shrink-0">2</div>
+                <span>Upload SIM atau KTA atau Paspor atau dokumen lain selain KTP yang terlihat fotonya</span>
               </div>
 
               {!ktpPhoto ? (
