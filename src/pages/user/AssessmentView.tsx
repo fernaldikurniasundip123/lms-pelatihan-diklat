@@ -181,8 +181,8 @@ export default function AssessmentView() {
       const localOrderKey = `assessment_order_${user.id}_${assessmentId}`;
       let fetchedQuestions: any[] = [];
 
-      // Restore saved question order for ongoing attempt to avoid re-shuffling mid-exam on reload
-      const savedOrderStr = localStorage.getItem(localOrderKey);
+      // Restore saved question order for ongoing randomized attempt to avoid re-shuffling mid-exam on reload
+      const savedOrderStr = assessmentData.is_randomized ? localStorage.getItem(localOrderKey) : null;
       if (savedOrderStr) {
         try {
           const savedIds: string[] = JSON.parse(savedOrderStr);
@@ -573,6 +573,7 @@ export default function AssessmentView() {
 
                 return (
                   <div 
+                    key={currentQuestion.id}
                     className={`space-y-4 ${assessment?.prevent_copypaste ? 'select-none' : ''}`}
                     onCopy={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
                     onContextMenu={assessment?.prevent_copypaste ? (e) => e.preventDefault() : undefined}
@@ -613,7 +614,7 @@ export default function AssessmentView() {
                         }
 
                         return (
-                          <label key={oIdx} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${optionStyle}`}>
+                          <label key={`${currentQuestion.id}-${oIdx}`} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${optionStyle}`}>
                             <input
                               type="radio"
                               name={`question-${currentQuestion.id}`}
